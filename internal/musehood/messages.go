@@ -225,6 +225,10 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
 		return
 	}
+	// Kunci API tidak ikut ter-export sama sekali (bukan hanya ter-mask).
+	if settings, ok := stateMap["settings"].(map[string]any); ok {
+		delete(settings, "apiKey")
+	}
 
 	if format == "json" {
 		payload := map[string]any{
