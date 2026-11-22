@@ -10,3 +10,10 @@
 .env
 .env.*
 .musehood-*.tmp
+/cloudflared.log
+/cloudflared.pid
+/pinggy*.log
+/pinggy.pid
+/tunnel*.log
+/tunnel.pid
+/run-tunnel.sh

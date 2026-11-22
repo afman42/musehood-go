@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, dismissBackdrop, errorText, type State, type ReviewLevel } from './api';
+  import { api, dismissBackdrop, errorText, protocolLabels, type State, type ReviewLevel, type GatewayProtocol } from './api';
   import { tick } from 'svelte';
 
   let { current, refresh, mutate, notify }: {
@@ -20,6 +20,7 @@
   let roundRobin = $state(true);
   let demoFallback = $state(false);
   let reviewLevel = $state<ReviewLevel>('Sedang');
+  let gatewayProtocol = $state<GatewayProtocol>('openai');
   let seats = $state<Array<{ code: string; name: string; model?: string }>>([]);
   let saveStatus = $state('');
   let connectionError = $state('');
@@ -33,7 +34,7 @@
       if (!current) return;
       ({ name: groupName } = current.group);
       ({ name: ownerName } = current.owner);
-      ({ baseUrl, roundRobin, demoFallback, reviewLevel } = current.settings);
+      ({ baseUrl, roundRobin, demoFallback, reviewLevel, gatewayProtocol } = current.settings);
       seats = current.seats.map(({ code, name, model }) => model === undefined ? { code, name } : { code, name, model });
       apiKey = '';
       connectionError = '';
@@ -48,7 +49,7 @@
     try {
       await mutate('/api/settings', {
         owner: { name: ownerName }, group: { name: groupName }, seats,
-        settings: { baseUrl, ...(apiKey ? { apiKey } : {}), roundRobin, demoFallback, reviewLevel },
+        settings: { baseUrl, ...(apiKey ? { apiKey } : {}), roundRobin, demoFallback, reviewLevel, gatewayProtocol },
       });
       apiKey = '';
       connectionError = '';
@@ -139,6 +140,10 @@
     <section class="settings-section">
       <h3>Koneksi gateway</h3><p class="section-hint">Untuk enam kursi AI. Muse selalu memakai pekerja bawaan melalui antrean file.</p>
       <label>Base URL<input id="baseUrl" type="url" placeholder="http://127.0.0.1:20128" autocomplete="off" spellcheck="false" bind:value={baseUrl}></label>
+      <label>Protokol gateway<select id="gatewayProtocol" bind:value={gatewayProtocol}>
+        {#each Object.entries(protocolLabels) as [value, label]}<option value={value}>{label}</option>{/each}
+      </select></label>
+      <p class="field-hint">Menentukan format permintaan dan endpoint Tes Koneksi. Pembuatan gambar hanya didukung protokol OpenAI — Chat Completions; protokol lain otomatis memakai jalur gambar pekerja Muse.</p>
       <label>API key<input id="apiKey" type="password" placeholder={current?.settings.hasApiKey ? 'Biarkan kosong untuk mempertahankan key' : 'Masukkan API key gateway'} autocomplete="new-password" spellcheck="false" bind:value={apiKey}></label>
       <div class="key-row">
         <span id="savedKey" class="field-hint">{current?.settings.hasApiKey ? `Key tersimpan: ${current.settings.apiKey}` : 'Belum ada key tersimpan.'}</span>

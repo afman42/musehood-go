@@ -194,27 +194,7 @@ func (a *App) gateway(ctx context.Context, cfg settings, route string, body any)
 	return raw, nil
 }
 func (a *App) models(ctx context.Context, cfg settings) ([]string, error) {
-	raw, err := a.gateway(ctx, cfg, "models", nil)
-	if err != nil {
-		return nil, err
-	}
-	var obj any
-	if json.Unmarshal(raw, &obj) != nil {
-		return nil, problem(502, "Respons daftar model bukan JSON yang valid.")
-	}
-	entries, ok := field(obj, "data").([]any)
-	if !ok {
-		return nil, problem(502, "Respons daftar model harus berisi array data.")
-	}
-	models := []string{}
-	for _, m := range entries {
-		if s, ok := m.(string); ok {
-			models = append(models, s)
-		} else if s, ok := field(m, "id").(string); ok {
-			models = append(models, s)
-		}
-	}
-	return models, nil
+	return a.protocolModels(ctx, cfg)
 }
 func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayMessage) (string, error) {
 	if s.Code == "MUSE" || s.Provider == "muse" {
@@ -223,17 +203,20 @@ func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayM
 	if s.Model == nil || *s.Model == "" {
 		return "", problem(400, fmt.Sprintf("Nama model %s (%s) belum diisi di Pengaturan.", s.Name, s.Code))
 	}
-	raw, err := a.gateway(ctx, cfg, "chat/completions", map[string]any{"model": *s.Model, "messages": history, "stream": false})
+	raw, err := a.protocolChat(ctx, cfg, *s.Model, history)
 	if err != nil {
 		return "", err
 	}
-	text, err := parseCompletion(string(raw))
+	text, err := parseProtocolText(protocolOf(cfg), string(raw))
 	if err != nil {
 		return "", problem(502, fmt.Sprintf("HTTP 200: %v\n%s", err, raw))
 	}
 	return text, nil
 }
 func (a *App) generateImage(ctx context.Context, cfg settings, s seat, prompt string) (string, error) {
+	if protocolOf(cfg) != protoOpenAI {
+		return "", problem(400, "Pembuatan gambar gateway hanya didukung protokol openai. Gunakan jalur gambar pekerja Muse.")
+	}
 	if s.Model == nil || *s.Model == "" {
 		return "", problem(400, fmt.Sprintf("Model gambar %s (%s) belum diisi di Pengaturan.", s.Name, s.Code))
 	}
@@ -257,4 +240,208 @@ func (a *App) generateImage(ctx context.Context, cfg settings, s seat, prompt st
 		return a.resolveImage(ctx, url)
 	}
 	return "", problem(502, "HTTP 200: Respons gateway tidak memuat gambar. "+string(raw))
+}
+
+// payloadChunks splits a raw body into per-event payloads when the provider
+// replied with SSE despite stream:false; otherwise the whole body is one
+// payload. [DONE] sentinels are kept for callers to skip.
+func payloadChunks(body string) []string {
+	source := strings.TrimSpace(strings.TrimPrefix(body, "\ufeff"))
+	if source == "" {
+		return nil
+	}
+	sourceLF := strings.ReplaceAll(source, "\r\n", "\n")
+	if eventLine.MatchString(sourceLF) {
+		out := []string{}
+		for _, block := range eventBoundary.Split(sourceLF, -1) {
+			for _, match := range eventLine.FindAllStringSubmatch(block, -1) {
+				out = append(out, match[1])
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []string{sourceLF}
+}
+
+func providerError(value any) error {
+	if e := field(value, "error"); e != nil && e != false && e != "" {
+		raw, _ := json.Marshal(e)
+		return errors.New(string(raw))
+	}
+	return nil
+}
+
+func finishParsed(text, raw string) (string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", errors.New("Respons provider tidak berisi teks.")
+	}
+	return text, nil
+}
+
+func decodePayload(payload string, value any) (ok bool, plain string) {
+	if strings.TrimSpace(payload) == "" || strings.TrimSpace(payload) == "[DONE]" {
+		return true, ""
+	}
+	if json.Unmarshal([]byte(payload), value) != nil {
+		return true, payload
+	}
+	return false, ""
+}
+
+// parseResponsesText handles the OpenAI Responses protocol: non-stream bodies
+// with output[].content[].text plus SSE events of type
+// response.output_text.delta.
+func parseResponsesText(body string) (string, error) {
+	var text strings.Builder
+	sawDelta := false
+	for _, payload := range payloadChunks(body) {
+		var value any
+		ok, plain := decodePayload(payload, &value)
+		if !ok {
+			if err := providerError(value); err != nil {
+				return "", err
+			}
+			switch field(value, "type") {
+			case "response.output_text.delta":
+				sawDelta = true
+				if delta, isStr := field(value, "delta").(string); isStr {
+					text.WriteString(delta)
+				}
+			case "response.completed", "response.incomplete", "response.failed":
+				// Full snapshots duplicate text already streamed as deltas.
+			default:
+				if !sawDelta {
+					// Non-stream body: concatenate output[].content[].text.
+					target := value
+					if inner := field(value, "response"); inner != nil {
+						target = inner
+					}
+					if output, list := field(target, "output").([]any); list {
+						for _, item := range output {
+							if content, parts := field(item, "content").([]any); parts {
+								for _, part := range content {
+									text.WriteString(contentText(part))
+								}
+							}
+						}
+					}
+				}
+			}
+		} else {
+			text.WriteString(plain)
+		}
+	}
+	return finishParsed(text.String(), body)
+}
+
+// parseAnthropicText handles Anthropic messages: content[].text blocks or SSE
+// content_block_delta events with delta.text.
+func parseAnthropicText(body string) (string, error) {
+	var text strings.Builder
+	for _, payload := range payloadChunks(body) {
+		var value any
+		ok, plain := decodePayload(payload, &value)
+		if !ok {
+			if err := providerError(value); err != nil {
+				return "", err
+			}
+			switch field(value, "type") {
+			case "content_block_delta":
+				if delta, isStr := field(field(value, "delta"), "text").(string); isStr {
+					text.WriteString(delta)
+				}
+			case "content_block_start":
+				if block, isStr := field(field(value, "content_block"), "text").(string); isStr {
+					text.WriteString(block)
+				}
+			default:
+				// Non-stream body: join text blocks of the full message.
+				if content, list := field(value, "content").([]any); list {
+					for _, block := range content {
+						if field(block, "type") == "text" {
+							if blockText, isStr := field(block, "text").(string); isStr {
+								text.WriteString(blockText)
+							}
+						}
+					}
+				}
+			}
+		} else {
+			text.WriteString(plain)
+		}
+	}
+	return finishParsed(text.String(), body)
+}
+
+// parseGeminiText handles Gemini generateContent: candidates[0].content.parts
+// both as one JSON body and as SSE data events.
+func parseGeminiText(body string) (string, error) {
+	var text strings.Builder
+	for _, payload := range payloadChunks(body) {
+		var value any
+		ok, plain := decodePayload(payload, &value)
+		if !ok {
+			if err := providerError(value); err != nil {
+				return "", err
+			}
+			if candidates, list := field(value, "candidates").([]any); list && len(candidates) > 0 {
+				if parts, partsList := field(field(candidates[0], "content"), "parts").([]any); partsList {
+					for _, part := range parts {
+						if partText, isStr := field(part, "text").(string); isStr {
+							text.WriteString(partText)
+						}
+					}
+				}
+			}
+		} else {
+			text.WriteString(plain)
+		}
+	}
+	return finishParsed(text.String(), body)
+}
+
+// parseOllamaText handles Ollama chat: message.content either in one JSON body
+// or as NDJSON lines with partial content per line.
+func parseOllamaText(body string) (string, error) {
+	var text strings.Builder
+	for _, line := range payloadChunks(body) {
+		for _, chunk := range strings.Split(line, "\n") {
+			chunk = strings.TrimSpace(chunk)
+			if chunk == "" {
+				continue
+			}
+			var value any
+			if json.Unmarshal([]byte(chunk), &value) != nil {
+				text.WriteString(chunk)
+				continue
+			}
+			if err := providerError(value); err != nil {
+				return "", err
+			}
+			if message := field(value, "message"); message != nil {
+				if content, isStr := field(message, "content").(string); isStr {
+					text.WriteString(content)
+				}
+			}
+		}
+	}
+	return finishParsed(text.String(), body)
+}
+
+func parseProtocolText(proto protocol, body string) (string, error) {
+	switch proto {
+	case protoResponses:
+		return parseResponsesText(body)
+	case protoAnthropic:
+		return parseAnthropicText(body)
+	case protoGemini:
+		return parseGeminiText(body)
+	case protoOllama:
+		return parseOllamaText(body)
+	default:
+		return parseCompletion(body)
+	}
 }

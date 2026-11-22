@@ -13,3 +13,84 @@
 @media(min-width:700px){.group-header{padding:14px 24px;gap:13px}.group-heading h1{font-size:19px}.group-heading p{font-size:12px}.seat-strip{padding:15px 24px;gap:14px}.seat-card{min-width:90px}.seat-avatar-wrap,.seat-avatar-wrap img{width:44px;height:44px}.seat-name{font-size:12px}.seat-role{font-size:9px}.messages{padding:24px 38px 30px}.message{max-width:77%;margin-bottom:20px;gap:10px}.message-avatar{width:30px;height:30px}.bubble{padding:10px 14px 12px}.composer-area{padding:12px 28px max(10px,env(safe-area-inset-bottom))}.action-chips{margin-bottom:12px}.action-chip{font-size:11px;padding:7px 12px}.empty-state h2{font-size:26px}.message-text{font-size:13px}.connection-notice{padding:9px 24px;font-size:11px}}
 @media(max-width:359px){.group-header{padding:10px;grid-template-columns:36px minmax(0,1fr) 34px;gap:8px}.group-avatar{width:36px;height:36px;border-radius:12px}.group-heading h1{font-size:16px}.group-heading p{font-size:9px}.icon-button{width:34px;height:36px}.seat-strip{padding:10px;gap:5px}.messages{padding:16px 10px}.message{max-width:94%;gap:6px}.message-avatar{width:24px;height:24px;border-radius:8px}.bubble{padding:8px 10px}.message-meta{gap:4px}.author-role{font-size:8px}.composer-area{padding:8px 10px max(8px,env(safe-area-inset-bottom))}.action-chips{gap:5px}.action-chip{font-size:10px;padding:6px 8px}.composer textarea{font-size:12px;padding:11px}.empty-state h2{font-size:21px}.settings-section{padding:18px}.settings-save{padding-left:18px;padding-right:18px}.panel-header{padding:16px 18px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;scroll-behavior:auto!important;transition:none!important}}
+
+/* --- Fitur chat: aksi pesan, reaksi, kutip, cari, unggah gambar --- */
+.header-actions{display:flex;gap:2px;align-items:center}
+.msg-actions{display:flex;gap:2px;margin-top:6px;opacity:0;transition:opacity .12s}
+.message:hover .msg-actions,.message:focus-within .msg-actions{opacity:1}
+.msg-action{width:26px;height:26px;border-radius:8px;background:transparent;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.msg-action:hover{background:var(--mint)}
+.react-wrap{position:relative}
+.emoji-picker{position:absolute;bottom:30px;left:0;display:flex;gap:2px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:4px;box-shadow:0 8px 30px #16372022;z-index:5}
+.emoji-picker button{width:32px;height:32px;border-radius:8px;background:transparent;font-size:16px;display:inline-flex;align-items:center;justify-content:center}
+.emoji-picker button:hover{background:var(--mint)}
+.reaction-bar{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px}
+.reaction-pill{border:1px solid var(--line);background:#f4f7f0;border-radius:12px;padding:3px 8px;font-size:11px;line-height:1.4}
+.reaction-pill.mine{border-color:var(--green);background:var(--mint);font-weight:650}
+.quote-block{display:block;width:100%;text-align:left;border-left:3px solid var(--green);background:#f2f6ee;border-radius:6px;padding:6px 9px;margin:2px 0 7px;font-size:11px;line-height:1.6}
+.quote-block strong{display:block;color:var(--green);font-size:10px}
+.quote-block span{display:block;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere;max-height:60px;overflow:hidden}
+.edited-label{font-size:9px;color:#a3ad9e;font-style:italic}
+.search-bar{display:flex;align-items:center;gap:4px;padding:8px 16px;background:#fff;border-bottom:1px solid var(--line);flex-shrink:0}
+.search-bar input{flex:1;min-width:0;height:36px;border:1px solid #e1e7dc;border-radius:9px;background:#f7f8f2;padding:0 12px;font-size:12px;color:var(--ink)}
+.search-count{font-size:11px;color:var(--muted);min-width:44px;text-align:center}
+.search-mark{background:#ffe9a8;color:inherit;border-radius:3px;padding:0 2px}
+.message.search-hit .bubble{outline:2px solid var(--green);outline-offset:2px}
+.edit-area textarea{width:100%;border:1px solid #d8e2d2;border-radius:8px;background:#fbfcf8;padding:8px 10px;font:inherit;font-size:12.5px;line-height:1.6;color:var(--ink);resize:vertical;min-height:60px}
+.edit-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.edit-actions .primary-button{min-height:32px;padding:6px 12px;font-size:11px}
+.edit-actions .text-button{font-size:11px}
+.reply-chip{display:flex;align-items:center;gap:8px;margin:0 0 8px;padding:7px 8px 7px 12px;border-left:3px solid var(--green);background:#f2f6ee;border-radius:8px;font-size:11px;color:var(--muted);line-height:1.5;min-width:0}
+.reply-chip strong{color:var(--green)}
+.reply-chip>span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reply-chip .icon-button{width:30px;height:30px;font-size:14px;flex-shrink:0}
+.image-chip img{border-radius:7px;object-fit:cover;flex-shrink:0}
+
+/* --- Mode gelap --- */
+html.dark{color-scheme:dark;--green:#5fc4a0;--green-dark:#3da281;--mint:#24352c;--ink:#dce7df;--muted:#93a49a;--line:#2e3d34;--paper:#1b2620;--red:#e08a97}
+html.dark body{background:#141d18}
+html.dark .app{background:var(--paper);box-shadow:0 0 70px #00000066}
+html.dark .group-header,html.dark .seat-strip,html.dark .composer-area,html.dark .search-bar{background:#212e27;border-color:var(--line)}
+html.dark .icon-button:hover,html.dark .seat-card:hover{background:#2b3a31}
+html.dark .seat-role{background:#2b3a31;color:#9fb0a5}
+html.dark .seat-card:first-child .seat-role{background:#24352c;color:#7fc3a4}
+html.dark .presence-dot{border-color:#212e27}
+html.dark .connection-notice{background:#2b3324;color:#b9c47e;border-color:#3d4430}
+html.dark .messages{background-image:radial-gradient(#ffffff0d .7px,transparent .7px)}
+html.dark .bubble{background:#26332b;box-shadow:0 1px 2px #00000040}
+html.dark .message-owner .bubble{background:#2b3d31}
+html.dark .message-owner .author-name{color:#8fd0ae}
+html.dark .date-divider span{background:#2b3a31;color:#93a49a}
+html.dark .suggestions button{background:#26332b;border-color:#3a4a3f}
+html.dark .typing-status{color:#8ba392}
+html.dark .final-label{background:var(--green);color:#12211a}
+html.dark .demo-label{background:#463c1e;color:#e5c46a}
+html.dark .provider-error{background:#3a272c;border-color:#5c3a42;border-left-color:#c76f7e;color:#e7a3ad}
+html.dark .chat-image{background:#212e27}
+html.dark .action-chip{background:#2b3a31;border-color:#3a4a3f;color:var(--ink)}
+html.dark .action-chip:hover{background:#33453a}
+html.dark .composer textarea{background:#26332b;border-color:#3a4a3f;color:var(--ink)}
+html.dark .composer textarea::placeholder{color:#7d8d82}
+html.dark .settings-dialog,html.dark .settings-save,html.dark .panel-header{background:#1e2a24;color:var(--ink)}
+html.dark .settings-section{border-color:#2e3d34}
+html.dark .settings-section input:not([type=checkbox]),html.dark .settings-section select,html.dark .search-bar input{background:#26332b;border-color:#3a4a3f;color:var(--ink)}
+html.dark .connection-result{background:#24352c;color:#8fd0ae}
+html.dark .connection-result.error{background:#3a272c;color:#e7a3ad}
+html.dark .model-tag,html.dark .seat-code{background:#2b3a31;color:#9fb0a5}
+html.dark .builtin-note{background:#24352c;color:#7fc3a4}
+html.dark .secondary-button{background:#24352c;border-color:#3a4a3f;color:#8fd0ae}
+html.dark .danger-button{background:#3a272c;color:#e7a3ad;border-color:#5c3a42}
+html.dark .toast{background:#31544a}
+html.dark .mention-dialog{background:#212e27;color:var(--ink)}
+html.dark .mention-option:hover{background:#2b3a31}
+html.dark .msg-action:hover{background:#2b3a31}
+html.dark .emoji-picker{background:#26332b;border-color:#3a4a3f;box-shadow:0 8px 30px #00000066}
+html.dark .emoji-picker button:hover{background:#33453a}
+html.dark .reaction-pill{background:#2b3a31;border-color:#3a4a3f}
+html.dark .reaction-pill.mine{background:#24352c;border-color:var(--green)}
+html.dark .quote-block{background:#26332b;border-left-color:var(--green)}
+html.dark .quote-block strong{color:#8fd0ae}
+html.dark .reply-chip{background:#26332b}
+html.dark .edit-area textarea{background:#26332b;border-color:#3a4a3f;color:var(--ink)}
+html.dark .search-mark{background:#5d4d1e;color:#f2e3b3}
+html.dark button:focus-visible,html.dark input:focus-visible,html.dark select:focus-visible,html.dark textarea:focus-visible{outline-color:#3da281}

@@ -196,6 +196,10 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.writeJSON(w, 0, nil, err)
 		return
 	}
+	if r.URL.Path == "/api/export" {
+		a.exportChat(w, r)
+		return
+	}
 	if isAPI {
 		status, value, err := a.api(w, r)
 		a.writeJSON(w, status, value, err)
@@ -266,10 +270,12 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state", "/api/queue/muse":
 		want = http.MethodGet
-	case "/api/settings", "/api/message", "/api/test-connection", "/api/progress", "/api/clear", "/api/upload-avatar":
+	case "/api/settings", "/api/message", "/api/test-connection", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image":
 		want = http.MethodPost
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
+			want = http.MethodPost
+		} else if _, _, ok := messageAction(path); ok {
 			want = http.MethodPost
 		} else {
 			return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
@@ -294,13 +300,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		})
 	case "/api/message":
 		var body struct {
-			Text string `json:"text"`
+			Text     string `json:"text"`
+			ReplyTo  string `json:"replyTo"`
+			ImageURL string `json:"imageUrl"`
 		}
 		if err := readObject(w, r, &body); err != nil {
 			return 0, nil, err
 		}
 		return a.respondLocked(202, func() (any, error) {
-			j, err := a.submitLocked(body.Text, false)
+			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, false)
 			if err != nil {
 				return nil, err
 			}
@@ -322,7 +330,12 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		return a.testConnection(r.Context())
 	case "/api/upload-avatar":
 		return a.uploadAvatar(w, r)
+	case "/api/upload-image":
+		return a.uploadImage(w, r)
 	default:
+		if id, action, ok := messageAction(r.URL.Path); ok {
+			return a.messageAction(w, r, id, action)
+		}
 		var reply workerReply
 		if err := readObject(w, r, &reply); err != nil {
 			return 0, nil, err
