@@ -159,8 +159,9 @@ func (f fixture) wait(match func(object) bool) object {
 	}
 }
 func asObjects(value any) []object {
-	var out []object
-	for _, v := range value.([]any) {
+	items, _ := value.([]any)
+	out := make([]object, 0, len(items))
+	for _, v := range items {
 		out = append(out, v.(object))
 	}
 	return out

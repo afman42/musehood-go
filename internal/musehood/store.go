@@ -33,26 +33,36 @@ type seat struct {
 	Present  bool    `json:"present"`
 }
 type settings struct {
-	BaseURL      string `json:"baseUrl"`
-	APIKey       string `json:"apiKey"`
-	RoundRobin   bool   `json:"roundRobin"`
-	ReviewLevel  string `json:"reviewLevel"`
-	DemoFallback bool   `json:"demoFallback"`
+	BaseURL         string `json:"baseUrl"`
+	APIKey          string `json:"apiKey"`
+	GatewayProtocol string `json:"gatewayProtocol"`
+	RoundRobin      bool   `json:"roundRobin"`
+	ReviewLevel     string `json:"reviewLevel"`
+	DemoFallback    bool   `json:"demoFallback"`
+	DarkMode        bool   `json:"darkMode"`
 }
 type message struct {
-	ID         string `json:"id"`
-	CreatedAt  string `json:"createdAt"`
-	AuthorType string `json:"authorType"`
-	Seat       string `json:"seat,omitempty"`
-	JobID      string `json:"jobId"`
-	Text       string `json:"text"`
-	Status     string `json:"status"`
-	StatusText string `json:"statusText,omitempty"`
-	QueueID    string `json:"queueId,omitempty"`
-	Label      string `json:"label,omitempty"`
-	Error      string `json:"error,omitempty"`
-	ImageURL   string `json:"imageUrl,omitempty"`
-	Demo       bool   `json:"demo,omitempty"`
+	ID         string     `json:"id"`
+	CreatedAt  string     `json:"createdAt"`
+	AuthorType string     `json:"authorType"`
+	Seat       string     `json:"seat,omitempty"`
+	JobID      string     `json:"jobId"`
+	Text       string     `json:"text"`
+	Status     string     `json:"status"`
+	StatusText string     `json:"statusText,omitempty"`
+	QueueID    string     `json:"queueId,omitempty"`
+	Label      string     `json:"label,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	ImageURL   string     `json:"imageUrl,omitempty"`
+	Demo       bool       `json:"demo,omitempty"`
+	ReplyTo    string     `json:"replyTo,omitempty"`
+	Reactions  []reaction `json:"reactions,omitempty"`
+	EditedAt   string     `json:"editedAt,omitempty"`
+}
+type reaction struct {
+	Emoji   string `json:"emoji"`
+	Count   int    `json:"count"`
+	ByOwner bool   `json:"byOwner"`
 }
 type step struct {
 	Seat      string `json:"seat"`
@@ -310,12 +320,14 @@ type settingsUpdate struct {
 		Model *string `json:"model"`
 	} `json:"seats"`
 	Settings *struct {
-		BaseURL      *string `json:"baseUrl"`
-		APIKey       *string `json:"apiKey"`
-		ReviewLevel  *string `json:"reviewLevel"`
-		RoundRobin   *bool   `json:"roundRobin"`
-		DemoFallback *bool   `json:"demoFallback"`
-		ClearAPIKey  bool    `json:"clearApiKey"`
+		BaseURL         *string `json:"baseUrl"`
+		APIKey          *string `json:"apiKey"`
+		GatewayProtocol *string `json:"gatewayProtocol"`
+		ReviewLevel     *string `json:"reviewLevel"`
+		RoundRobin      *bool   `json:"roundRobin"`
+		DemoFallback    *bool   `json:"demoFallback"`
+		DarkMode        *bool   `json:"darkMode"`
+		ClearAPIKey     bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
 
@@ -375,6 +387,16 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 			}
 			next.Settings.ReviewLevel = *patch.ReviewLevel
 		}
+		if patch.GatewayProtocol != nil {
+			proto := strings.TrimSpace(*patch.GatewayProtocol)
+			if !validProtocols[proto] {
+				return problem(400, "Protokol gateway harus openai, openai-responses, anthropic, gemini, atau ollama.")
+			}
+			next.Settings.GatewayProtocol = proto
+		}
+		if patch.DarkMode != nil {
+			next.Settings.DarkMode = *patch.DarkMode
+		}
 		if patch.RoundRobin != nil {
 			next.Settings.RoundRobin = *patch.RoundRobin
 		}
@@ -409,7 +431,7 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 			}
 		}
 	}
-	if next.Settings.BaseURL != a.data.Settings.BaseURL || next.Settings.APIKey != a.data.Settings.APIKey {
+	if next.Settings.BaseURL != a.data.Settings.BaseURL || next.Settings.APIKey != a.data.Settings.APIKey || next.Settings.GatewayProtocol != a.data.Settings.GatewayProtocol {
 		next.Connection = nil
 	}
 	a.rememberKeyLocked(next.Settings.APIKey)

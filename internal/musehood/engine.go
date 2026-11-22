@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -41,10 +43,23 @@ func (a *App) routeLocked(text string) (string, []step) {
 	}
 	return "chat", mentioned
 }
-func (a *App) submitLocked(text string, progress bool) (*job, error) {
+func (a *App) submitLocked(text, replyTo, imageURL string, progress bool) (*job, error) {
 	text = strings.TrimSpace(text)
-	if text == "" || jsLength(text) > 20000 {
-		return nil, problem(400, "Pesan wajib berisi teks, maksimal 20.000 karakter.")
+	if (text == "" && imageURL == "") || jsLength(text) > 20000 {
+		return nil, problem(400, "Pesan wajib berisi teks atau gambar, maksimal 20.000 karakter.")
+	}
+	if replyTo != "" && a.findMessageLocked(replyTo) == nil {
+		return nil, problem(400, "Pesan yang dibalas tidak ditemukan atau sudah dihapus.")
+	}
+	if imageURL != "" {
+		if !localImage.MatchString(imageURL) {
+			return nil, problem(400, "URL gambar harus berupa file lokal hasil unggahan (/images/…).")
+		}
+		if _, err := os.Stat(filepath.Join(a.dir, strings.TrimPrefix(imageURL, "/"))); err != nil {
+			return nil, problem(400, "File gambar tidak ditemukan di penyimpanan lokal.")
+		}
+	} else if replyTo == "" && progress {
+		replyTo, imageURL = "", ""
 	}
 	text = a.redactLocked(text)
 	kind, steps := "progress", []step{{Seat: "MUSE", Kind: "progress"}}
@@ -57,7 +72,7 @@ func (a *App) submitLocked(text string, progress bool) (*job, error) {
 	j := &job{ID: uuid(), Prompt: text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps}
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
-	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed"})
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL})
 	if kind == "task" {
 		a.data.Task = &activeTask{JobID: j.ID, Title: taskPrefix.ReplaceAllString(text, ""), CurrentStep: ptr(steps[0].Seat), Status: "processing", CreatedAt: now()}
 	}
@@ -77,7 +92,7 @@ func (a *App) progressLocked() (*job, error) {
 	if task.LastCompleted != nil {
 		last = *task.LastCompleted
 	}
-	return a.submitLocked(fmt.Sprintf("Tanya Progres: %s. Langkah terakhir selesai: %s. Status: %s.", task.Title, last, task.Status), true)
+	return a.submitLocked(fmt.Sprintf("Tanya Progres: %s. Langkah terakhir selesai: %s. Status: %s.", task.Title, last, task.Status), "", "", true)
 }
 func (a *App) saveJobLocked() {
 	if err := a.saveLocked(); err != nil {
@@ -222,6 +237,15 @@ func (a *App) advanceLocked(j *job) {
 		}
 		cfg := a.data.Settings
 		if s.Kind == "image" {
+			if protocolOf(cfg) != protoOpenAI {
+				// Protokol tanpa endpoint gambar: langsung pakai jalur gambar pekerja Muse.
+				if err := a.enqueueLocked(j, s, member, m); err == nil {
+					return
+				}
+				m.Error = "Gagal menulis antrean Muse. Periksa penyimpanan lokal."
+				a.finishStepLocked(j, s, m)
+				continue
+			}
 			subject := jobPrefix.ReplaceAllString(j.Prompt, "")
 			raw, _ := json.Marshal(contextFor(a.data, j))
 			prompt := a.redactLocked(systemPrompt(member, a.data) + "\nPermintaan gambar: " + subject + "\nKonteks tugas: " + string(raw))

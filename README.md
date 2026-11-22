@@ -16,6 +16,17 @@ Buka **http://127.0.0.1:3001**. Skrip memasang dependensi npm, membuat `frontend
 
 Server mendengarkan `127.0.0.1`. Atur `PORT` untuk mengganti port dan `DATA_DIR` untuk mengganti direktori runtime. `TRUSTED_HOSTS` menerima nama host tambahan yang dipisahkan koma, misalnya `TRUSTED_HOSTS=chat.example.org`. Proxy lokal perlu meneruskan Host yang sama dengan host pada Origin browser. Host dan Origin diperiksa pada request, termasuk endpoint pekerja.
 
+## Build release (semua platform)
+
+`build-release.sh` membangun frontend sekali, lalu cross-compile binary Go untuk semua pasangan `GOOS/GOARCH` dari `go tool dist list` (`CGO_ENABLED=0`, `GOPROXY=off`, `GOFLAGS=-mod=mod`). Hasilnya di `dist/<os>-<arch>/musehood-go` (`.exe` untuk windows).
+
+```sh
+cd ~/workspace/musehood-go
+./build-release.sh
+```
+
+Yang wajib berhasil: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`, `windows/arm64`. Platform yang gagal (Android 32-bit/amd64 dan iOS — butuh external linking cgo) dan yang bukan executable mandiri (`js/wasm`, `wasip1/wasm`) dilewati dan dicatat di `dist/build-release.log`. Direktori `dist/` tidak masuk git (lihat `.gitignore`); binary release diunggah sebagai asset GitHub Release (tag `v1.1.0` ke atas). Lihat hasil build tiap platform di [TESTS.md](TESTS.md).
+
 ## Konfigurasi gateway
 
 1. Buka ikon gir **Pengaturan grup**. Masukkan Base URL gateway OpenAI-compatible dan API key melalui formulir password. Base URL dapat berakhiran `/v1`.
