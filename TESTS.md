@@ -60,6 +60,25 @@ Verifikasi manual dengan modul `Store`, `Engine`, dan `MuseQueue` dari repo Node
 
 Model gateway pemilik dan pekerja Muse nyata berada di luar cakupan pengujian. Gateway lokal dan penulisan file respons menguji kontrak integrasi yang dipakai masing-masing.
 
+## Build release lintas platform (v1.1.0)
+
+Dijalankan 22 November 2026 dengan Go 1.27.4 via `./build-release.sh` (frontend dibangun sekali, lalu cross-compile `CGO_ENABLED=0`, `GOPROXY=off`, `GOFLAGS=-mod=mod` untuk semua 47 pasangan `go tool dist list`). Hasil: **40 berhasil, 5 gagal, 2 dilewati**.
+
+Keenam platform wajib semuanya berhasil:
+
+| Platform | Ukuran binary |
+| --- | --- |
+| linux/amd64 | 11.649.619 byte |
+| linux/arm64 | 10.803.775 byte |
+| darwin/amd64 | 11.904.384 byte |
+| darwin/arm64 | 11.139.282 byte |
+| windows/amd64 | 11.821.568 byte (`musehood-go.exe`) |
+| windows/arm64 | 10.813.952 byte (`musehood-go.exe`) |
+
+34 platform lain juga berhasil: aix/ppc64, android/arm64, dragonfly/amd64, freebsd/386, freebsd/amd64, freebsd/arm, freebsd/arm64, illumos/amd64, linux/386, linux/arm, linux/loong64, linux/mips, linux/mips64, linux/mips64le, linux/mipsle, linux/ppc64, linux/ppc64le, linux/riscv64, linux/s390x, netbsd/386, netbsd/amd64, netbsd/arm, netbsd/arm64, openbsd/386, openbsd/amd64, openbsd/arm, openbsd/arm64, openbsd/ppc64, openbsd/riscv64, plan9/386, plan9/amd64, plan9/arm, solaris/amd64, windows/386.
+
+Gagal (5) — semuanya butuh external linking cgo, yang tidak tersedia saat cross-compile dengan `CGO_ENABLED=0`: android/386, android/amd64, android/arm, ios/amd64, ios/arm64. Dilewati (2) — bukan executable mandiri: js/wasm dan wasip1/wasm (butuh runtime JS/WASI). Log lengkap: `dist/build-release.log` (tidak masuk git).
+
 ## Mock gateway mandiri
 
 Jalankan `node tests/mock-gateway.mjs` untuk melayani loopback pada port 3101 atau atur `MOCK_PORT`. Masukkan `http://127.0.0.1:3101` dan key fixture `browser-fixture-only-9876` pada pengaturan Musehood. Model fixture tersedia dengan nama `sse`, `array`, `plain`, `delta`, `image`, `denied`, dan `key-echo`. Mock juga melayani jalur per protokol: `/v1/messages` (Anthropic, key `anthropic-mock-key`), `/v1beta/models/…:generateContent` (Gemini, key `gemini-mock-key`), `/v1/responses` (OpenAI Responses), dan `/api/chat` (Ollama, tanpa key).
