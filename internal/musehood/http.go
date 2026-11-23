@@ -277,7 +277,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state", "/api/queue/muse":
 		want = http.MethodGet
-	case "/api/settings", "/api/message", "/api/test-connection", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats":
+	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats":
 		want = http.MethodPost
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
@@ -338,6 +338,14 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		return a.respondLocked(200, func() (any, error) { return map[string]any{"requests": a.pendingLocked()}, nil })
 	case "/api/test-connection":
 		return a.testConnection(r.Context())
+	case "/api/test-model":
+		var body struct {
+			Model string `json:"model"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
+		return a.testModel(r.Context(), body.Model)
 	case "/api/upload-avatar":
 		return a.uploadAvatar(w, r)
 	case "/api/upload-image":
@@ -425,6 +433,41 @@ func (a *App) testConnection(ctx context.Context) (int, json.RawMessage, error) 
 		}
 		return map[string]any{"models": models, "seats": seats, "testedAt": c.TestedAt}, nil
 	})
+}
+// testModel mengirim satu prompt minimal ke model gateway dan melaporkan
+// apakah model benar-benar menjawab, beserta latensi dan cuplikan balasan.
+// Berbeda dengan Tes Koneksi (yang hanya mengambil daftar model), endpoint
+// ini membuktikan model bisa dipakai.
+func (a *App) testModel(ctx context.Context, model string) (int, json.RawMessage, error) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return 0, nil, problem(400, "Nama model wajib diisi untuk diuji.")
+	}
+	if jsLength(model) > 200 || badSetting.MatchString(model) {
+		return 0, nil, problem(400, "Nama model tidak valid.")
+	}
+	a.mu.Lock()
+	cfg := a.data.Settings
+	a.mu.Unlock()
+	start := time.Now()
+	history := []gatewayMessage{
+		{"system", "You are a helpful assistant. Reply concisely."},
+		{"user", "Balas dengan satu kata: OK"},
+	}
+	raw, err := a.protocolChat(ctx, cfg, model, history)
+	if err != nil {
+		return 0, nil, err
+	}
+	text, err := parseProtocolText(protocolOf(cfg), string(raw))
+	if err != nil {
+		return 0, nil, err
+	}
+	reply := strings.TrimSpace(text)
+	if runes := []rune(reply); len(runes) > 200 {
+		reply = string(runes[:200]) + "…"
+	}
+	result := map[string]any{"ok": true, "model": model, "latencyMs": time.Since(start).Milliseconds(), "reply": reply, "testedAt": now()}
+	return a.respondLocked(200, func() (any, error) { return result, nil })
 }
 func (a *App) workerRespond(ctx context.Context, id string, reply workerReply) (int, json.RawMessage, error) {
 	a.mu.Lock()

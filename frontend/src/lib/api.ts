@@ -1,9 +1,9 @@
 export type Identity = { name: string; avatar: string };
-export type Seat = Identity & { code: string; role: string; provider: 'muse' | 'gateway'; model?: string; present: boolean };
+export type Seat = Identity & { code: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; defaultPrompt?: string; present: boolean };
 export type ReviewLevel = 'Longgar' | 'Santai' | 'Sedang' | 'Ketat';
 export type GatewayProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini' | 'ollama';
 export type Settings = {
-  baseUrl: string; apiKey: string; hasApiKey: boolean; roundRobin: boolean;
+  baseUrl: string; apiKey: string; hasApiKey: boolean; providerName: string; roundRobin: boolean;
   reviewLevel: ReviewLevel; demoFallback: boolean; gatewayProtocol: GatewayProtocol; darkMode: boolean;
 };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
