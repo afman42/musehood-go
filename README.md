@@ -27,6 +27,32 @@ cd ~/workspace/musehood-go
 
 Yang wajib berhasil: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`, `windows/arm64`. Platform yang gagal (Android 32-bit/amd64 dan iOS — butuh external linking cgo) dan yang bukan executable mandiri (`js/wasm`, `wasip1/wasm`) dilewati dan dicatat di `dist/build-release.log`. Direktori `dist/` tidak masuk git (lihat `.gitignore`); binary release diunggah sebagai asset GitHub Release (tag `v1.1.0` ke atas). Lihat hasil build tiap platform di [TESTS.md](TESTS.md).
 
+## Kursi custom
+
+Selain tujuh kursi bawaan, pemilik dapat menambah kursi AI sendiri dari Pengaturan
+(bagian "Tambah kursi"): isi nama, peran, dan nama model gateway. Kursi custom mendapat
+kode otomatis `C01`, `C02`, … dan langsung muncul di daftar kursi, bisa di-mention
+(`@Nama`), ikut Diskusi Bergilir, serta bisa diganti avatar dan modelnya seperti kursi
+lain. Kursi custom dapat dihapus dari Pengaturan (kursi bawaan tidak dapat dihapus,
+dan kursi yang sedang dipakai tugas berjalan tidak dapat dihapus sampai tugas selesai).
+
+API: `POST /api/seats` (`{name, role, model}` → 201 kursi baru), `DELETE /api/seats/{code}`
+(→ `{ok:true}`). Nama tiap kursi harus unik agar @mention tidak ambigu.
+
+## Lampiran file
+
+Tombol **Lampirkan File** di composer mengunggah satu file (maksimal 10 MB) ke server
+(`POST /api/upload-file`, multipart field `file`). File disimpan di direktori `uploads/`
+dengan nama `<uuid>-<nama-asli-disani>` dan izin `0600`. Pesan dapat berisi teks,
+lampiran, atau keduanya. Gambar (PNG/JPEG/GIF/WebP) tampil inline di bubble chat;
+file lain tampil sebagai tautan unduh dengan nama dan ukuran file. Pesan lampiran
+disimpan sebagai `attachment: {url, name, size, mime}` dan ikut diekspor bersama chat.
+File lampiran TIDAK dihapus saat "Bersihkan chat" (sama seperti gambar di `images/`
+dan avatar di `avatars/` — yang dihapus hanya pesan dan antreannya).
+
+API: `POST /api/upload-file` (→ `{url, name, size, mime}`), `GET /uploads/<file>`
+(penyajian file tersimpan), `POST /api/message` menerima `attachment` opsional.
+
 ## Konfigurasi gateway
 
 1. Buka ikon gir **Pengaturan grup**. Masukkan Base URL gateway OpenAI-compatible dan API key melalui formulir password. Base URL dapat berakhiran `/v1`.
@@ -80,7 +106,10 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | Metode | Endpoint | Kontrak |
 | --- | --- | --- |
 | GET | `/api/state` | State grup, kursi, pengaturan termask, pesan, kehadiran, jobs, tugas aktif, dan hasil koneksi |
-| POST | `/api/message` | `{text}` dan respons 202 `{jobId,status,messages,queue}` |
+| POST | `/api/message` | `{text}` dan respons 202 `{jobId,status,messages,queue}`; opsional `replyTo`, `imageUrl`, `attachment` (`{url,name,size,mime}` dari `/api/upload-file`) |
+| POST | `/api/upload-file` | Multipart field `file`, maksimal 10 MB, respons `{url,name,size,mime}` |
+| POST | `/api/seats` | `{name,role,model}` → 201 kursi custom baru |
+| DELETE | `/api/seats/{code}` | Hapus kursi custom → `{ok:true}` (kursi bawaan: 400) |
 | POST | `/api/progress` | Respons 202 seperti pesan. HTTP 409 bila belum ada tugas |
 | POST | `/api/settings` | Patch `{owner,group,seats,settings}` dan state terbaru |
 | POST | `/api/test-connection` | `{models,seats,testedAt}` dari gateway tersimpan |
@@ -93,7 +122,7 @@ Browser mengambil hasil job dari `/api/state`. Semua error API memakai `{error}`
 
 ## Penyimpanan
 
-`DATA_DIR` memakai direktori kerja sebagai default. Isinya `data.json` dengan skema Musehood versi 1, folder `queue/`, `avatars/` untuk unggahan, dan `images/` untuk gambar. `data.json` ditulis atomik dengan izin `0600` dan memuat key gateway konfigurasi. Untuk memindahkan data Node, salin `data.json`, `queue/`, isi unggahan dari `public/avatars/`, serta `public/images/` ke struktur runtime Go. Jalankan satu proses per `DATA_DIR`.
+`DATA_DIR` memakai direktori kerja sebagai default. Isinya `data.json` dengan skema Musehood versi 1, folder `queue/`, `avatars/` untuk unggahan, `images/` untuk gambar, dan `uploads/` untuk lampiran file. `data.json` ditulis atomik dengan izin `0600` dan memuat key gateway konfigurasi. Untuk memindahkan data Node, salin `data.json`, `queue/`, isi unggahan dari `public/avatars/`, serta `public/images/` ke struktur runtime Go. Jalankan satu proses per `DATA_DIR`.
 
 ## Pengujian
 

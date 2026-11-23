@@ -43,10 +43,13 @@ func (a *App) routeLocked(text string) (string, []step) {
 	}
 	return "chat", mentioned
 }
-func (a *App) submitLocked(text, replyTo, imageURL string, progress bool) (*job, error) {
+func (a *App) submitLocked(text, replyTo, imageURL string, att *attachment, progress bool) (*job, error) {
 	text = strings.TrimSpace(text)
-	if (text == "" && imageURL == "") || jsLength(text) > 20000 {
-		return nil, problem(400, "Pesan wajib berisi teks atau gambar, maksimal 20.000 karakter.")
+	if (text == "" && imageURL == "" && att == nil) || jsLength(text) > 20000 {
+		return nil, problem(400, "Pesan wajib berisi teks, gambar, atau lampiran, maksimal 20.000 karakter.")
+	}
+	if err := a.validateAttachment(att); err != nil {
+		return nil, err
 	}
 	if replyTo != "" && a.findMessageLocked(replyTo) == nil {
 		return nil, problem(400, "Pesan yang dibalas tidak ditemukan atau sudah dihapus.")
@@ -72,7 +75,7 @@ func (a *App) submitLocked(text, replyTo, imageURL string, progress bool) (*job,
 	j := &job{ID: uuid(), Prompt: text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps}
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
-	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL})
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL, Attachment: att})
 	if kind == "task" {
 		a.data.Task = &activeTask{JobID: j.ID, Title: taskPrefix.ReplaceAllString(text, ""), CurrentStep: ptr(steps[0].Seat), Status: "processing", CreatedAt: now()}
 	}
@@ -92,7 +95,7 @@ func (a *App) progressLocked() (*job, error) {
 	if task.LastCompleted != nil {
 		last = *task.LastCompleted
 	}
-	return a.submitLocked(fmt.Sprintf("Tanya Progres: %s. Langkah terakhir selesai: %s. Status: %s.", task.Title, last, task.Status), "", "", true)
+	return a.submitLocked(fmt.Sprintf("Tanya Progres: %s. Langkah terakhir selesai: %s. Status: %s.", task.Title, last, task.Status), "", "", nil, true)
 }
 func (a *App) saveJobLocked() {
 	if err := a.saveLocked(); err != nil {

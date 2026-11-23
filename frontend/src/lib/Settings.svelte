@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, dismissBackdrop, errorText, protocolLabels, type State, type ReviewLevel, type GatewayProtocol } from './api';
+  import { api, apiDelete, dismissBackdrop, errorText, protocolLabels, type State, type ReviewLevel, type GatewayProtocol } from './api';
   import { tick } from 'svelte';
 
   let { current, refresh, mutate, notify }: {
@@ -22,11 +22,20 @@
   let reviewLevel = $state<ReviewLevel>('Sedang');
   let gatewayProtocol = $state<GatewayProtocol>('openai');
   let seats = $state<Array<{ code: string; name: string; model?: string }>>([]);
+  let newSeatName = $state('');
+  let newSeatRole = $state('');
+  let newSeatModel = $state('');
+  let addingSeat = $state(false);
   let saveStatus = $state('');
   let connectionError = $state('');
   let saving = $state(false);
   let testing = $state(false);
   const levels: ReviewLevel[] = ['Longgar', 'Santai', 'Sedang', 'Ketat'];
+
+  function syncSeats() {
+    if (!current) return;
+    seats = current.seats.map(({ code, name, model }) => model === undefined ? { code, name } : { code, name, model });
+  }
 
   export async function open() {
     try {
@@ -35,11 +44,40 @@
       ({ name: groupName } = current.group);
       ({ name: ownerName } = current.owner);
       ({ baseUrl, roundRobin, demoFallback, reviewLevel, gatewayProtocol } = current.settings);
-      seats = current.seats.map(({ code, name, model }) => model === undefined ? { code, name } : { code, name, model });
+      syncSeats();
       apiKey = '';
       connectionError = '';
       saveStatus = '';
       if (!dialog.open) dialog.showModal();
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  async function addSeat() {
+    if (addingSeat) return;
+    const name = newSeatName.trim();
+    const role = newSeatRole.trim();
+    const model = newSeatModel.trim();
+    if (!name || !role) { notify('Nama dan peran kursi baru wajib diisi.', true); return; }
+    addingSeat = true;
+    try {
+      await api('/api/seats', { name, role, model });
+      newSeatName = '';
+      newSeatRole = '';
+      newSeatModel = '';
+      await refresh();
+      syncSeats();
+      notify('Kursi baru ditambahkan.');
+    } catch (error) { notify(errorText(error), true); }
+    finally { addingSeat = false; }
+  }
+
+  async function removeSeat(code: string, name: string) {
+    if (!window.confirm(`Hapus kursi ${name}? Kursi bawaan tidak dapat dihapus.`)) return;
+    try {
+      await apiDelete(`/api/seats/${code}`);
+      await refresh();
+      syncSeats();
+      notify('Kursi dihapus.');
     } catch (error) { notify(errorText(error), true); }
   }
 
@@ -158,7 +196,7 @@
       {/if}
     </section>
     <section class="settings-section">
-      <h3>Tujuh kursi AI</h3><p class="section-hint">Nama tampil dan model dapat diganti. Kode serta peran tetap.</p>
+      <h3>Kursi AI</h3><p class="section-hint">Nama tampil dan model dapat diganti. Kode serta peran kursi bawaan tetap. Kursi custom dapat ditambah dan dihapus di bawah.</p>
       <div id="seatSettings">
         {#each seats as item (item.code)}
           {@const member = current?.seats.find(seat => seat.code === item.code)}
@@ -182,8 +220,19 @@
                 {!model ? 'Nama model belum diisi.' : available === undefined ? 'Tes Koneksi untuk memeriksa nama model ini.' : available ? '✓ Model tersedia di gateway.' : '⚠ Model tidak ditemukan di daftar gateway.'}
               </span>
             {/if}
+            {#if item.code.startsWith('C')}
+              <button class="text-button danger-text" type="button" onclick={() => removeSeat(item.code, item.name)}>Hapus kursi ini</button>
+            {/if}
           </article>
         {/each}
+      </div>
+      <div class="add-seat">
+        <h4>Tambah kursi custom</h4>
+        <p class="section-hint">Kursi tambahan memakai gateway dan ikut Diskusi Bergilir serta @mention. Tujuh kursi bawaan tidak dapat dihapus.</p>
+        <label>Nama kursi<input aria-label="Nama kursi baru" maxlength="40" placeholder="Contoh: Nova" autocomplete="off" bind:value={newSeatName}></label>
+        <label>Peran<input aria-label="Peran kursi baru" maxlength="80" placeholder="Contoh: Pengamat" autocomplete="off" bind:value={newSeatRole}></label>
+        <label>Nama model gateway<input aria-label="Model kursi baru" maxlength="200" placeholder="Sesuai nama model di gateway" autocomplete="off" spellcheck="false" bind:value={newSeatModel}></label>
+        <button class="secondary-button" type="button" onclick={addSeat} disabled={addingSeat}>{addingSeat ? 'Menambahkan…' : 'Tambah kursi'}</button>
       </div>
     </section>
     <section class="settings-section">

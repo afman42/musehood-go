@@ -53,8 +53,9 @@ type message struct {
 	QueueID    string     `json:"queueId,omitempty"`
 	Label      string     `json:"label,omitempty"`
 	Error      string     `json:"error,omitempty"`
-	ImageURL   string     `json:"imageUrl,omitempty"`
-	Demo       bool       `json:"demo,omitempty"`
+	ImageURL   string      `json:"imageUrl,omitempty"`
+	Attachment *attachment `json:"attachment,omitempty"`
+	Demo       bool        `json:"demo,omitempty"`
 	ReplyTo    string     `json:"replyTo,omitempty"`
 	Reactions  []reaction `json:"reactions,omitempty"`
 	EditedAt   string     `json:"editedAt,omitempty"`
@@ -63,6 +64,12 @@ type reaction struct {
 	Emoji   string `json:"emoji"`
 	Count   int    `json:"count"`
 	ByOwner bool   `json:"byOwner"`
+}
+type attachment struct {
+	URL  string `json:"url"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	Mime string `json:"mime"`
 }
 type step struct {
 	Seat      string `json:"seat"`
@@ -146,7 +153,7 @@ func loadData(dir string) (data, error) {
 	var structure struct {
 		Settings *settings `json:"settings"`
 	}
-	if json.Unmarshal(raw, &structure) != nil || structure.Settings == nil || json.Unmarshal(raw, &d) != nil || len(d.Seats) != 7 || d.Messages == nil {
+	if json.Unmarshal(raw, &structure) != nil || structure.Settings == nil || json.Unmarshal(raw, &d) != nil || len(d.Seats) < 7 || d.Messages == nil {
 		return d, errors.New("data.json tidak valid; pulihkan dari salinan sebelum menjalankan server")
 	}
 	for i, def := range defaultSeats {
@@ -159,6 +166,30 @@ func loadData(dir string) (data, error) {
 			s.Provider = "muse"
 			s.Model = nil
 		} else {
+			s.Provider = "gateway"
+			if s.Model == nil {
+				s.Model = ptr("")
+			}
+		}
+	}
+	// Custom seats (index 7+) must have unique codes and names; codes start with "C".
+	seenCodes := map[string]bool{}
+	seenNames := map[string]bool{}
+	for i := range d.Seats {
+		s := &d.Seats[i]
+		if seenCodes[s.Code] {
+			return d, errors.New("kode kursi data.json tidak unik")
+		}
+		seenCodes[s.Code] = true
+		name := strings.ToLower(strings.TrimSpace(s.Name))
+		if name == "" || seenNames[name] {
+			return d, errors.New("nama kursi data.json tidak valid atau tidak unik")
+		}
+		seenNames[name] = true
+		if i >= len(defaultSeats) {
+			if !strings.HasPrefix(s.Code, "C") {
+				return d, errors.New("kode kursi custom data.json harus diawali C")
+			}
 			s.Provider = "gateway"
 			if s.Model == nil {
 				s.Model = ptr("")
@@ -209,6 +240,90 @@ func (d *data) findSeat(code string) *seat {
 			return &d.Seats[i]
 		}
 	}
+	return nil
+}
+func isBuiltinSeat(code string) bool {
+	for _, def := range defaultSeats {
+		if def.code == code {
+			return true
+		}
+	}
+	return false
+}
+
+// createSeatLocked adds a custom seat (code C01, C02, ...). Caller must hold a.mu.
+func (a *App) createSeatLocked(name, role, model string) (*seat, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || jsLength(name) > 40 || badName.MatchString(name) {
+		return nil, problem(400, "Nama kursi wajib diisi, maksimal 40 karakter, tanpa @ atau baris baru.")
+	}
+	role = strings.TrimSpace(role)
+	if role == "" || jsLength(role) > 80 || badName.MatchString(role) {
+		return nil, problem(400, "Peran kursi wajib diisi, maksimal 80 karakter, tanpa @ atau baris baru.")
+	}
+	model = strings.TrimSpace(model)
+	if jsLength(model) > 200 || badSetting.MatchString(model) {
+		return nil, problem(400, "Nama model tidak valid.")
+	}
+	lower := strings.ToLower(name)
+	for _, s := range a.data.Seats {
+		if strings.ToLower(s.Name) == lower {
+			return nil, problem(400, "Nama kursi sudah dipakai. Pilih nama lain agar @mention tidak ambigu.")
+		}
+	}
+	code := ""
+	for n := 1; n < 100; n++ {
+		candidate := fmt.Sprintf("C%02d", n)
+		if a.data.findSeat(candidate) == nil {
+			code = candidate
+			break
+		}
+	}
+	if code == "" {
+		return nil, problem(400, "Jumlah kursi custom sudah mencapai batas.")
+	}
+	next := a.data
+	next.Seats = slices.Clone(next.Seats)
+	created := seat{identity: identity{name, "/avatars/custom.svg"}, Code: code, Role: role, Provider: "gateway", Model: ptr(model), Present: true}
+	next.Seats = append(next.Seats, created)
+	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+		return nil, err
+	}
+	a.data = next
+	return a.data.findSeat(code), nil
+}
+
+// deleteSeatLocked removes a custom seat. Caller must hold a.mu.
+func (a *App) deleteSeatLocked(code string) error {
+	if isBuiltinSeat(code) {
+		return problem(400, "Kursi bawaan tidak dapat dihapus.")
+	}
+	index := -1
+	for i := range a.data.Seats {
+		if a.data.Seats[i].Code == code {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return problem(404, "Kursi tidak ditemukan.")
+	}
+	for _, j := range a.data.Jobs {
+		if j.Status == "running" {
+			for _, s := range j.Steps {
+				if s.Seat == code {
+					return problem(409, "Kursi sedang dipakai tugas yang berjalan. Tunggu tugas selesai.")
+				}
+			}
+		}
+	}
+	next := a.data
+	next.Seats = slices.Clone(next.Seats)
+	next.Seats = append(next.Seats[:index], next.Seats[index+1:]...)
+	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+		return err
+	}
+	a.data = next
 	return nil
 }
 func (a *App) rememberKeyLocked(key string) {
