@@ -372,6 +372,7 @@ func TestHostAPIAndAvatars(t *testing.T) {
 		{"muse.test", "https://muse.test", "same-origin", "POST", "/api/clear", 200},
 		{"[::1]:3001", "", "", "GET", "/api/state", 200},
 		{"muse.test", "https://other.test", "", "GET", "/api/state", 403}, {"muse.test", "", "cross-site", "POST", "/api/clear", 403},
+		{"muse.test", "", "cross-site", "GET", "/rute/spa", 200}, {"muse.test", "", "cross-site", "GET", "/api/state", 403},
 	} {
 		req, _ := http.NewRequest(c.method, f.server.URL+c.path, nil)
 		if c.host != "" {

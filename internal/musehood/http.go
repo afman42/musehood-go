@@ -170,7 +170,14 @@ func (a *App) validateHost(r *http.Request) error {
 		return problem(403, "Host tidak diizinkan. Gunakan alamat localhost.")
 	}
 	if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site") {
-		return problem(403, "Permintaan dari situs lain tidak diizinkan.")
+		// Navigasi GET tingkat atas dari situs lain (mis. setelah klik
+		// "lanjutkan" di halaman warning tunnl.gg) hanya memuat halaman dan
+		// tidak mengubah state — izinkan. Permintaan API dan method yang
+		// mengubah state tetap ditolak; API juga dilindungi cek Origin.
+		isAPI := r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/")
+		if isAPI || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
+			return problem(403, "Permintaan dari situs lain tidak diizinkan.")
+		}
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
 		u, err := url.Parse(origin)
