@@ -21,8 +21,25 @@ var duties = map[string]string{
 	"M05":  "Analisis menggunakan data dan angka. Cantumkan asumsi, metode perhitungan, ketidakpastian, dan sumber bila tersedia. Jangan mengarang data atau statistik.",
 }
 
+// defaultPromptFor adalah instruksi peran bawaan tiap kursi. Kursi custom
+// tidak punya entri duties, jadi defaultnya mengikuti teks perannya.
+func defaultPromptFor(s seat) string {
+	if text, ok := duties[s.Code]; ok {
+		return text
+	}
+	role := strings.TrimSpace(s.Role)
+	if role == "" {
+		return "Laksanakan permintaan sesuai peran kursi ini."
+	}
+	return "Laksanakan peran " + role + "."
+}
+
 func systemPrompt(s seat, d data) string {
-	prompt := fmt.Sprintf("Nama kursi: %s (%s). Peran: %s. Grup: %s. Nama pemilik: %s. Selalu sebut pemilik dengan nama %s. Gunakan Bahasa Indonesia yang jelas dan ringkas. %s", s.Name, s.Code, s.Role, d.Group.Name, d.Owner.Name, d.Owner.Name, duties[s.Code])
+	rolePrompt := strings.TrimSpace(s.Prompt)
+	if rolePrompt == "" {
+		rolePrompt = defaultPromptFor(s)
+	}
+	prompt := fmt.Sprintf("Nama kursi: %s (%s). Peran: %s. Grup: %s. Nama pemilik: %s. Selalu sebut pemilik dengan nama %s. Gunakan Bahasa Indonesia yang jelas dan ringkas. %s", s.Name, s.Code, s.Role, d.Group.Name, d.Owner.Name, d.Owner.Name, rolePrompt)
 	if s.Code == "M02" {
 		prompt += " Level Review " + d.Settings.ReviewLevel + ": " + review[d.Settings.ReviewLevel]
 	}

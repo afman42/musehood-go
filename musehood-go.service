@@ -9,6 +9,12 @@ User=root
 WorkingDirectory=/home/hatch/workspace/musehood-go
 Environment=PORT=3001
 Environment=TRUSTED_HOSTS=crisp-star-bdba159c.tunnl.gg
+# Egress VM hanya lewat proxy runtime; tanpa ini panggilan gateway gagal TLS.
+EnvironmentFile=/home/hatch/muse-secrets/proxy.env
+# NO_PROXY di proxy.env mengandung IPv6 bracket yang merusak sebagian klien;
+# timpa dengan nilai bersih (localhost saja yang perlu bypass proxy).
+Environment=NO_PROXY=localhost,127.0.0.1
+Environment=no_proxy=localhost,127.0.0.1
 ExecStart=/home/hatch/workspace/musehood-go/musehood-go
 Restart=always
 RestartSec=3

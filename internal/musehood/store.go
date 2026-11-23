@@ -26,15 +26,18 @@ type owner struct {
 }
 type seat struct {
 	identity
-	Code     string  `json:"code"`
-	Role     string  `json:"role"`
-	Provider string  `json:"provider"`
-	Model    *string `json:"model,omitempty"`
-	Present  bool    `json:"present"`
+	Code          string  `json:"code"`
+	Role          string  `json:"role"`
+	Provider      string  `json:"provider"`
+	Model         *string `json:"model,omitempty"`
+	Prompt        string  `json:"prompt,omitempty"`
+	DefaultPrompt string  `json:"defaultPrompt,omitempty"`
+	Present       bool    `json:"present"`
 }
 type settings struct {
 	BaseURL         string `json:"baseUrl"`
 	APIKey          string `json:"apiKey"`
+	ProviderName    string `json:"providerName"`
 	GatewayProtocol string `json:"gatewayProtocol"`
 	RoundRobin      bool   `json:"roundRobin"`
 	ReviewLevel     string `json:"reviewLevel"`
@@ -386,6 +389,12 @@ func (a *App) safeLocked(input any) any {
 }
 func (a *App) stateLocked() any {
 	d := a.data
+	// Salin kursi sebelum mengisi DefaultPrompt agar nilai turunan ini tidak
+	// bocor ke data tersimpan (irisan Seats berbagi array dengan a.data).
+	d.Seats = slices.Clone(d.Seats)
+	for i := range d.Seats {
+		d.Seats[i].DefaultPrompt = defaultPromptFor(d.Seats[i])
+	}
 	key := []rune(d.Settings.APIKey)
 	masked := ""
 	if len(key) > 0 {
@@ -431,12 +440,14 @@ type settingsUpdate struct {
 	Group *nameUpdate `json:"group"`
 	Seats *[]struct {
 		nameUpdate
-		Code  string  `json:"code"`
-		Model *string `json:"model"`
+		Code   string  `json:"code"`
+		Model  *string `json:"model"`
+		Prompt *string `json:"prompt"`
 	} `json:"seats"`
 	Settings *struct {
 		BaseURL         *string `json:"baseUrl"`
 		APIKey          *string `json:"apiKey"`
+		ProviderName    *string `json:"providerName"`
 		GatewayProtocol *string `json:"gatewayProtocol"`
 		ReviewLevel     *string `json:"reviewLevel"`
 		RoundRobin      *bool   `json:"roundRobin"`
@@ -485,6 +496,13 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 				}
 				s.Model = ptr(strings.TrimSpace(*patch.Model))
 			}
+			if patch.Prompt != nil {
+				prompt := strings.TrimSpace(*patch.Prompt)
+				if jsLength(prompt) > 4000 || strings.Contains(prompt, "\x00") || strings.Contains(prompt, "\r") {
+					return problem(400, "Prompt kustom maksimal 4000 karakter, tanpa karakter kontrol.")
+				}
+				s.Prompt = prompt
+			}
 		}
 		seen := map[string]bool{}
 		for _, s := range next.Seats {
@@ -508,6 +526,13 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 				return problem(400, "Protokol gateway harus openai, openai-responses, anthropic, gemini, atau ollama.")
 			}
 			next.Settings.GatewayProtocol = proto
+		}
+		if patch.ProviderName != nil {
+			name := strings.TrimSpace(*patch.ProviderName)
+			if jsLength(name) > 80 || badName.MatchString(name) {
+				return problem(400, "Nama provider maksimal 80 karakter, tanpa @ atau baris baru.")
+			}
+			next.Settings.ProviderName = name
 		}
 		if patch.DarkMode != nil {
 			next.Settings.DarkMode = *patch.DarkMode
