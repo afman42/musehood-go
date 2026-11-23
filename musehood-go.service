@@ -1,0 +1,17 @@
+[Unit]
+Description=Musehood Go chat server (port 3001)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/hatch/workspace/musehood-go
+Environment=PORT=3001
+Environment=TRUSTED_HOSTS=crisp-star-bdba159c.tunnl.gg
+ExecStart=/home/hatch/workspace/musehood-go/musehood-go
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

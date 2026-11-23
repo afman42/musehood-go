@@ -7,10 +7,11 @@ export type Settings = {
   reviewLevel: ReviewLevel; demoFallback: boolean; gatewayProtocol: GatewayProtocol; darkMode: boolean;
 };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
+export type Attachment = { url: string; name: string; size: number; mime: string };
 export type Message = {
   id: string; createdAt: string; authorType: 'owner' | 'seat'; seat?: string;
   text: string; status: string; label?: string; demo?: boolean; statusText?: string; error?: string; imageUrl?: string;
-  replyTo?: string; editedAt?: string; reactions?: Reaction[] | null;
+  attachment?: Attachment; replyTo?: string; editedAt?: string; reactions?: Reaction[] | null;
 };
 export type Connection = { models: string[]; testedAt: string };
 export type State = {
@@ -32,6 +33,15 @@ export async function api<T = unknown>(route: string, body?: object | FormData):
     method: 'POST', body: multipart ? body : JSON.stringify(body),
     headers: multipart ? undefined : { 'Content-Type': 'application/json' },
   });
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error('Respons server tidak valid.'); }
+  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return result as T;
+}
+
+export async function apiDelete<T = unknown>(route: string): Promise<T> {
+  const response = await fetch(route, { method: 'DELETE', cache: 'no-store' });
   let result;
   try { result = await response.json(); }
   catch { throw new Error('Respons server tidak valid.'); }

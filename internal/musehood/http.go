@@ -73,7 +73,7 @@ func New(opts Options) (*App, error) {
 	if opts.MuseWait <= 0 {
 		opts.MuseWait = 10 * time.Minute
 	}
-	for _, dir := range []string{"avatars", "images", "queue/requests", "queue/responses"} {
+	for _, dir := range []string{"avatars", "images", "uploads", "queue/requests", "queue/responses"} {
 		if err := os.MkdirAll(filepath.Join(opts.DataDir, dir), 0700); err != nil {
 			return nil, err
 		}
@@ -270,11 +270,13 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state", "/api/queue/muse":
 		want = http.MethodGet
-	case "/api/settings", "/api/message", "/api/test-connection", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image":
+	case "/api/settings", "/api/message", "/api/test-connection", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats":
 		want = http.MethodPost
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
 			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
+			want = http.MethodDelete
 		} else if _, _, ok := messageAction(path); ok {
 			want = http.MethodPost
 		} else {
@@ -300,15 +302,16 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		})
 	case "/api/message":
 		var body struct {
-			Text     string `json:"text"`
-			ReplyTo  string `json:"replyTo"`
-			ImageURL string `json:"imageUrl"`
+			Text       string      `json:"text"`
+			ReplyTo    string      `json:"replyTo"`
+			ImageURL   string      `json:"imageUrl"`
+			Attachment *attachment `json:"attachment"`
 		}
 		if err := readObject(w, r, &body); err != nil {
 			return 0, nil, err
 		}
 		return a.respondLocked(202, func() (any, error) {
-			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, false)
+			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, body.Attachment, false)
 			if err != nil {
 				return nil, err
 			}
@@ -332,7 +335,34 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		return a.uploadAvatar(w, r)
 	case "/api/upload-image":
 		return a.uploadImage(w, r)
+	case "/api/upload-file":
+		return a.uploadFile(w, r)
+	case "/api/seats":
+		var body struct {
+			Name  string `json:"name"`
+			Role  string `json:"role"`
+			Model string `json:"model"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) {
+			created, err := a.createSeatLocked(body.Name, body.Role, body.Model)
+			if err != nil {
+				return nil, err
+			}
+			return created, nil
+		})
 	default:
+		if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
+			code := strings.TrimPrefix(path, "/api/seats/")
+			return a.respondLocked(200, func() (any, error) {
+				if err := a.deleteSeatLocked(code); err != nil {
+					return nil, err
+				}
+				return map[string]bool{"ok": true}, nil
+			})
+		}
 		if id, action, ok := messageAction(r.URL.Path); ok {
 			return a.messageAction(w, r, id, action)
 		}
@@ -509,6 +539,16 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if folder == "uploads" && storedUpload.MatchString(filename) {
+			if f, err := os.OpenInRoot(filepath.Join(a.dir, folder), filename); err == nil {
+				defer f.Close()
+				if stat, err := f.Stat(); err == nil && stat.Mode().IsRegular() {
+					w.Header().Set("Cache-Control", "no-cache")
+					http.ServeContent(w, r, filename, stat.ModTime(), f)
+					return
+				}
+			}
+		}
 		if path != "index.html" && a.frontend != nil {
 			if raw, err := fs.ReadFile(a.frontend, path); err == nil {
 				if strings.HasPrefix(path, "_app/immutable/") {
@@ -519,7 +559,7 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if len(a.index) == 0 || strings.HasPrefix(path, "images/") || strings.HasPrefix(path, "avatars/") || strings.HasPrefix(path, "_app/") {
+	if len(a.index) == 0 || strings.HasPrefix(path, "images/") || strings.HasPrefix(path, "avatars/") || strings.HasPrefix(path, "uploads/") || strings.HasPrefix(path, "_app/") {
 		a.writeJSON(w, 0, nil, problem(404, "Halaman tidak ditemukan."))
 		return
 	}

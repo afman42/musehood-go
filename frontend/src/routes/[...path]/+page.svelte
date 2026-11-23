@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Settings from '../../lib/Settings.svelte';
-  import { api, dismissBackdrop, errorText, type Seat, type State, type Message } from '../../lib/api';
+  import { api, dismissBackdrop, errorText, type Seat, type State, type Message, type Attachment } from '../../lib/api';
 
   let current = $state<State>();
   let text = $state('');
@@ -33,6 +33,9 @@
   let imageInput: HTMLInputElement;
   let pendingImage = $state('');
   let uploadingImage = $state(false);
+  let fileInput: HTMLInputElement;
+  let pendingFile = $state<Attachment | null>(null);
+  let uploadingFile = $state(false);
   let searchOpen = $state(false);
   let query = $state('');
   let matchIndex = $state(0);
@@ -115,16 +118,34 @@
     }
   }
 
+  function humanSize(size: number): string {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function isImageAttachment(att: Attachment): boolean {
+    return att.mime.startsWith('image/');
+  }
+
+  function attachmentLabel(message: Message): string {
+    if (message.text) return message.text;
+    if (message.imageUrl) return '[gambar]';
+    if (message.attachment) return `[lampiran: ${message.attachment.name}]`;
+    return '';
+  }
+
   async function send(event: SubmitEvent) {
     event.preventDefault();
-    if ((!text.trim() && !pendingImage) || submitting) return;
+    if ((!text.trim() && !pendingImage && !pendingFile) || submitting) return;
     submitting = true;
     try {
       forceScroll = true;
-      await api('/api/message', { text: text.trim(), ...(replyTo ? { replyTo: replyTo.id } : {}), ...(pendingImage ? { imageUrl: pendingImage } : {}) });
+      await api('/api/message', { text: text.trim(), ...(replyTo ? { replyTo: replyTo.id } : {}), ...(pendingImage ? { imageUrl: pendingImage } : {}), ...(pendingFile ? { attachment: pendingFile } : {}) });
       await put('');
       replyTo = undefined;
       pendingImage = '';
+      pendingFile = null;
       await refresh();
     } catch (error) { notify(errorText(error), true); }
     finally { submitting = false; input.focus(); }
@@ -192,6 +213,22 @@
       input.focus();
     } catch (error) { notify(errorText(error), true); }
     finally { uploadingImage = false; }
+  }
+
+  async function chooseFile() {
+    const file = fileInput.files?.[0];
+    fileInput.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { notify('Ukuran file maksimal 10 MB.', true); return; }
+    uploadingFile = true;
+    try {
+      const body = new FormData();
+      body.set('file', file);
+      const out = await api<Attachment>('/api/upload-file', body);
+      pendingFile = out;
+      input.focus();
+    } catch (error) { notify(errorText(error), true); }
+    finally { uploadingFile = false; }
   }
 
   const matches = $derived(
@@ -324,7 +361,7 @@
             {#if quoted}
               <button class="quote-block" type="button" onclick={() => jumpToQuote(quoted.id)}>
                 <strong>{quoted.authorType === 'owner' ? current.owner.name : current.seats.find(s => s.code === quoted.seat)?.name ?? quoted.seat}</strong>
-                <span>{quoted.text || (quoted.imageUrl ? '[gambar]' : '')}</span>
+                <span>{attachmentLabel(quoted)}</span>
               </button>
             {/if}
             {#if editingId === message.id}
@@ -342,6 +379,16 @@
             {/if}
             {#if message.imageUrl}
               <a class="image-link" href={message.imageUrl} target="_blank" rel="noopener" title="Buka gambar ukuran penuh"><img class="chat-image" src={message.imageUrl} alt={message.text || `Gambar dari ${name}`} loading="lazy" onload={scrollForImage}></a>
+            {/if}
+            {#if message.attachment}
+              {#if isImageAttachment(message.attachment)}
+                <a class="image-link" href={message.attachment.url} target="_blank" rel="noopener" title="Buka gambar ukuran penuh"><img class="chat-image" src={message.attachment.url} alt={message.attachment.name} loading="lazy" onload={scrollForImage}></a>
+              {:else}
+                <a class="attachment-link" href={message.attachment.url} download={message.attachment.name} title="Unduh {message.attachment.name}">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-3.5-3.5M10 13l3.5-3.5M4 16.5h12"/></svg>
+                  <span><strong>{message.attachment.name}</strong><small>{humanSize(message.attachment.size)}</small></span>
+                </a>
+              {/if}
             {/if}
             {#if message.status === 'typing' || message.status === 'waiting'}<p class="typing-status" class:waiting={message.status === 'waiting'}>{message.statusText || `${name} sedang mengetik...`}</p>{/if}
             {#if message.error}<pre class="provider-error" aria-label="Error asli provider">{message.error}</pre>{/if}
@@ -378,7 +425,7 @@
     {#if replyTo}
       {@const target = replyTo}
       <div class="reply-chip">
-        <span>Membalas <strong>{target.authorType === 'owner' ? current?.owner.name : current?.seats.find(s => s.code === target.seat)?.name ?? target.seat}</strong>: {target.text || (target.imageUrl ? '[gambar]' : '')}</span>
+        <span>Membalas <strong>{target.authorType === 'owner' ? current?.owner.name : current?.seats.find(s => s.code === target.seat)?.name ?? target.seat}</strong>: {attachmentLabel(target)}</span>
         <button class="icon-button" type="button" aria-label="Batalkan balasan" onclick={() => replyTo = undefined}>✕</button>
       </div>
     {/if}
@@ -388,14 +435,21 @@
         <button class="icon-button" type="button" aria-label="Batalkan gambar" onclick={() => pendingImage = ''}>✕</button>
       </div>
     {/if}
+    {#if pendingFile}
+      <div class="reply-chip file-chip">
+        <span><strong>{pendingFile.name}</strong> · {humanSize(pendingFile.size)} · siap dikirim</span>
+        <button class="icon-button" type="button" aria-label="Batalkan lampiran" onclick={() => pendingFile = null}>✕</button>
+      </div>
+    {/if}
     <div class="action-chips" aria-label="Aksi cepat">
       <button id="mentionButton" class="action-chip" type="button" onclick={() => { if (current) mention.showModal(); }}>@ Kursi</button>
       <button id="progressButton" class="action-chip" type="button" onclick={progress} disabled={asking}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10a7 7 0 1 0 2-5M3 3v4h4M10 6v4l3 2"/></svg>Tanya Progres</button>
       <button id="imageButton" class="action-chip" type="button" onclick={() => put(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3"/><circle cx="7" cy="7" r="1.4"/><path d="m3 15 4-4 3 3 3-5 4 6"/></svg>Buat Gambar</button>
       <button id="uploadImageButton" class="action-chip" type="button" onclick={() => imageInput.click()} disabled={uploadingImage}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V4m0 0L6.5 7.5M10 4l3.5 3.5M4 13v2.5h12V13"/></svg>{uploadingImage ? 'Mengunggah…' : 'Kirim Gambar'}</button>
+      <button id="uploadFileButton" class="action-chip" type="button" onclick={() => fileInput.click()} disabled={uploadingFile}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v8m0 0-3-3m3 3 3-3M4 15v2.5h12V15"/></svg>{uploadingFile ? 'Mengunggah…' : 'Lampirkan File'}</button>
     </div>
     <form bind:this={composer} id="composer" class="composer" onsubmit={send}>
-      <textarea bind:this={input} bind:value={text} id="messageInput" rows="1" maxlength="20000" placeholder="Tulis pesan, @kursi, atau Tugas: …" aria-label="Pesan untuk grup" required={!pendingImage} onkeydown={handleEnter} oninput={resizeInput}></textarea>
+      <textarea bind:this={input} bind:value={text} id="messageInput" rows="1" maxlength="20000" placeholder="Tulis pesan, @kursi, atau Tugas: …" aria-label="Pesan untuk grup" required={!pendingImage && !pendingFile} onkeydown={handleEnter} oninput={resizeInput}></textarea>
       <button id="sendButton" class="send-button" type="submit" aria-label="Kirim pesan" title="Kirim pesan" disabled={submitting}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8Z"/><path d="M7 12h13"/></svg></button>
     </form>
     <p class="composer-hint">Enter untuk kirim <span>·</span> Shift + Enter untuk baris baru</p>
@@ -417,3 +471,4 @@
 <div bind:this={mainToast} class="toast" role="status" class:error={notice?.error} hidden={!notice || notice.dialog}>{notice?.dialog ? '' : notice?.text}</div>
 <div bind:this={dialogToast} class="toast" role="status" class:error={notice?.error} hidden={!notice?.dialog}>{notice?.dialog ? notice.text : ''}</div>
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>
+<input id="chatFileInput" type="file" hidden bind:this={fileInput} onchange={chooseFile}>
