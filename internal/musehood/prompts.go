@@ -22,10 +22,15 @@ var duties = map[string]string{
 }
 
 // defaultPromptFor adalah instruksi peran bawaan tiap kursi. Kursi custom
-// tidak punya entri duties, jadi defaultnya mengikuti teks perannya.
+// tidak punya entri duties, jadi defaultnya mengikuti teks perannya. Kursi
+// bawaan yang perannya diganti juga mengikuti teks peran barunya.
 func defaultPromptFor(s seat) string {
 	if text, ok := duties[s.Code]; ok {
-		return text
+		for _, def := range defaultSeats {
+			if def.code == s.Code && strings.TrimSpace(s.Role) == def.role {
+				return text
+			}
+		}
 	}
 	role := strings.TrimSpace(s.Role)
 	if role == "" {

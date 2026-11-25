@@ -24,9 +24,18 @@ var jobPrefix = regexp.MustCompile(`(?i)^(gambar|tugas)\s*:\s*`)
 
 const finalLabel = "Hasil Akhir - Integrasi"
 
+// integratorSeat adalah kursi yang menutup pipeline "Tugas:" dan menjawab
+// "Tanya Progres". Bawaan "MUSE"; dapat diganti lewat Pengaturan.
+func (a *App) integratorSeat() string {
+	if code := a.data.Settings.IntegratorSeat; code != "" && a.data.findSeat(code) != nil {
+		return code
+	}
+	return "MUSE"
+}
+
 func (a *App) routeLocked(text string) (string, []step) {
 	if taskPrefix.MatchString(text) {
-		return "task", []step{{Seat: "M10", Kind: "chat"}, {Seat: "M01", Kind: "chat"}, {Seat: "M04", Kind: "chat"}, {Seat: "M03", Kind: "image"}, {Seat: "M02", Kind: "chat"}, {Seat: "MUSE", Kind: "summary"}}
+		return "task", []step{{Seat: "M10", Kind: "chat"}, {Seat: "M01", Kind: "chat"}, {Seat: "M04", Kind: "chat"}, {Seat: "M03", Kind: "image"}, {Seat: "M02", Kind: "chat"}, {Seat: a.integratorSeat(), Kind: "summary"}}
 	}
 	if imagePrefix.MatchString(text) {
 		return "image", []step{{Seat: "M03", Kind: "image"}}
@@ -90,7 +99,7 @@ func (a *App) submitLocked(text, replyTo, imageURL string, att *attachment, prog
 		replyTo, imageURL = "", ""
 	}
 	text = a.redactLocked(text)
-	kind, steps := "progress", []step{{Seat: "MUSE", Kind: "progress"}}
+	kind, steps := "progress", []step{{Seat: a.integratorSeat(), Kind: "progress"}}
 	if !progress {
 		kind, steps = a.routeLocked(text)
 	}
@@ -255,7 +264,7 @@ func (a *App) advanceLocked(j *job) {
 			})
 			return
 		}
-		if member.Code == "MUSE" {
+		if member.Provider == "muse" {
 			if err := a.enqueueLocked(j, s, member, m); err == nil {
 				return
 			}

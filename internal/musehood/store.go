@@ -45,6 +45,9 @@ type settings struct {
 	ReviewLevel      string `json:"reviewLevel"`
 	DemoFallback     bool   `json:"demoFallback"`
 	DarkMode         bool   `json:"darkMode"`
+	// IntegratorSeat adalah kode kursi yang menutup pipeline "Tugas:"
+	// (Hasil Akhir - Integrasi) dan menjawab "Tanya Progres". Kosong = "MUSE".
+	IntegratorSeat string `json:"integratorSeat,omitempty"`
 }
 
 // gatewayProvider adalah satu konfigurasi gateway kustom yang tersimpan.
@@ -53,6 +56,7 @@ type settings struct {
 type gatewayProvider struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
+	Alias    string `json:"alias,omitempty"`
 	BaseURL  string `json:"baseUrl"`
 	APIKey   string `json:"apiKey"`
 	Protocol string `json:"protocol"`
@@ -62,6 +66,7 @@ type gatewayProvider struct {
 type gatewayProviderView struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
+	Alias     string `json:"alias,omitempty"`
 	BaseURL   string `json:"baseUrl"`
 	Protocol  string `json:"protocol"`
 	HasAPIKey bool   `json:"hasApiKey"`
@@ -189,15 +194,18 @@ func loadData(dir string) (data, error) {
 		if s.Code != def.code {
 			return d, errors.New("urutan kursi data.json tidak valid")
 		}
-		s.Role = def.role
-		if s.Code == "MUSE" {
-			s.Provider = "muse"
-			s.Model = nil
-		} else {
-			s.Provider = "gateway"
-			if s.Model == nil {
-				s.Model = ptr("")
+		if strings.TrimSpace(s.Role) == "" {
+			s.Role = def.role
+		}
+		if s.Provider != "muse" && s.Provider != "gateway" {
+			if s.Code == "MUSE" {
+				s.Provider = "muse"
+			} else {
+				s.Provider = "gateway"
 			}
+		}
+		if s.Provider == "gateway" && s.Model == nil {
+			s.Model = ptr("")
 		}
 	}
 	// Custom seats (index 7+) must have unique codes and names; codes start with "C".
@@ -218,11 +226,16 @@ func loadData(dir string) (data, error) {
 			if !strings.HasPrefix(s.Code, "C") {
 				return d, errors.New("kode kursi custom data.json harus diawali C")
 			}
-			s.Provider = "gateway"
-			if s.Model == nil {
+			if s.Provider != "muse" && s.Provider != "gateway" {
+				s.Provider = "gateway"
+			}
+			if s.Provider == "gateway" && s.Model == nil {
 				s.Model = ptr("")
 			}
 		}
+	}
+	if d.Settings.IntegratorSeat != "" && d.findSeat(d.Settings.IntegratorSeat) == nil {
+		d.Settings.IntegratorSeat = ""
 	}
 	if d.Jobs == nil {
 		d.Jobs = []*job{}
@@ -327,7 +340,7 @@ func (d *data) providerConfig(p gatewayProvider) settings {
 }
 
 func (d *data) providerView(p gatewayProvider) gatewayProviderView {
-	return gatewayProviderView{ID: p.ID, Name: p.Name, BaseURL: p.BaseURL, Protocol: p.Protocol, HasAPIKey: p.APIKey != "", Active: p.ID == d.Settings.ActiveProviderID}
+	return gatewayProviderView{ID: p.ID, Name: p.Name, Alias: p.Alias, BaseURL: p.BaseURL, Protocol: p.Protocol, HasAPIKey: p.APIKey != "", Active: p.ID == d.Settings.ActiveProviderID}
 }
 
 func (d *data) providerViews() []gatewayProviderView {
@@ -384,10 +397,24 @@ func newProviderID() string {
 
 type providerInput struct {
 	Name        *string `json:"name"`
+	Alias       *string `json:"alias"`
 	BaseURL     *string `json:"baseUrl"`
 	APIKey      *string `json:"apiKey"`
 	Protocol    *string `json:"protocol"`
 	ClearAPIKey bool    `json:"clearApiKey"`
+}
+
+// validateProviderAlias memeriksa alias provider: label pembeda singkat yang
+// ditampilkan sebagai awalan nama model (mis. "xc/gpt-6.1-sol"). Kosong
+// berarti tanpa alias.
+func validateProviderAlias(alias string) error {
+	if alias == "" {
+		return nil
+	}
+	if jsLength(alias) > 40 || strings.ContainsAny(alias, "/@ \t\r\n\x00") || badName.MatchString(alias) {
+		return problem(400, "Alias provider maksimal 40 karakter, tanpa spasi, @, atau /.")
+	}
+	return nil
 }
 
 func (a *App) createProviderLocked(input providerInput) (gatewayProviderView, error) {
@@ -397,6 +424,13 @@ func (a *App) createProviderLocked(input providerInput) (gatewayProviderView, er
 	name := strings.TrimSpace(*input.Name)
 	if err := validateProviderName(name); err != nil {
 		return gatewayProviderView{}, err
+	}
+	alias := ""
+	if input.Alias != nil {
+		alias = strings.TrimSpace(*input.Alias)
+		if err := validateProviderAlias(alias); err != nil {
+			return gatewayProviderView{}, err
+		}
 	}
 	base, err := normalizeProviderBaseURL(*input.BaseURL)
 	if err != nil {
@@ -419,7 +453,7 @@ func (a *App) createProviderLocked(input providerInput) (gatewayProviderView, er
 	if key == "" && proto != "ollama" {
 		return gatewayProviderView{}, problem(400, "API key wajib diisi kecuali protokol Ollama.")
 	}
-	p := gatewayProvider{ID: newProviderID(), Name: name, BaseURL: base, APIKey: key, Protocol: proto}
+	p := gatewayProvider{ID: newProviderID(), Name: name, Alias: alias, BaseURL: base, APIKey: key, Protocol: proto}
 	next := a.data
 	next.Providers = append(slices.Clone(next.Providers), p)
 	if len(next.Providers) == 1 {
@@ -447,6 +481,13 @@ func (a *App) updateProviderLocked(id string, input providerInput) (gatewayProvi
 			return gatewayProviderView{}, err
 		}
 		p.Name = name
+	}
+	if input.Alias != nil {
+		alias := strings.TrimSpace(*input.Alias)
+		if err := validateProviderAlias(alias); err != nil {
+			return gatewayProviderView{}, err
+		}
+		p.Alias = alias
 	}
 	if input.BaseURL != nil {
 		base, err := normalizeProviderBaseURL(*input.BaseURL)
@@ -649,6 +690,9 @@ func (a *App) deleteSeatLocked(code string) error {
 	next := a.data
 	next.Seats = slices.Clone(next.Seats)
 	next.Seats = append(next.Seats[:index], next.Seats[index+1:]...)
+	if next.Settings.IntegratorSeat == code {
+		next.Settings.IntegratorSeat = ""
+	}
 	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
 		return err
 	}
@@ -775,9 +819,11 @@ type settingsUpdate struct {
 	Group *nameUpdate `json:"group"`
 	Seats *[]struct {
 		nameUpdate
-		Code   string  `json:"code"`
-		Model  *string `json:"model"`
-		Prompt *string `json:"prompt"`
+		Code     string  `json:"code"`
+		Role     *string `json:"role"`
+		Provider *string `json:"provider"`
+		Model    *string `json:"model"`
+		Prompt   *string `json:"prompt"`
 	} `json:"seats"`
 	Settings *struct {
 		BaseURL         *string `json:"baseUrl"`
@@ -788,6 +834,7 @@ type settingsUpdate struct {
 		RoundRobin      *bool   `json:"roundRobin"`
 		DemoFallback    *bool   `json:"demoFallback"`
 		DarkMode        *bool   `json:"darkMode"`
+		IntegratorSeat  *string `json:"integratorSeat"`
 		ClearAPIKey     bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
@@ -826,7 +873,24 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 			if err := updateName(&s.Name, patch.Name, "Nama kursi", 40); err != nil {
 				return err
 			}
-			if s.Code != "MUSE" && patch.Model != nil {
+			if patch.Role != nil {
+				role := strings.TrimSpace(*patch.Role)
+				if role == "" || jsLength(role) > 80 || badName.MatchString(role) {
+					return problem(400, "Peran kursi wajib diisi, maksimal 80 karakter, tanpa @ atau baris baru.")
+				}
+				s.Role = role
+			}
+			if patch.Provider != nil {
+				provider := strings.TrimSpace(*patch.Provider)
+				if provider != "muse" && provider != "gateway" {
+					return problem(400, "Provider kursi harus muse atau gateway.")
+				}
+				s.Provider = provider
+				if provider == "gateway" && s.Model == nil {
+					s.Model = ptr("")
+				}
+			}
+			if patch.Model != nil {
 				if jsLength(*patch.Model) > 200 || badSetting.MatchString(*patch.Model) {
 					return problem(400, "Nama model tidak valid.")
 				}
@@ -873,6 +937,13 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		if patch.DarkMode != nil {
 			next.Settings.DarkMode = *patch.DarkMode
 		}
+		if patch.IntegratorSeat != nil {
+			code := strings.TrimSpace(*patch.IntegratorSeat)
+			if code == "" || next.findSeat(code) == nil {
+				return problem(400, "Kursi integrator tidak dikenal.")
+			}
+			next.Settings.IntegratorSeat = code
+		}
 		if patch.RoundRobin != nil {
 			next.Settings.RoundRobin = *patch.RoundRobin
 		}
@@ -907,12 +978,22 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 			}
 		}
 		// Tulis balik field gateway ke provider aktif agar daftar provider
-		// tetap konsisten dengan pengaturan tunggal lama.
+		// tetap konsisten dengan pengaturan tunggal lama. Hanya field yang
+		// benar-benar dibawa patch yang disinkronkan, agar patch pengaturan
+		// lain (mis. integratorSeat) tidak mengosongkan nama/BaseURL provider.
 		if active := next.findProvider(next.Settings.ActiveProviderID); active != nil {
-			active.BaseURL = next.Settings.BaseURL
-			active.APIKey = next.Settings.APIKey
-			active.Name = next.Settings.ProviderName
-			active.Protocol = next.Settings.GatewayProtocol
+			if patch.BaseURL != nil {
+				active.BaseURL = next.Settings.BaseURL
+			}
+			if patch.APIKey != nil || patch.ClearAPIKey {
+				active.APIKey = next.Settings.APIKey
+			}
+			if patch.ProviderName != nil {
+				active.Name = next.Settings.ProviderName
+			}
+			if patch.GatewayProtocol != nil {
+				active.Protocol = next.Settings.GatewayProtocol
+			}
 		}
 		// Bila belum ada provider aktif tetapi settings kini punya gateway
 		// (konfigurasi lama lewat /api/settings), buat provider dari

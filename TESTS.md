@@ -92,3 +92,19 @@ Gagal (5) — semuanya butuh external linking cgo, yang tidak tersedia saat cros
 ## Mock gateway mandiri
 
 Jalankan `node tests/mock-gateway.mjs` untuk melayani loopback pada port 3101 atau atur `MOCK_PORT`. Masukkan `http://127.0.0.1:3101` dan key fixture `browser-fixture-only-9876` pada pengaturan Musehood. Model fixture tersedia dengan nama `sse`, `array`, `plain`, `delta`, `image`, `denied`, dan `key-echo`. Mock juga melayani jalur per protokol: `/v1/messages` (Anthropic, key `anthropic-mock-key`), `/v1beta/models/…:generateContent` (Gemini, key `gemini-mock-key`), `/v1/responses` (OpenAI Responses), dan `/api/chat` (Ollama, tanpa key).
+
+## Kustomisasi kursi bawaan & kursi integrator (25 Nov 2026)
+
+Peran, provider (jalur jawaban: `muse` antrean file / `gateway` model), dan model kini dapat diganti untuk **semua** kursi lewat `POST /api/settings` — termasuk kursi MUSE (Admin dan Integrasi), yang sebelumnya perannya dipaksa dari kode dan tidak punya model. Kursi bawaan tetap tidak dapat dihapus dan kodenya tetap. Nilai kustom bertahan setelah reload (`loadData` hanya mengisi bawaan bila kosong/tidak valid). Prompt bawaan kursi bawaan mengikuti teks peran barunya bila peran diganti.
+
+Pengaturan baru `settings.integratorSeat`: kursi yang menutup pipeline "Tugas:" (Hasil Akhir - Integrasi) dan menjawab "Tanya Progres". Bawaan `MUSE`. Kode tidak dikenal ditolak (400); menghapus kursi custom yang sedang menjadi integrator mengembalikannya ke MUSE. Routing antrean kini berdasarkan `provider`, bukan kode kursi.
+
+Bug terkait yang diperbaiki: write-through field gateway ke provider aktif kini hanya menyinkronkan field yang dibawa patch — patch pengaturan non-gateway (mis. `integratorSeat`) tidak lagi mengosongkan nama/BaseURL provider aktif yang membuat `data.json` tidak valid saat dimuat ulang.
+
+Tes: `internal/musehood/seat_custom_test.go` (`TestSeatRoleProviderModelPatch`, `TestSettingsPatchKeepsProviderName`, `TestIntegratorSeat`). Verifikasi: `go vet` + `go test` + `go test -race` lulus, coverage 85,1%, `npm run check` 0 error, `npm run build` lulus; dites live lewat API (buat kursi custom → ganti peran/provider → jadikan integrator → kembalikan → hapus).
+
+## Alias provider gateway (25 Nov 2026)
+
+Tiap provider gateway kini punya field `alias` opsional (maks 40 karakter, tanpa spasi/`@`/`/`) sebagai label pembeda. Alias tampil di daftar provider dan menjadi awalan nama model di daftar model (Fetch Models, hasil Tes Models, dan tag model koneksi provider aktif), mis. `xc/gpt-6.1-sol` — agar model bernama sama dari provider lain mudah dibedakan. Alias hanya tampilan: nama model yang dikirim ke gateway tetap apa adanya, dan pencocokan model kursi dengan daftar gateway tetap memakai nama mentah. Alias dapat diisi saat tambah provider, diubah, atau dikosongkan lewat edit; tampil di view provider (`alias`, dihilangkan bila kosong) dan bertahan setelah reload.
+
+Tes: `TestProviderAlias` di `internal/musehood/providers_test.go`.
