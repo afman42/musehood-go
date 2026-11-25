@@ -2,11 +2,12 @@
   import { api, apiDelete, dismissBackdrop, errorText, protocolLabels, type State, type ReviewLevel, type GatewayProtocol } from './api';
   import { tick } from 'svelte';
 
-  let { current, refresh, mutate, notify }: {
+  let { current, refresh, mutate, notify, notice }: {
     current: State | undefined;
     refresh: () => Promise<void>;
     mutate: (route: string, body: object) => Promise<void>;
     notify: (message: string, error?: boolean) => void;
+    notice: { text: string; error: boolean; target: string | null } | undefined;
   } = $props();
 
   let dialog: HTMLDialogElement;
@@ -217,7 +218,7 @@
       <label>Base URL<input id="baseUrl" type="url" placeholder="http://127.0.0.1:20128" autocomplete="off" spellcheck="false" bind:value={baseUrl}></label>
       <label>Nama provider<input id="providerName" maxlength="80" placeholder="Contoh: Xingchi" autocomplete="off" spellcheck="false" bind:value={providerName}></label>
       <label>Protokol gateway<select id="gatewayProtocol" bind:value={gatewayProtocol}>
-        {#each Object.entries(protocolLabels) as [value, label]}<option value={value}>{label}</option>{/each}
+        {#each Object.entries(protocolLabels) as [value, label] (value)}<option value={value}>{label}</option>{/each}
       </select></label>
       <p class="field-hint">Menentukan format permintaan dan endpoint Tes Koneksi. Pembuatan gambar hanya didukung protokol OpenAI — Chat Completions; protokol lain otomatis memakai jalur gambar pekerja Muse.</p>
       <label>API key<input id="apiKey" type="password" placeholder={current?.settings.hasApiKey ? 'Biarkan kosong untuk mempertahankan key' : 'Masukkan API key gateway'} autocomplete="new-password" spellcheck="false" bind:value={apiKey}></label>
@@ -230,7 +231,7 @@
         <div id="connectionResult" class="connection-result error" role="status">{connectionError}</div>
       {:else if current?.connection}
         <div id="connectionResult" class="connection-result" role="status">Provider {providerDisplay()} · Terhubung · {current.connection.models.length} model ditemukan. Periksa status setiap kursi di bawah.</div>
-        <div id="modelList" class="model-list">{#each current.connection.models as model}<span class="model-tag">{model}</span>{/each}</div>
+        <div id="modelList" class="model-list">{#each current.connection.models as model, index (index)}<span class="model-tag">{model}</span>{/each}</div>
       {/if}
     </section>
     <section class="settings-section">
@@ -290,7 +291,7 @@
     <section class="settings-section">
       <h3>Cara berdiskusi</h3>
       <label class="toggle-row"><span><strong>Diskusi Bergilir</strong><small>Semua kursi membalas bergiliran. Jika mati, hanya Muse tanpa @mention.</small></span><input id="roundRobin" type="checkbox" role="switch" bind:checked={roundRobin}></label>
-      <label>Level Review<select id="reviewLevel" bind:value={reviewLevel}>{#each levels as level}<option value={level}>{level}</option>{/each}</select></label>
+      <label>Level Review<select id="reviewLevel" bind:value={reviewLevel}>{#each levels as level (level)}<option value={level}>{level}</option>{/each}</select></label>
       <p class="field-hint">Mengatur ketajaman pemeriksaan kursi Peninjau.</p>
       <label class="toggle-row"><span><strong>Fallback demo</strong><small>Simulasi berlabel DEMO jika chat gateway gagal. Tidak berlaku untuk Muse atau gambar.</small></span><input id="demoFallback" type="checkbox" role="switch" bind:checked={demoFallback}></label>
     </section>
@@ -300,5 +301,6 @@
     </section>
     <div class="settings-save"><span id="saveStatus" role="status">{saveStatus}</span><button id="saveSettings" class="primary-button" type="submit" disabled={saving || testing}>Simpan Pengaturan</button></div>
   </form>
+  <div class="toast" role="status" class:error={notice?.error} hidden={notice?.target !== 'settingsDialog'}>{notice?.target === 'settingsDialog' ? notice.text : ''}</div>
 </dialog>
 <input id="avatarInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={fileInput} onchange={upload}>
