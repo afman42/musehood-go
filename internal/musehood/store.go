@@ -3,6 +3,7 @@ package musehood
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,33 +36,55 @@ type seat struct {
 	Present       bool    `json:"present"`
 }
 type settings struct {
-	BaseURL         string `json:"baseUrl"`
-	APIKey          string `json:"apiKey"`
-	ProviderName    string `json:"providerName"`
-	GatewayProtocol string `json:"gatewayProtocol"`
-	RoundRobin      bool   `json:"roundRobin"`
-	ReviewLevel     string `json:"reviewLevel"`
-	DemoFallback    bool   `json:"demoFallback"`
-	DarkMode        bool   `json:"darkMode"`
+	BaseURL          string `json:"baseUrl"`
+	APIKey           string `json:"apiKey"`
+	ProviderName     string `json:"providerName"`
+	GatewayProtocol  string `json:"gatewayProtocol"`
+	ActiveProviderID string `json:"activeProviderId"`
+	RoundRobin       bool   `json:"roundRobin"`
+	ReviewLevel      string `json:"reviewLevel"`
+	DemoFallback     bool   `json:"demoFallback"`
+	DarkMode         bool   `json:"darkMode"`
+}
+
+// gatewayProvider adalah satu konfigurasi gateway kustom yang tersimpan.
+// APIKey tidak pernah dikirim ke klien apa adanya; daftar yang dibaca klien
+// memakai gatewayProviderView di bawah.
+type gatewayProvider struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	BaseURL  string `json:"baseUrl"`
+	APIKey   string `json:"apiKey"`
+	Protocol string `json:"protocol"`
+}
+
+// gatewayProviderView adalah tampilan aman satu provider untuk klien.
+type gatewayProviderView struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	BaseURL   string `json:"baseUrl"`
+	Protocol  string `json:"protocol"`
+	HasAPIKey bool   `json:"hasApiKey"`
+	Active    bool   `json:"active"`
 }
 type message struct {
-	ID         string     `json:"id"`
-	CreatedAt  string     `json:"createdAt"`
-	AuthorType string     `json:"authorType"`
-	Seat       string     `json:"seat,omitempty"`
-	JobID      string     `json:"jobId"`
-	Text       string     `json:"text"`
-	Status     string     `json:"status"`
-	StatusText string     `json:"statusText,omitempty"`
-	QueueID    string     `json:"queueId,omitempty"`
-	Label      string     `json:"label,omitempty"`
-	Error      string     `json:"error,omitempty"`
+	ID         string      `json:"id"`
+	CreatedAt  string      `json:"createdAt"`
+	AuthorType string      `json:"authorType"`
+	Seat       string      `json:"seat,omitempty"`
+	JobID      string      `json:"jobId"`
+	Text       string      `json:"text"`
+	Status     string      `json:"status"`
+	StatusText string      `json:"statusText,omitempty"`
+	QueueID    string      `json:"queueId,omitempty"`
+	Label      string      `json:"label,omitempty"`
+	Error      string      `json:"error,omitempty"`
 	ImageURL   string      `json:"imageUrl,omitempty"`
 	Attachment *attachment `json:"attachment,omitempty"`
 	Demo       bool        `json:"demo,omitempty"`
-	ReplyTo    string     `json:"replyTo,omitempty"`
-	Reactions  []reaction `json:"reactions,omitempty"`
-	EditedAt   string     `json:"editedAt,omitempty"`
+	ReplyTo    string      `json:"replyTo,omitempty"`
+	Reactions  []reaction  `json:"reactions,omitempty"`
+	EditedAt   string      `json:"editedAt,omitempty"`
 }
 type reaction struct {
 	Emoji   string `json:"emoji"`
@@ -106,15 +129,16 @@ type connection struct {
 	TestedAt string   `json:"testedAt"`
 }
 type data struct {
-	Version    int         `json:"version"`
-	Group      identity    `json:"group"`
-	Owner      owner       `json:"owner"`
-	Seats      []seat      `json:"seats"`
-	Settings   settings    `json:"settings"`
-	Messages   []*message  `json:"messages"`
-	Jobs       []*job      `json:"jobs"`
-	Task       *activeTask `json:"activeTask"`
-	Connection *connection `json:"connection"`
+	Version    int               `json:"version"`
+	Group      identity          `json:"group"`
+	Owner      owner             `json:"owner"`
+	Seats      []seat            `json:"seats"`
+	Settings   settings          `json:"settings"`
+	Providers  []gatewayProvider `json:"providers"`
+	Messages   []*message        `json:"messages"`
+	Jobs       []*job            `json:"jobs"`
+	Task       *activeTask       `json:"activeTask"`
+	Connection *connection       `json:"connection"`
 }
 
 var defaultSeats = []struct{ code, name, role string }{
@@ -148,6 +172,7 @@ func loadData(dir string) (data, error) {
 			}
 			d.Seats = append(d.Seats, s)
 		}
+		d.migrateProviders()
 		return d, nil
 	}
 	if err != nil {
@@ -217,7 +242,308 @@ func loadData(dir string) (data, error) {
 			}
 		}
 	}
+	seenProviders := map[string]bool{}
+	for i := range d.Providers {
+		p := &d.Providers[i]
+		if p.ID == "" || seenProviders[p.ID] {
+			return d, errors.New("ID provider data.json tidak valid atau tidak unik")
+		}
+		seenProviders[p.ID] = true
+		if strings.TrimSpace(p.Name) == "" || strings.TrimSpace(p.BaseURL) == "" {
+			return d, errors.New("provider data.json tidak valid")
+		}
+	}
+	d.migrateProviders()
 	return d, nil
+}
+
+// migrateProviders menaikkan konfigurasi gateway tunggal lama menjadi daftar
+// provider. Dijalankan setiap kali data dimuat sehingga data.json lama tetap
+// bisa dibaca; hasilnya menetap saat data berikutnya disimpan (New juga
+// menyimpan saat startup).
+func (d *data) migrateProviders() {
+	if len(d.Providers) == 0 && strings.TrimSpace(d.Settings.BaseURL) != "" {
+		name := strings.TrimSpace(d.Settings.ProviderName)
+		if name == "" {
+			if u, err := url.Parse(d.Settings.BaseURL); err == nil && u.Hostname() != "" {
+				name = u.Hostname()
+			} else {
+				name = "Gateway Utama"
+			}
+		}
+		proto := d.Settings.GatewayProtocol
+		if proto == "" {
+			proto = "openai"
+		}
+		if !validProtocols[proto] {
+			proto = "openai"
+		}
+		d.Providers = []gatewayProvider{{ID: "prov-utama", Name: name, BaseURL: strings.TrimRight(d.Settings.BaseURL, "/"), APIKey: d.Settings.APIKey, Protocol: proto}}
+		d.Settings.ActiveProviderID = "prov-utama"
+	}
+	for i := range d.Providers {
+		if !validProtocols[d.Providers[i].Protocol] {
+			d.Providers[i].Protocol = "openai"
+		}
+	}
+	if len(d.Providers) > 0 {
+		active := d.findProvider(d.Settings.ActiveProviderID)
+		if active == nil {
+			d.Settings.ActiveProviderID = d.Providers[0].ID
+			active = &d.Providers[0]
+		}
+		d.syncSettingsFromProvider(*active)
+	} else {
+		d.Settings.ActiveProviderID = ""
+		d.Settings.BaseURL = ""
+		d.Settings.APIKey = ""
+		d.Settings.ProviderName = ""
+		d.Settings.GatewayProtocol = ""
+	}
+}
+
+func (d *data) findProvider(id string) *gatewayProvider {
+	for i := range d.Providers {
+		if d.Providers[i].ID == id {
+			return &d.Providers[i]
+		}
+	}
+	return nil
+}
+
+// syncSettingsFromProvider menyalin konfigurasi provider aktif ke settings
+// tunggal yang dipakai engine gateway, supaya jalur chat lama tidak berubah.
+func (d *data) syncSettingsFromProvider(p gatewayProvider) {
+	d.Settings.BaseURL = p.BaseURL
+	d.Settings.APIKey = p.APIKey
+	d.Settings.ProviderName = p.Name
+	d.Settings.GatewayProtocol = p.Protocol
+	d.Settings.ActiveProviderID = p.ID
+}
+
+// providerConfig membangun settings untuk panggilan gateway ke satu provider.
+func (d *data) providerConfig(p gatewayProvider) settings {
+	return settings{BaseURL: p.BaseURL, APIKey: p.APIKey, ProviderName: p.Name, GatewayProtocol: p.Protocol}
+}
+
+func (d *data) providerView(p gatewayProvider) gatewayProviderView {
+	return gatewayProviderView{ID: p.ID, Name: p.Name, BaseURL: p.BaseURL, Protocol: p.Protocol, HasAPIKey: p.APIKey != "", Active: p.ID == d.Settings.ActiveProviderID}
+}
+
+func (d *data) providerViews() []gatewayProviderView {
+	views := []gatewayProviderView{}
+	for _, p := range d.Providers {
+		views = append(views, d.providerView(p))
+	}
+	return views
+}
+
+func validateProviderName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || jsLength(name) > 80 || badName.MatchString(name) {
+		return problem(400, "Nama provider wajib diisi, maksimal 80 karakter, tanpa @ atau baris baru.")
+	}
+	return nil
+}
+
+func normalizeProviderBaseURL(raw string) (string, error) {
+	base := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if base == "" {
+		return "", problem(400, "Base URL wajib diisi.")
+	}
+	u, err := url.Parse(base)
+	if err != nil || u.Hostname() == "" {
+		return "", problem(400, "Base URL harus URL HTTP atau HTTPS yang valid.")
+	}
+	if !validHTTPURL(u) || u.RawQuery != "" || u.ForceQuery || strings.Contains(base, "#") {
+		return "", problem(400, "Base URL harus HTTP/HTTPS tanpa kredensial, query, atau fragmen.")
+	}
+	u.Host = strings.ToLower(u.Host)
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
+func validateProviderProtocol(proto string) error {
+	if !validProtocols[proto] {
+		return problem(400, "Protokol gateway harus openai, openai-responses, anthropic, gemini, atau ollama.")
+	}
+	return nil
+}
+
+func validateProviderAPIKey(key string) error {
+	if jsLength(key) > 4096 || badSetting.MatchString(key) {
+		return problem(400, "API key tidak valid.")
+	}
+	return nil
+}
+
+func newProviderID() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return "prov-" + hex.EncodeToString(b[:])
+}
+
+type providerInput struct {
+	Name        *string `json:"name"`
+	BaseURL     *string `json:"baseUrl"`
+	APIKey      *string `json:"apiKey"`
+	Protocol    *string `json:"protocol"`
+	ClearAPIKey bool    `json:"clearApiKey"`
+}
+
+func (a *App) createProviderLocked(input providerInput) (gatewayProviderView, error) {
+	if input.Name == nil || input.BaseURL == nil || input.Protocol == nil {
+		return gatewayProviderView{}, problem(400, "Nama, Base URL, dan protokol provider wajib diisi.")
+	}
+	name := strings.TrimSpace(*input.Name)
+	if err := validateProviderName(name); err != nil {
+		return gatewayProviderView{}, err
+	}
+	base, err := normalizeProviderBaseURL(*input.BaseURL)
+	if err != nil {
+		return gatewayProviderView{}, err
+	}
+	proto := strings.TrimSpace(*input.Protocol)
+	if proto == "" {
+		proto = "openai"
+	}
+	if err := validateProviderProtocol(proto); err != nil {
+		return gatewayProviderView{}, err
+	}
+	key := ""
+	if input.APIKey != nil {
+		key = strings.TrimSpace(*input.APIKey)
+		if err := validateProviderAPIKey(key); err != nil {
+			return gatewayProviderView{}, err
+		}
+	}
+	if key == "" && proto != "ollama" {
+		return gatewayProviderView{}, problem(400, "API key wajib diisi kecuali protokol Ollama.")
+	}
+	p := gatewayProvider{ID: newProviderID(), Name: name, BaseURL: base, APIKey: key, Protocol: proto}
+	next := a.data
+	next.Providers = append(slices.Clone(next.Providers), p)
+	if len(next.Providers) == 1 {
+		next.syncSettingsFromProvider(p)
+		next.Connection = nil
+	}
+	a.rememberKeyLocked(key)
+	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+		return gatewayProviderView{}, err
+	}
+	a.data = next
+	return next.providerView(p), nil
+}
+
+func (a *App) updateProviderLocked(id string, input providerInput) (gatewayProviderView, error) {
+	next := a.data
+	next.Providers = slices.Clone(next.Providers)
+	p := next.findProvider(id)
+	if p == nil {
+		return gatewayProviderView{}, problem(404, "Provider tidak ditemukan.")
+	}
+	if input.Name != nil {
+		name := strings.TrimSpace(*input.Name)
+		if err := validateProviderName(name); err != nil {
+			return gatewayProviderView{}, err
+		}
+		p.Name = name
+	}
+	if input.BaseURL != nil {
+		base, err := normalizeProviderBaseURL(*input.BaseURL)
+		if err != nil {
+			return gatewayProviderView{}, err
+		}
+		p.BaseURL = base
+	}
+	if input.Protocol != nil {
+		proto := strings.TrimSpace(*input.Protocol)
+		if proto == "" {
+			proto = "openai"
+		}
+		if err := validateProviderProtocol(proto); err != nil {
+			return gatewayProviderView{}, err
+		}
+		p.Protocol = proto
+	}
+	if input.ClearAPIKey {
+		p.APIKey = ""
+	} else if input.APIKey != nil && *input.APIKey != "" && !strings.HasPrefix(*input.APIKey, "••••") {
+		key := strings.TrimSpace(*input.APIKey)
+		if err := validateProviderAPIKey(key); err != nil {
+			return gatewayProviderView{}, err
+		}
+		p.APIKey = key
+	}
+	if p.APIKey == "" && p.Protocol != "ollama" {
+		return gatewayProviderView{}, problem(400, "API key wajib diisi kecuali protokol Ollama.")
+	}
+	changed := false
+	if p.ID == next.Settings.ActiveProviderID {
+		if next.Settings.BaseURL != p.BaseURL || next.Settings.APIKey != p.APIKey || next.Settings.ProviderName != p.Name || next.Settings.GatewayProtocol != p.Protocol {
+			changed = true
+		}
+		next.syncSettingsFromProvider(*p)
+	}
+	if changed {
+		next.Connection = nil
+	}
+	a.rememberKeyLocked(p.APIKey)
+	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+		return gatewayProviderView{}, err
+	}
+	a.data = next
+	return next.providerView(*p), nil
+}
+
+func (a *App) deleteProviderLocked(id string) error {
+	next := a.data
+	idx := -1
+	for i := range next.Providers {
+		if next.Providers[i].ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return problem(404, "Provider tidak ditemukan.")
+	}
+	wasActive := next.Providers[idx].ID == next.Settings.ActiveProviderID
+	kept := slices.Clone(next.Providers[:idx])
+	next.Providers = append(kept, next.Providers[idx+1:]...)
+	if wasActive {
+		next.Connection = nil
+		if len(next.Providers) > 0 {
+			next.syncSettingsFromProvider(next.Providers[0])
+		} else {
+			next.Settings.ActiveProviderID = ""
+			next.Settings.BaseURL = ""
+			next.Settings.APIKey = ""
+			next.Settings.ProviderName = ""
+			next.Settings.GatewayProtocol = ""
+		}
+	}
+	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+		return err
+	}
+	a.data = next
+	return nil
+}
+
+func (a *App) activateProviderLocked(id string) error {
+	next := a.data
+	p := next.findProvider(id)
+	if p == nil {
+		return problem(404, "Provider tidak ditemukan.")
+	}
+	if next.Settings.ActiveProviderID != p.ID {
+		next.syncSettingsFromProvider(*p)
+		next.Connection = nil
+	}
+	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+		return err
+	}
+	a.data = next
+	return nil
 }
 
 func writeJSONFile(file string, value any) error {
@@ -395,6 +721,14 @@ func (a *App) stateLocked() any {
 	for i := range d.Seats {
 		d.Seats[i].DefaultPrompt = defaultPromptFor(d.Seats[i])
 	}
+	// Salin provider dan kosongkan key-nya: klien hanya menerima tampilan
+	// aman (hasApiKey/active) lewat field Providers di bawah. Tampilan
+	// dihitung SEBELUM key dikosongkan, supaya hasApiKey tetap benar.
+	views := d.providerViews()
+	d.Providers = slices.Clone(d.Providers)
+	for i := range d.Providers {
+		d.Providers[i].APIKey = ""
+	}
 	key := []rune(d.Settings.APIKey)
 	masked := ""
 	if len(key) > 0 {
@@ -415,7 +749,8 @@ func (a *App) stateLocked() any {
 	}
 	return struct {
 		data
-		Settings struct {
+		Providers []gatewayProviderView `json:"providers"`
+		Settings  struct {
 			settings
 			HasAPIKey bool `json:"hasApiKey"`
 		} `json:"settings"`
@@ -423,7 +758,7 @@ func (a *App) stateLocked() any {
 			Present int `json:"present"`
 			Total   int `json:"total"`
 		} `json:"presence"`
-	}{d, struct {
+	}{d, views, struct {
 		settings
 		HasAPIKey bool `json:"hasApiKey"`
 	}{d.Settings, len(key) > 0}, struct {
@@ -471,6 +806,7 @@ func updateName(dest *string, value *string, label string, max int) error {
 func (a *App) updateSettingsLocked(input settingsUpdate) error {
 	next := a.data
 	next.Seats = slices.Clone(next.Seats)
+	next.Providers = slices.Clone(next.Providers)
 	if input.Owner != nil {
 		if err := updateName(&next.Owner.Name, input.Owner.Name, "Nama pemilik", 80); err != nil {
 			return err
@@ -569,6 +905,38 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 			if !strings.HasPrefix(key, "••••") {
 				next.Settings.APIKey = strings.TrimSpace(key)
 			}
+		}
+		// Tulis balik field gateway ke provider aktif agar daftar provider
+		// tetap konsisten dengan pengaturan tunggal lama.
+		if active := next.findProvider(next.Settings.ActiveProviderID); active != nil {
+			active.BaseURL = next.Settings.BaseURL
+			active.APIKey = next.Settings.APIKey
+			active.Name = next.Settings.ProviderName
+			active.Protocol = next.Settings.GatewayProtocol
+		}
+		// Bila belum ada provider aktif tetapi settings kini punya gateway
+		// (konfigurasi lama lewat /api/settings), buat provider dari
+		// settings agar daftar provider selalu mencerminkan gateway yang
+		// dipakai.
+		if next.findProvider(next.Settings.ActiveProviderID) == nil && strings.TrimSpace(next.Settings.BaseURL) != "" {
+			name := strings.TrimSpace(next.Settings.ProviderName)
+			if name == "" {
+				if u, err := url.Parse(next.Settings.BaseURL); err == nil && u.Hostname() != "" {
+					name = u.Hostname()
+				} else {
+					name = "Gateway Utama"
+				}
+			}
+			proto := next.Settings.GatewayProtocol
+			if proto == "" {
+				proto = "openai"
+			}
+			id := "prov-utama"
+			if next.findProvider(id) != nil {
+				id = newProviderID()
+			}
+			next.Providers = append(next.Providers, gatewayProvider{ID: id, Name: name, BaseURL: next.Settings.BaseURL, APIKey: next.Settings.APIKey, Protocol: proto})
+			next.Settings.ActiveProviderID = id
 		}
 	}
 	if next.Settings.BaseURL != a.data.Settings.BaseURL || next.Settings.APIKey != a.data.Settings.APIKey || next.Settings.GatewayProtocol != a.data.Settings.GatewayProtocol {

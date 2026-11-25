@@ -13,9 +13,11 @@ export type Message = {
   text: string; status: string; label?: string; demo?: boolean; statusText?: string; error?: string; imageUrl?: string;
   attachment?: Attachment; replyTo?: string; editedAt?: string; reactions?: Reaction[] | null;
 };
+export type GatewayProvider = { id: string; name: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean };
+export type ProviderModelTest = { model: string; ok: boolean; latencyMs?: number; reply?: string; error?: string };
 export type Connection = { models: string[]; testedAt: string };
 export type State = {
-  group: Identity; owner: Identity; seats: Seat[]; settings: Settings; messages: Message[];
+  group: Identity; owner: Identity; seats: Seat[]; settings: Settings; providers: GatewayProvider[]; messages: Message[];
   presence: { present: number; total: number }; connection: Connection | null;
 };
 

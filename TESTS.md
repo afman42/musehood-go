@@ -35,6 +35,16 @@ Tes Go memakai `httptest` untuk menguji:
 - **OpenAI Responses**: `POST /v1/responses` dengan Bearer, snapshot `response.output_text` yang berulang dideduplikasi saat streaming.
 - Pembuatan gambar hanya pada protokol `openai`; pada protokol lain pesan `Gambar:` otomatis dialihkan ke jalur gambar pekerja Muse.
 
+## CRUD Provider Gateway
+
+Beberapa provider gateway tersimpan di `data.json` (`providers[]`); satu provider aktif disinkronkan ke settings tunggal yang dipakai engine, jadi jalur chat lama tidak berubah. Pengujian `providers_test.go` mencakup:
+
+- **CRUD** (`GET/POST /api/providers`, `POST/DELETE /api/providers/{id}`, `POST /api/providers/{id}/activate`): buat/ubah/hapus/aktifkan, validasi nama/URL/protokol, key wajib kecuali Ollama, key kosong saat update mempertahankan key lama, hapus provider aktif mengaktifkan provider pertama yang tersisa, hapus semua mengosongkan gateway. API key tidak pernah muncul di respons (hanya `hasApiKey`); rotasi key tidak membocorkan key lama lewat state.
+- **Migrasi**: `data.json` lama (hanya settings gateway tunggal) otomatis menjadi satu provider `prov-utama` saat dimuat; migrasi idempotent. Pengaturan gateway lewat `/api/settings` juga menulis-balik ke provider aktif, atau membuat provider bila belum ada.
+- **Fetch Models** (`GET /api/providers/{id}/models`): daftar model dari provider mana pun tanpa harus mengaktifkannya; untuk provider aktif hasilnya juga disimpan ke `Connection` seperti Tes Koneksi.
+- **Tes Models** (`POST /api/providers/{id}/test-models`, maksimal 10 model): satu prompt minimal per model secara berurutan, hasil per model (latensi + cuplikan balasan atau error); model gagal tidak menghentikan yang lain; key yang digemakan provider pada error disamarkan `[RAHASIA DISEMBUNYIKAN]`.
+- **UI**: panel Pengaturan → Provider Gateway (daftar + tambah/edit/hapus/aktifkan, Fetch Models, Tes Models). `npm run check` 0 error, `npm run build` lulus.
+
 ## Fitur chat (Workstream B)
 
 Pengujian `chatops_test.go` mencakup:
