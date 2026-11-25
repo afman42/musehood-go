@@ -310,7 +310,12 @@ func parseResponsesText(body string) (string, error) {
 				if delta, isStr := field(value, "delta").(string); isStr {
 					text.WriteString(delta)
 				}
-			case "response.completed", "response.incomplete", "response.failed":
+			case "error", "response.failed":
+				if err := providerError(field(value, "response")); err != nil {
+					return "", err
+				}
+				return "", fmt.Errorf("respons provider gagal: %s", payload)
+			case "response.completed", "response.incomplete":
 				// Full snapshots duplicate text already streamed as deltas.
 			default:
 				if !sawDelta {

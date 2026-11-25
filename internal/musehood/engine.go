@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+type seatMentionPattern struct {
+	name string
+	code string
+	re   *regexp.Regexp
+}
+
 var taskPrefix = regexp.MustCompile(`(?i)^tugas\s*:\s*`)
 var imagePrefix = regexp.MustCompile(`(?i)^gambar\s*:\s*`)
 var jobPrefix = regexp.MustCompile(`(?i)^(gambar|tugas)\s*:\s*`)
@@ -26,10 +32,29 @@ func (a *App) routeLocked(text string) (string, []step) {
 		return "image", []step{{Seat: "M03", Kind: "image"}}
 	}
 	mentioned := []step{}
-	for _, s := range a.data.Seats {
-		pattern := regexp.MustCompile(`(?i)@(?:` + regexp.QuoteMeta(s.Name) + `|` + s.Code + `)(?:$|[^\p{L}\p{N}_-])`)
-		if pattern.MatchString(text) {
-			mentioned = append(mentioned, step{Seat: s.Code, Kind: "chat"})
+	stalePatterns := len(a.mentionPatterns) != len(a.data.Seats)
+	if !stalePatterns {
+		for i, s := range a.data.Seats {
+			cached := a.mentionPatterns[i]
+			if cached.name != s.Name || cached.code != s.Code {
+				stalePatterns = true
+				break
+			}
+		}
+	}
+	if stalePatterns {
+		a.mentionPatterns = make([]seatMentionPattern, len(a.data.Seats))
+		for i, s := range a.data.Seats {
+			a.mentionPatterns[i] = seatMentionPattern{
+				name: s.Name,
+				code: s.Code,
+				re:   regexp.MustCompile(`(?i)@(?:` + regexp.QuoteMeta(s.Name) + `|` + regexp.QuoteMeta(s.Code) + `)(?:$|[^\p{L}\p{N}_-])`),
+			}
+		}
+	}
+	for _, cached := range a.mentionPatterns {
+		if cached.re.MatchString(text) {
+			mentioned = append(mentioned, step{Seat: cached.code, Kind: "chat"})
 		}
 	}
 	if len(mentioned) > 0 {

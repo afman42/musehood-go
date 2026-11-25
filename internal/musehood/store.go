@@ -212,7 +212,7 @@ func loadData(dir string) (data, error) {
 			return d, errors.New("pekerjaan data.json tidak valid")
 		}
 		for _, s := range j.Steps {
-			if d.findSeat(s.Seat) == nil {
+			if j.Status != "completed" && d.findSeat(s.Seat) == nil {
 				return d, errors.New("kursi pekerjaan data.json tidak valid")
 			}
 		}
@@ -312,7 +312,7 @@ func (a *App) deleteSeatLocked(code string) error {
 		return problem(404, "Kursi tidak ditemukan.")
 	}
 	for _, j := range a.data.Jobs {
-		if j.Status == "running" {
+		if j.Status != "completed" {
 			for _, s := range j.Steps {
 				if s.Seat == code {
 					return problem(409, "Kursi sedang dipakai tugas yang berjalan. Tunggu tugas selesai.")
@@ -336,7 +336,7 @@ func (a *App) rememberKeyLocked(key string) {
 		pairs := make([]string, 0, 4*len(a.secrets))
 		const hidden = "[RAHASIA DISEMBUNYIKAN]"
 		for _, s := range a.secrets {
-			pairs = append(pairs, s, hidden)
+			pairs = append(pairs, s, hidden, url.QueryEscape(s), hidden)
 			for _, escapeHTML := range []bool{true, false} {
 				var b bytes.Buffer
 				encoder := json.NewEncoder(&b)

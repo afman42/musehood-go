@@ -29,22 +29,23 @@ type Options struct {
 	MuseWait     time.Duration
 }
 type App struct {
-	dir      string
-	frontend fs.FS
-	index    []byte
-	csp      string
-	hosts    map[string]bool
-	client   *http.Client
-	ctx      context.Context
-	stop     context.CancelFunc
-	wg       sync.WaitGroup
-	museWait time.Duration
-	mu       sync.Mutex
-	data     data
-	secrets  []string
-	redactor *strings.Replacer
-	running  map[*job]context.CancelFunc
-	closed   bool
+	dir             string
+	frontend        fs.FS
+	index           []byte
+	csp             string
+	hosts           map[string]bool
+	client          *http.Client
+	ctx             context.Context
+	stop            context.CancelFunc
+	wg              sync.WaitGroup
+	museWait        time.Duration
+	mu              sync.Mutex
+	data            data
+	secrets         []string
+	redactor        *strings.Replacer
+	mentionPatterns []seatMentionPattern
+	running         map[*job]context.CancelFunc
+	closed          bool
 }
 type apiError struct {
 	status  int
@@ -434,6 +435,7 @@ func (a *App) testConnection(ctx context.Context) (int, json.RawMessage, error) 
 		return map[string]any{"models": models, "seats": seats, "testedAt": c.TestedAt}, nil
 	})
 }
+
 // testModel mengirim satu prompt minimal ke model gateway dan melaporkan
 // apakah model benar-benar menjawab, beserta latensi dan cuplikan balasan.
 // Berbeda dengan Tes Koneksi (yang hanya mengambil daftar model), endpoint

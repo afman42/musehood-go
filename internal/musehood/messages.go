@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -86,9 +87,11 @@ func (a *App) editMessageLocked(id, text string) (*message, error) {
 	if text == "" || jsLength(text) > 20000 {
 		return nil, problem(400, "Pesan wajib berisi teks, maksimal 20.000 karakter.")
 	}
+	previousText, previousEditedAt := msg.Text, msg.EditedAt
 	msg.Text = a.redactLocked(text)
 	msg.EditedAt = now()
 	if err := a.saveLocked(); err != nil {
+		msg.Text, msg.EditedAt = previousText, previousEditedAt
 		return nil, err
 	}
 	return msg, nil
@@ -102,7 +105,8 @@ func (a *App) deleteMessageLocked(id string) error {
 	if msg.Status == "typing" || msg.Status == "waiting" {
 		return problem(409, "Pesan sedang diproses dan belum bisa dihapus.")
 	}
-	kept := a.data.Messages[:0]
+	previousMessages, previousTask := a.data.Messages, a.data.Task
+	kept := make([]*message, 0, len(a.data.Messages))
 	for _, m := range a.data.Messages {
 		if m.ID != id {
 			kept = append(kept, m)
@@ -122,7 +126,11 @@ func (a *App) deleteMessageLocked(id string) error {
 			a.data.Task = nil
 		}
 	}
-	return a.saveLocked()
+	if err := a.saveLocked(); err != nil {
+		a.data.Messages, a.data.Task = previousMessages, previousTask
+		return err
+	}
+	return nil
 }
 
 func (a *App) reactMessageLocked(id, emoji string) (*message, error) {
@@ -147,12 +155,15 @@ func (a *App) reactMessageLocked(id, emoji string) (*message, error) {
 			break
 		}
 	}
+	previousReactions := msg.Reactions
+	msg.Reactions = slices.Clone(msg.Reactions)
 	if found >= 0 {
 		msg.Reactions = append(msg.Reactions[:found], msg.Reactions[found+1:]...)
 	} else {
 		msg.Reactions = append(msg.Reactions, reaction{Emoji: emoji, Count: 1, ByOwner: true})
 	}
 	if err := a.saveLocked(); err != nil {
+		msg.Reactions = previousReactions
 		return nil, err
 	}
 	return msg, nil
@@ -213,9 +224,8 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mu.Lock()
-	state := a.stateLocked()
+	rawState, err := json.Marshal(a.safeLocked(a.stateLocked()))
 	a.mu.Unlock()
-	rawState, err := json.Marshal(state)
 	if err != nil {
 		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
 		return
