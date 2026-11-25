@@ -120,6 +120,9 @@ func New(opts Options) (*App, error) {
 	const announcerStyle = "style-src-attr 'unsafe-hashes' 'sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo='"
 	a.csp = "default-src 'self'; " + scripts + "; style-src 'self'; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 	a.rememberKeyLocked(d.Settings.APIKey)
+	for _, p := range d.Providers {
+		a.rememberKeyLocked(p.APIKey)
+	}
 	if err := a.saveLocked(); err != nil {
 		return nil, err
 	}
@@ -278,6 +281,12 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state", "/api/queue/muse":
 		want = http.MethodGet
+	case "/api/providers":
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			w.Header().Set("Allow", "GET, POST")
+			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
+		}
+		want = r.Method
 	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats":
 		want = http.MethodPost
 	default:
@@ -285,6 +294,27 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			want = http.MethodPost
 		} else if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			want = http.MethodDelete
+		} else if strings.HasPrefix(path, "/api/providers/") {
+			rest := strings.TrimPrefix(path, "/api/providers/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 1 && parts[0] != "" {
+				if r.Method == http.MethodDelete {
+					want = http.MethodDelete
+				} else if r.Method == http.MethodPost {
+					want = http.MethodPost
+				} else {
+					w.Header().Set("Allow", "POST, DELETE")
+					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
+				}
+			} else if len(parts) == 2 && parts[1] == "activate" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else if len(parts) == 2 && parts[1] == "models" && r.Method == http.MethodGet {
+				want = http.MethodGet
+			} else if len(parts) == 2 && parts[1] == "test-models" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
+			}
 		} else if _, _, ok := messageAction(path); ok {
 			want = http.MethodPost
 		} else {
@@ -297,6 +327,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state":
 		return a.respondLocked(200, func() (any, error) { return a.stateLocked(), nil })
+	case "/api/providers":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) { return map[string]any{"providers": a.data.providerViews()}, nil })
+		}
+		var input providerInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) { return a.createProviderLocked(input) })
 	case "/api/settings":
 		var patch settingsUpdate
 		if err := readObject(w, r, &patch); err != nil {
@@ -370,6 +409,45 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return created, nil
 		})
 	default:
+		if strings.HasPrefix(path, "/api/providers/") {
+			rest := strings.TrimPrefix(path, "/api/providers/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 2 && parts[1] == "activate" {
+				return a.respondLocked(200, func() (any, error) {
+					if err := a.activateProviderLocked(parts[0]); err != nil {
+						return nil, err
+					}
+					return a.stateLocked(), nil
+				})
+			}
+			if len(parts) == 2 && parts[1] == "models" {
+				return a.fetchProviderModels(r.Context(), parts[0])
+			}
+			if len(parts) == 2 && parts[1] == "test-models" {
+				var body struct {
+					Models []string `json:"models"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.testProviderModels(r.Context(), parts[0], body.Models)
+			}
+			if len(parts) == 1 {
+				if r.Method == http.MethodDelete {
+					return a.respondLocked(200, func() (any, error) {
+						if err := a.deleteProviderLocked(parts[0]); err != nil {
+							return nil, err
+						}
+						return map[string]bool{"ok": true}, nil
+					})
+				}
+				var input providerInput
+				if err := readObject(w, r, &input); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.updateProviderLocked(parts[0], input) })
+			}
+		}
 		if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			code := strings.TrimPrefix(path, "/api/seats/")
 			return a.respondLocked(200, func() (any, error) {
@@ -436,10 +514,34 @@ func (a *App) testConnection(ctx context.Context) (int, json.RawMessage, error) 
 	})
 }
 
-// testModel mengirim satu prompt minimal ke model gateway dan melaporkan
-// apakah model benar-benar menjawab, beserta latensi dan cuplikan balasan.
-// Berbeda dengan Tes Koneksi (yang hanya mengambil daftar model), endpoint
-// ini membuktikan model bisa dipakai.
+// testOneModel mengirim satu prompt minimal ke satu model dan melaporkan
+// latensi serta cuplikan balasan. Dipakai Tes Model per kursi maupun
+// Tes Models massal per provider.
+func (a *App) testOneModel(ctx context.Context, cfg settings, model string) (int64, string, error) {
+	start := time.Now()
+	history := []gatewayMessage{
+		{"system", "You are a helpful assistant. Reply concisely."},
+		{"user", "Balas dengan satu kata: OK"},
+	}
+	raw, err := a.protocolChat(ctx, cfg, model, history)
+	if err != nil {
+		return 0, "", err
+	}
+	text, err := parseProtocolText(protocolOf(cfg), string(raw))
+	if err != nil {
+		return 0, "", err
+	}
+	reply := strings.TrimSpace(text)
+	if runes := []rune(reply); len(runes) > 200 {
+		reply = string(runes[:200]) + "…"
+	}
+	return time.Since(start).Milliseconds(), reply, nil
+}
+
+// testModel mengirim satu prompt minimal ke model gateway aktif dan
+// melaporkan apakah model benar-benar menjawab, beserta latensi dan cuplikan
+// balasan. Berbeda dengan Tes Koneksi (yang hanya mengambil daftar model),
+// endpoint ini membuktikan model bisa dipakai.
 func (a *App) testModel(ctx context.Context, model string) (int, json.RawMessage, error) {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -451,25 +553,88 @@ func (a *App) testModel(ctx context.Context, model string) (int, json.RawMessage
 	a.mu.Lock()
 	cfg := a.data.Settings
 	a.mu.Unlock()
-	start := time.Now()
-	history := []gatewayMessage{
-		{"system", "You are a helpful assistant. Reply concisely."},
-		{"user", "Balas dengan satu kata: OK"},
-	}
-	raw, err := a.protocolChat(ctx, cfg, model, history)
+	latency, reply, err := a.testOneModel(ctx, cfg, model)
 	if err != nil {
 		return 0, nil, err
 	}
-	text, err := parseProtocolText(protocolOf(cfg), string(raw))
-	if err != nil {
-		return 0, nil, err
-	}
-	reply := strings.TrimSpace(text)
-	if runes := []rune(reply); len(runes) > 200 {
-		reply = string(runes[:200]) + "…"
-	}
-	result := map[string]any{"ok": true, "model": model, "latencyMs": time.Since(start).Milliseconds(), "reply": reply, "testedAt": now()}
+	result := map[string]any{"ok": true, "model": model, "latencyMs": latency, "reply": reply, "testedAt": now()}
 	return a.respondLocked(200, func() (any, error) { return result, nil })
+}
+
+// fetchProviderModels mengambil daftar model dari satu provider tanpa harus
+// menjadikannya aktif. Untuk provider aktif, hasilnya juga disimpan ke
+// Connection seperti Tes Koneksi, supaya status ketersediaan model kursi ikut
+// diperbarui.
+func (a *App) fetchProviderModels(ctx context.Context, id string) (int, json.RawMessage, error) {
+	a.mu.Lock()
+	p := a.data.findProvider(id)
+	if p == nil {
+		a.mu.Unlock()
+		return 0, nil, problem(404, "Provider tidak ditemukan.")
+	}
+	cfg := a.data.providerConfig(*p)
+	active := p.ID == a.data.Settings.ActiveProviderID
+	a.mu.Unlock()
+	models, err := a.models(ctx, cfg)
+	if err != nil {
+		return 0, nil, err
+	}
+	if !active {
+		return a.respondLocked(200, func() (any, error) {
+			return map[string]any{"providerId": id, "models": models, "testedAt": now()}, nil
+		})
+	}
+	return a.respondLocked(200, func() (any, error) {
+		c := &connection{Models: models, TestedAt: now()}
+		previous := a.data.Connection
+		a.data.Connection = c
+		if err := a.saveLocked(); err != nil {
+			a.data.Connection = previous
+			return nil, err
+		}
+		return map[string]any{"providerId": id, "models": models, "testedAt": c.TestedAt}, nil
+	})
+}
+
+const maxTestModels = 10
+
+// testProviderModels menguji tiap model dari daftar (maksimal 10) dengan satu
+// prompt minimal dan melaporkan hasilnya per model. Model yang gagal tidak
+// menghentikan pengujian model lain; total waktu dibatasi 180 detik.
+func (a *App) testProviderModels(ctx context.Context, id string, models []string) (int, json.RawMessage, error) {
+	if len(models) == 0 {
+		return 0, nil, problem(400, "Daftar model untuk diuji wajib diisi.")
+	}
+	if len(models) > maxTestModels {
+		return 0, nil, problem(400, "Maksimal 10 model dapat diuji sekaligus.")
+	}
+	a.mu.Lock()
+	p := a.data.findProvider(id)
+	if p == nil {
+		a.mu.Unlock()
+		return 0, nil, problem(404, "Provider tidak ditemukan.")
+	}
+	cfg := a.data.providerConfig(*p)
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
+	defer cancel()
+	results := []map[string]any{}
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" || jsLength(model) > 200 || badSetting.MatchString(model) {
+			results = append(results, map[string]any{"model": model, "ok": false, "error": "Nama model tidak valid."})
+			continue
+		}
+		latency, reply, err := a.testOneModel(ctx, cfg, model)
+		if err != nil {
+			results = append(results, map[string]any{"model": model, "ok": false, "error": publicError(err)})
+			continue
+		}
+		results = append(results, map[string]any{"model": model, "ok": true, "latencyMs": latency, "reply": reply})
+	}
+	return a.respondLocked(200, func() (any, error) {
+		return map[string]any{"providerId": id, "results": results}, nil
+	})
 }
 func (a *App) workerRespond(ctx context.Context, id string, reply workerReply) (int, json.RawMessage, error) {
 	a.mu.Lock()
