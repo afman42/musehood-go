@@ -3,7 +3,7 @@
   import Settings from '../../lib/Settings.svelte';
   import { api, dismissBackdrop, errorText, type Seat, type State, type Message, type Attachment } from '../../lib/api';
 
-  let current = $state<State>();
+  let current = $state.raw<State>();
   let text = $state('');
   let submitting = $state(false);
   let asking = $state(false);
@@ -12,9 +12,7 @@
   let messages: HTMLElement;
   let mention: HTMLDialogElement;
   let settingsPanel: ReturnType<typeof Settings>;
-  let mainToast: HTMLDivElement;
-  let dialogToast: HTMLDivElement;
-  let notice = $state<{ text: string; error: boolean; dialog: boolean }>();
+  let notice = $state<{ text: string; error: boolean; target: string | null }>();
   let timer: ReturnType<typeof setTimeout>;
   let requested = 0;
   let applied = 0;
@@ -42,10 +40,8 @@
   let searchInput = $state<HTMLInputElement>();
 
   function notify(text: string, error = false) {
-    const open = document.querySelector('dialog[open]');
-    if (open) open.append(dialogToast);
-    else if (dialogToast.parentElement !== mainToast.parentElement) mainToast.after(dialogToast);
-    notice = { text, error, dialog: Boolean(open) };
+    const target = document.querySelector<HTMLDialogElement>('dialog[open]')?.id ?? null;
+    notice = { text, error, target };
     clearTimeout(timer);
     timer = setTimeout(() => { notice = undefined; }, error ? 6500 : 3500);
   }
@@ -374,7 +370,7 @@
               </form>
             {:else}
               {#if message.text}
-                <div class="message-text">{#each highlight(message) as part}{#if typeof part === 'string'}{part}{:else}<mark class="search-mark">{part.hit}</mark>{/if}{/each}</div>
+                <div class="message-text">{#each highlight(message) as part, partIndex (partIndex)}{#if typeof part === 'string'}{part}{:else}<mark class="search-mark">{part.hit}</mark>{/if}{/each}</div>
               {/if}
             {/if}
             {#if message.imageUrl}
@@ -394,7 +390,7 @@
             {#if message.error}<pre class="provider-error" aria-label="Error asli provider">{message.error}</pre>{/if}
             {#if message.reactions?.length}
               <div class="reaction-bar">
-                {#each message.reactions as reaction}
+                {#each message.reactions as reaction (reaction.emoji)}
                   <button class="reaction-pill" type="button" class:mine={reaction.byOwner} title="Reaksi pemilik" onclick={() => toggleReact(message, reaction.emoji)}>{reaction.emoji} {reaction.count}</button>
                 {/each}
               </div>
@@ -406,7 +402,7 @@
                   <button class="msg-action" type="button" aria-label="Beri reaksi" title="Reaksi" onclick={() => reactFor = reactFor === message.id ? '' : message.id}>😊</button>
                   {#if reactFor === message.id}
                     <div class="emoji-picker" role="menu">
-                      {#each emojis as emoji}
+                      {#each emojis as emoji (emoji)}
                         <button type="button" role="menuitem" onclick={() => toggleReact(message, emoji)}>{emoji}</button>
                       {/each}
                     </div>
@@ -456,7 +452,7 @@
   </footer>
 </main>
 
-<Settings bind:this={settingsPanel} {current} {refresh} {mutate} {notify} />
+<Settings bind:this={settingsPanel} {current} {refresh} {mutate} {notify} {notice} />
 <dialog bind:this={mention} id="mentionDialog" class="mention-dialog" aria-labelledby="mentionTitle" onclick={(event) => dismissBackdrop(event, mention)}>
   <div class="mention-heading"><h2 id="mentionTitle">Pilih kursi</h2><button id="closeMention" class="icon-button" type="button" aria-label="Tutup daftar kursi" onclick={() => mention.close()}>✕</button></div>
   <p>Hanya kursi yang disebut akan membalas.</p>
@@ -467,8 +463,8 @@
       </button>
     {/each}
   </div>
+  <div class="toast" role="status" class:error={notice?.error} hidden={notice?.target !== 'mentionDialog'}>{notice?.target === 'mentionDialog' ? notice.text : ''}</div>
 </dialog>
-<div bind:this={mainToast} class="toast" role="status" class:error={notice?.error} hidden={!notice || notice.dialog}>{notice?.dialog ? '' : notice?.text}</div>
-<div bind:this={dialogToast} class="toast" role="status" class:error={notice?.error} hidden={!notice?.dialog}>{notice?.dialog ? notice.text : ''}</div>
+<div class="toast" role="status" class:error={notice?.error} hidden={!notice || notice.target !== null}>{notice?.target === null ? notice.text : ''}</div>
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>
 <input id="chatFileInput" type="file" hidden bind:this={fileInput} onchange={chooseFile}>
