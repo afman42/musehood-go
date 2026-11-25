@@ -197,8 +197,8 @@ func (a *App) models(ctx context.Context, cfg settings) ([]string, error) {
 	return a.protocolModels(ctx, cfg)
 }
 func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayMessage) (string, error) {
-	if s.Code == "MUSE" || s.Provider == "muse" {
-		return "", errors.New("Muse wajib memakai antrean file.")
+	if s.Provider == "muse" {
+		return "", errors.New("Kursi ini memakai antrean file Muse.")
 	}
 	if s.Model == nil || *s.Model == "" {
 		return "", problem(400, fmt.Sprintf("Nama model %s (%s) belum diisi di Pengaturan.", s.Name, s.Code))

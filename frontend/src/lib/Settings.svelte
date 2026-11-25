@@ -20,6 +20,7 @@
   let demoFallback = $state(false);
   let reviewLevel = $state<ReviewLevel>('Sedang');
   let provName = $state('');
+  let provAlias = $state('');
   let provBaseUrl = $state('');
   let provProtocol = $state<GatewayProtocol>('openai');
   let provApiKey = $state('');
@@ -29,7 +30,8 @@
   let fetchingProvider = $state<string | null>(null);
   let testingProvider = $state<string | null>(null);
   let savingProvider = $state(false);
-  let seats = $state<Array<{ code: string; name: string; model?: string; prompt: string }>>([]);
+  let seats = $state<Array<{ code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string }>>([]);
+  let integratorSeat = $state('MUSE');
   let newSeatName = $state('');
   let newSeatRole = $state('');
   let newSeatModel = $state('');
@@ -47,13 +49,23 @@
     seats = current.seats.map((seat) => ({
       code: seat.code,
       name: seat.name,
+      role: seat.role,
+      provider: seat.provider,
       ...(seat.model === undefined ? {} : { model: seat.model }),
       prompt: seat.prompt || seat.defaultPrompt || '',
     }));
+    integratorSeat = current.settings.integratorSeat || 'MUSE';
   }
 
   function activeProvider(): GatewayProvider | undefined {
     return current?.providers.find((provider) => provider.active);
+  }
+
+  // Label model dengan awalan alias provider (mis. "xc/gpt-6.1-sol") agar
+  // model bernama sama dari provider lain mudah dibedakan. Hanya tampilan;
+  // nama model yang dikirim ke gateway tetap apa adanya.
+  function modelLabel(provider: GatewayProvider | undefined, model: string): string {
+    return provider?.alias ? `${provider.alias}/${model}` : model;
   }
 
   export async function open() {
@@ -73,6 +85,7 @@
 
   function resetProviderForm() {
     provName = '';
+    provAlias = '';
     provBaseUrl = '';
     provProtocol = 'openai';
     provApiKey = '';
@@ -82,6 +95,7 @@
   function editProvider(provider: GatewayProvider) {
     editingProviderId = provider.id;
     provName = provider.name;
+    provAlias = provider.alias ?? '';
     provBaseUrl = provider.baseUrl;
     provProtocol = provider.protocol;
     provApiKey = '';
@@ -93,7 +107,7 @@
     if (!name || !baseUrl) { notify('Nama dan Base URL provider wajib diisi.', true); return; }
     savingProvider = true;
     try {
-      const body: Record<string, unknown> = { name, baseUrl, protocol: provProtocol };
+      const body: Record<string, unknown> = { name, alias: provAlias.trim(), baseUrl, protocol: provProtocol };
       if (provApiKey) body.apiKey = provApiKey;
       if (editingProviderId) {
         await api(`/api/providers/${editingProviderId}`, body);
@@ -196,7 +210,7 @@
     try {
       await mutate('/api/settings', {
         owner: { name: ownerName }, group: { name: groupName }, seats,
-        settings: { roundRobin, demoFallback, reviewLevel },
+        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat },
       });
       connectionError = '';
       saveStatus = 'Tersimpan';
@@ -301,7 +315,7 @@
           {#each current?.providers ?? [] as provider (provider.id)}
             <article class="provider-row">
               <div class="provider-info">
-                <p><strong>{provider.name}</strong> {#if provider.active}<span class="provider-active">Aktif</span>{/if}</p>
+                <p><strong>{provider.name}</strong> {#if provider.alias}<span class="model-tag">{provider.alias}</span>{/if} {#if provider.active}<span class="provider-active">Aktif</span>{/if}</p>
                 <p class="field-hint">{provider.baseUrl} · {protocolLabels[provider.protocol]} · {provider.hasApiKey ? 'Key tersimpan' : 'Tanpa key'}</p>
               </div>
               <div class="provider-actions">
@@ -312,11 +326,11 @@
                 <button class="text-button danger-text" type="button" onclick={() => deleteProvider(provider)}>Hapus</button>
               </div>
               {#if fetchedModels[provider.id]}
-                <div class="model-list">{#each fetchedModels[provider.id].models as model (model)}<span class="model-tag">{model}</span>{/each}</div>
+                <div class="model-list">{#each fetchedModels[provider.id].models as model (model)}<span class="model-tag">{modelLabel(provider, model)}</span>{/each}</div>
                 {#if providerTests[provider.id]}
                   <div class="provider-test-results">
                     {#each Object.entries(providerTests[provider.id]) as [model, result] (model)}
-                      <p class="model-status {result.ok ? 'test-ok' : 'test-fail'}" data-provider-test={provider.id + ':' + model}>{result.ok ? `✓ ${model} · ${result.latencyMs} mdtk · “${result.reply}”` : `✗ ${model} · ${result.error}`}</p>
+                      <p class="model-status {result.ok ? 'test-ok' : 'test-fail'}" data-provider-test={provider.id + ':' + model}>{result.ok ? `✓ ${modelLabel(provider, model)} · ${result.latencyMs} mdtk · “${result.reply}”` : `✗ ${modelLabel(provider, model)} · ${result.error}`}</p>
                     {/each}
                   </div>
                 {/if}
@@ -328,6 +342,8 @@
       <div class="add-provider">
         <h4>{editingProviderId ? 'Edit provider' : 'Tambah provider'}</h4>
         <label>Nama provider<input aria-label="Nama provider" maxlength="80" placeholder="Contoh: Xingchi" autocomplete="off" bind:value={provName}></label>
+        <label>Alias (label pembeda model)<input aria-label="Alias provider" maxlength="40" placeholder="Contoh: xc" autocomplete="off" spellcheck="false" bind:value={provAlias}></label>
+        <span class="field-hint">Ditampilkan sebagai awalan nama model (mis. xc/gpt-6.1-sol) agar model provider ini mudah dibedakan dari provider lain. Kosongkan bila tidak perlu.</span>
         <label>Base URL<input aria-label="Base URL provider" type="url" placeholder="http://127.0.0.1:20128" autocomplete="off" spellcheck="false" bind:value={provBaseUrl}></label>
         <label>Protokol gateway<select aria-label="Protokol provider" bind:value={provProtocol}>
           {#each Object.entries(protocolLabels) as [value, label] (value)}<option value={value}>{label}</option>{/each}
@@ -348,11 +364,11 @@
         <div id="connectionResult" class="connection-result error" role="status">{connectionError}</div>
       {:else if current?.connection}
         <div id="connectionResult" class="connection-result" role="status">Provider {activeProvider()?.name ?? 'Kustom'} · Terhubung · {current.connection.models.length} model ditemukan. Periksa status setiap kursi di bawah.</div>
-        <div id="modelList" class="model-list">{#each current.connection.models as model, index (index)}<span class="model-tag">{model}</span>{/each}</div>
+        <div id="modelList" class="model-list">{#each current.connection.models as model, index (index)}<span class="model-tag">{modelLabel(activeProvider(), model)}</span>{/each}</div>
       {/if}
     </section>
     <section class="settings-section">
-      <h3>Kursi AI</h3><p class="section-hint">Nama tampil dan model dapat diganti. Kode serta peran kursi bawaan tetap. Kursi custom dapat ditambah dan dihapus di bawah.</p>
+      <h3>Kursi AI</h3><p class="section-hint">Nama tampil, peran, jalur jawaban, dan model dapat diganti untuk semua kursi — termasuk kursi Admin dan Integrasi. Kode kursi bawaan tetap dan kursi bawaan tidak dapat dihapus. Kursi custom dapat ditambah dan dihapus di bawah.</p>
       <div id="seatSettings">
         {#each seats as item (item.code)}
           {@const member = current?.seats.find(seat => seat.code === item.code)}
@@ -362,12 +378,17 @@
             <div class="seat-settings-heading">
               {@render avatar(item.code, member?.avatar ?? '/avatars/group.svg', `Ganti avatar ${member?.name ?? item.name}`)}
               <div>
-                <p><span class="seat-code">{item.code}</span><span class="seat-fixed-role">{member?.role}</span></p>
+                <p><span class="seat-code">{item.code}</span></p>
                 <label>Nama tampil<input aria-label={`Nama tampil ${item.code}`} maxlength="40" required data-seat-name={item.code} bind:value={item.name}></label>
+                <label>Peran<input aria-label={`Peran ${item.code}`} maxlength="80" required data-seat-role={item.code} bind:value={item.role}></label>
+                <label>Jalur jawaban<select aria-label={`Provider ${item.code}`} data-seat-provider={item.code} bind:value={item.provider}>
+                  <option value="muse">Muse (antrean file)</option>
+                  <option value="gateway">Gateway (model)</option>
+                </select></label>
               </div>
             </div>
-            {#if item.code === 'MUSE'}
-              <p class="builtin-note">Bawaan aplikasi · Antrean file · Tanpa model gateway</p>
+            {#if item.provider === 'muse'}
+              <p class="builtin-note">Menjawab lewat antrean file Muse · Tanpa model gateway</p>
             {:else}
               <label class="model-label">{item.code === 'M03' ? 'Nama model (chat / gambar)' : 'Nama model gateway'}
                 <input aria-label={`Model ${item.code}`} maxlength="200" placeholder="Sesuai nama model di gateway" autocomplete="off" spellcheck="false" data-model={item.code} bind:value={item.model}>
@@ -410,6 +431,8 @@
       <label class="toggle-row"><span><strong>Diskusi Bergilir</strong><small>Semua kursi membalas bergiliran. Jika mati, hanya Muse tanpa @mention.</small></span><input id="roundRobin" type="checkbox" role="switch" bind:checked={roundRobin}></label>
       <label>Level Review<select id="reviewLevel" bind:value={reviewLevel}>{#each levels as level (level)}<option value={level}>{level}</option>{/each}</select></label>
       <p class="field-hint">Mengatur ketajaman pemeriksaan kursi Peninjau.</p>
+      <label>Kursi integrator<select id="integratorSeat" bind:value={integratorSeat}>{#each seats as item (item.code)}<option value={item.code}>{item.name} ({item.code})</option>{/each}</select></label>
+      <p class="field-hint">Kursi yang menutup pipeline "Tugas:" (Hasil Akhir - Integrasi) dan menjawab "Tanya Progres". Bawaan: Muse (MUSE).</p>
       <label class="toggle-row"><span><strong>Fallback demo</strong><small>Simulasi berlabel DEMO jika chat gateway gagal. Tidak berlaku untuk Muse atau gambar.</small></span><input id="demoFallback" type="checkbox" role="switch" bind:checked={demoFallback}></label>
     </section>
     <section class="settings-section danger-section">

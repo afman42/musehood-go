@@ -5,6 +5,7 @@ export type GatewayProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gem
 export type Settings = {
   baseUrl: string; apiKey: string; hasApiKey: boolean; providerName: string; roundRobin: boolean;
   reviewLevel: ReviewLevel; demoFallback: boolean; gatewayProtocol: GatewayProtocol; darkMode: boolean;
+  integratorSeat?: string;
 };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
 export type Attachment = { url: string; name: string; size: number; mime: string };
@@ -13,7 +14,7 @@ export type Message = {
   text: string; status: string; label?: string; demo?: boolean; statusText?: string; error?: string; imageUrl?: string;
   attachment?: Attachment; replyTo?: string; editedAt?: string; reactions?: Reaction[] | null;
 };
-export type GatewayProvider = { id: string; name: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean };
+export type GatewayProvider = { id: string; name: string; alias?: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean };
 export type ProviderModelTest = { model: string; ok: boolean; latencyMs?: number; reply?: string; error?: string };
 export type Connection = { models: string[]; testedAt: string };
 export type State = {

@@ -258,3 +258,35 @@ func TestProviderFetchAndTestModels(t *testing.T) {
 	f.api("GET", "/api/providers/tidak-ada/models", nil, 404)
 	f.api("POST", "/api/providers/tidak-ada/test-models", object{"models": []string{"sse"}}, 404)
 }
+
+// Alias provider: label pembeda yang tampil di view, bisa diubah/dikosongkan,
+// dan divalidasi (tanpa spasi, @, atau /).
+func TestProviderAlias(t *testing.T) {
+	f := setup(t, nil)
+	created := f.api("POST", "/api/providers", object{"name": "Xingchi", "alias": "xc", "baseUrl": "https://api.xingchiapi.com", "apiKey": "kunci-xc", "protocol": "openai"}, 201)
+	if created["alias"] != "xc" {
+		t.Fatalf("alias tidak tersimpan: %v", created)
+	}
+	id, _ := created["id"].(string)
+	updated := f.api("POST", "/api/providers/"+id, object{"alias": "xingchi-1"}, 200)
+	if updated["alias"] != "xingchi-1" {
+		t.Fatalf("alias tidak diperbarui: %v", updated)
+	}
+	// Alias bertahan setelah reload dan tampil di state.
+	d, err := loadData(f.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := d.findProvider(id); p == nil || p.Alias != "xingchi-1" {
+		t.Fatalf("alias tidak bertahan setelah reload: %+v", p)
+	}
+	// Kosongkan alias.
+	cleared := f.api("POST", "/api/providers/"+id, object{"alias": ""}, 200)
+	if _, ok := cleared["alias"]; ok && cleared["alias"] != "" {
+		t.Fatalf("alias harus kosong: %v", cleared)
+	}
+	// Alias tidak valid ditolak.
+	f.api("POST", "/api/providers/"+id, object{"alias": "a/b"}, 400)
+	f.api("POST", "/api/providers/"+id, object{"alias": "a b"}, 400)
+	f.api("POST", "/api/providers", object{"name": "Lain", "alias": "x@y", "baseUrl": "https://example.com", "apiKey": "k", "protocol": "openai"}, 400)
+}
