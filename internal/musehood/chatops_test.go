@@ -213,7 +213,18 @@ func TestUploadImageAndChatImage(t *testing.T) {
 		t.Fatalf("gambar tidak bisa diambil: %d", res)
 	}
 	// SVG ditolak, lebih dari 2 MB ditolak, tanpa file ditolak.
-	upload("nakal.svg", []byte("<svg/>"))
+	status, out = upload("nakal.svg", []byte("<svg/>"))
+	if status != 400 {
+		t.Fatal(status, out)
+	}
+	var empty bytes.Buffer
+	form := multipart.NewWriter(&empty)
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if status, raw, _ := f.raw("POST", "/api/upload-image", &empty, form.FormDataContentType()); status != 400 {
+		t.Fatalf("missing image: status=%d, body=%s", status, raw)
+	}
 	status, out = upload("besar.png", make([]byte, 2*1024*1024+1))
 	if status != 413 {
 		t.Fatal(status, out)

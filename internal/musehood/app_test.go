@@ -227,33 +227,36 @@ func TestConnectionAndSafeSettings(t *testing.T) {
 	}
 }
 func TestMentionFormatsAndProviderError(t *testing.T) {
-	f := setup(t, nil)
-	cases := []struct{ mention, code, text, providerError string }{
-		{"@Opus", "M10", "Halo dunia", ""}, {"@M01", "M01", "bagian teks", ""}, {"@GLM", "M02", "teks polos", ""}, {"@Fable", "M05", "delta langsung", ""},
-		{"@Opus", "M10", "", "HTTP 401: " + denied}, {"@Opus", "M10", "", "HTTP 401: {\"error\":\"[RAHASIA DISEMBUNYIKAN]\"}\n"},
+	cases := []struct{ name, mention, code, text, providerError, model string }{
+		{name: "sse", mention: "@Opus", code: "M10", text: "Halo dunia"},
+		{name: "array", mention: "@M01", code: "M01", text: "bagian teks"},
+		{name: "plain", mention: "@GLM", code: "M02", text: "teks polos"},
+		{name: "delta", mention: "@Fable", code: "M05", text: "delta langsung"},
+		{name: "provider_error", mention: "@Opus", code: "M10", providerError: "HTTP 401: " + denied, model: "denied"},
+		{name: "redacted_provider_error", mention: "@Opus", code: "M10", providerError: "HTTP 401: {\"error\":\"[RAHASIA DISEMBUNYIKAN]\"}\n", model: "echo"},
 	}
-	for i, c := range cases {
-		t.Run(c.code+fmt.Sprint(i), func(t *testing.T) {
-			if i >= 4 {
-				model := "denied"
-				if i == 5 {
-					model = "echo"
-				}
-				f.api("POST", "/api/settings", object{"seats": []object{{"code": "M10", "model": model}}}, 200)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := setup(t, nil)
+			if c.model != "" {
+				f.api("POST", "/api/settings", object{"seats": []object{{"code": "M10", "model": c.model}}}, 200)
 			}
 			f.api("POST", "/api/message", object{"text": c.mention + " uji"}, 202)
-			m := f.finish(2 * (i + 1))[2*i+1]
+			m := f.finish(2)[1]
 			if m["seat"] != c.code || m["text"] != c.text || (c.providerError != "" && m["error"] != c.providerError) || m["demo"] == true {
 				t.Fatal(m)
 			}
 		})
 	}
-	f.api("POST", "/api/settings", object{"settings": object{"demoFallback": true}}, 200)
-	f.api("POST", "/api/message", object{"text": "@Opus demo"}, 202)
-	m := f.finish(14)[13]
-	if m["demo"] != true || !strings.HasPrefix(m["text"].(string), "DEMO") || m["error"] == nil {
-		t.Fatal(m)
-	}
+	t.Run("demo_fallback", func(t *testing.T) {
+		f := setup(t, nil)
+		f.api("POST", "/api/settings", object{"settings": object{"demoFallback": true}, "seats": []object{{"code": "M10", "model": "echo"}}}, 200)
+		f.api("POST", "/api/message", object{"text": "@Opus demo"}, 202)
+		m := f.finish(2)[1]
+		if m["demo"] != true || !strings.HasPrefix(m["text"].(string), "DEMO") || m["error"] == nil {
+			t.Fatal(m)
+		}
+	})
 }
 func TestTaskPipelineAndProgress(t *testing.T) {
 	f := setup(t, nil)
