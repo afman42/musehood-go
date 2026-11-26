@@ -14,7 +14,23 @@ cd ~/workspace/musehood-go
 
 Buka **http://127.0.0.1:3001**. Skrip memasang dependensi npm, membuat `frontend/build/`, lalu menjalankan `go build` dengan `GOPROXY=off`, `GOFLAGS=-mod=mod`, dan `GOTOOLCHAIN=local`. Node.js dipakai untuk build dan tes browser. Saat dijalankan, binary membawa HTML, JavaScript, CSS, dan avatar bawaannya sendiri.
 
-Server mendengarkan `127.0.0.1`. Atur `PORT` untuk mengganti port dan `DATA_DIR` untuk mengganti direktori runtime. `TRUSTED_HOSTS` menerima nama host tambahan yang dipisahkan koma, misalnya `TRUSTED_HOSTS=chat.example.org`. Proxy lokal perlu meneruskan Host yang sama dengan host pada Origin browser. Host dan Origin diperiksa pada request, termasuk endpoint pekerja.
+### Flag CLI
+
+```sh
+./musehood-go -host 127.0.0.1 -port 3001 -data-dir /path/data -trusted-hosts chat.example.org
+./musehood-go -version   # tampilkan versi
+./musehood-go -h         # bantuan
+```
+
+| Flag | Bawaan | Env | Keterangan |
+| --- | --- | --- | --- |
+| `-host` | `127.0.0.1` | `HOST` | Host untuk mendengarkan; kosongkan (`-host ""`) untuk semua antarmuka |
+| `-port` | `3001` | `PORT` | Port untuk mendengarkan (1–65535) |
+| `-data-dir` | direktori kerja | `DATA_DIR` | Direktori data runtime |
+| `-trusted-hosts` | — | `TRUSTED_HOSTS` | Host tambahan yang dipercaya, dipisahkan koma |
+| `-version` | — | — | Tampilkan versi lalu keluar |
+
+Flag mengalahkan env, env mengalahkan bawaan. Proxy lokal perlu meneruskan Host yang sama dengan host pada Origin browser. Host dan Origin diperiksa pada request, termasuk endpoint pekerja.
 
 ## Build release (semua platform)
 

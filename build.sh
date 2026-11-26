@@ -14,4 +14,4 @@ export GOMAXPROCS="${GOMAXPROCS:-2}"
     npm ci --no-audit --no-fund
     npm run build
 )
-go build -o musehood-go .
+go build -ldflags "-X main.version=${VERSION:-dev}" -o musehood-go .

@@ -52,7 +52,7 @@ for pair in $(go tool dist list); do
         windows) out="${out}.exe" ;;
     esac
     mkdir -p "dist/${os}-${arch}"
-    if GOOS="$os" GOARCH="$arch" go build -o "$out" . 2>>"$LOG"; then
+    if GOOS="$os" GOARCH="$arch" go build -ldflags "-X main.version=${VERSION:-dev}" -o "$out" . 2>>"$LOG"; then
         echo "OK   $pair -> $out ($(stat -c%s "$out") byte)" | tee -a "$LOG"
         OK=$((OK+1))
     else
