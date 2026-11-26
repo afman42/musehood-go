@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -109,12 +110,12 @@ func TestValidateWorkerLimits(t *testing.T) {
 			got, err := (&App{}).validateWorker(context.Background(), "chat", tc.reply)
 			if tc.fail {
 				var apiErr *apiError
-				if !errors.As(err, &apiErr) || apiErr.status != 400 || got != (workerReply{}) {
+				if !errors.As(err, &apiErr) || apiErr.status != 400 || !reflect.DeepEqual(got, workerReply{}) {
 					t.Fatalf("want HTTP 400 and empty reply; error=%v", err)
 				}
 				return
 			}
-			if err != nil || got != tc.want {
+			if err != nil || !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("worker reply differs: text bytes=%d, error runes=%d, error=%v", len(got.Text), len([]rune(got.Error)), err)
 			}
 		})

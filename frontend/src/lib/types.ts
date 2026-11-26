@@ -6,6 +6,7 @@ export type Settings = {
   baseUrl: string; apiKey: string; hasApiKey: boolean; providerName: string; roundRobin: boolean;
   reviewLevel: ReviewLevel; demoFallback: boolean; gatewayProtocol: GatewayProtocol; darkMode: boolean;
   integratorSeat?: string;
+  toolsEnabled?: boolean;
 };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
 export type Attachment = { url: string; name: string; size: number; mime: string };
@@ -13,7 +14,7 @@ export type Message = {
   id: string; createdAt: string; authorType: 'owner' | 'seat'; seat?: string;
   text: string; status: string; label?: string; demo?: boolean; statusText?: string; error?: string; imageUrl?: string;
   attachment?: Attachment; replyTo?: string; editedAt?: string; reactions?: Reaction[] | null;
-  roomId?: string; pinned?: boolean; votes?: number; bestAnswer?: boolean;
+  roomId?: string; pinned?: boolean; votes?: number; bestAnswer?: boolean; toolsUsed?: string[];
 };
 export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[] };
 export type PresetSeat = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; fallbackModel?: string; memory?: string };

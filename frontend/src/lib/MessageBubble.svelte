@@ -92,6 +92,9 @@
     {/if}
     {#if message.status === 'typing' || message.status === 'waiting'}<p class="typing-status" class:waiting={message.status === 'waiting'}><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>{message.statusText || `${name} sedang mengetik...`}</p>{/if}
     {#if message.error}<pre class="provider-error" aria-label="Error asli provider">{message.error}</pre>{/if}
+    {#if message.toolsUsed?.length}
+      <div class="tools-used" aria-label="Tool yang dipakai">{#each message.toolsUsed as tool, toolIndex (toolIndex)}<span class="tool-chip">🔧 {tool}</span>{/each}</div>
+    {/if}
     {#if message.reactions?.length}
       <div class="reaction-bar">
         {#each message.reactions as reaction (reaction.emoji)}
