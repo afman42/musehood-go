@@ -66,6 +66,21 @@ test('MessageBubble: mention kursi dikenal jadi tombol mention-link', async () =
   assert.match(html, /@Siapa/);
 });
 
+test('MessageBubble: teks Markdown dirender (bold, daftar, kutipan, kode)', async () => {
+  const raw = await renderComponent('MessageBubble', {
+    ...bubbleProps,
+    message: { ...baseMessage, text: 'Halo **@Plamo**, ini *penting*:\n\n- satu\n- dua\n\n> kutipan\n\n`kode` dan <b>mentah</b>' },
+  });
+  const html = raw.replace(/<!--[^>]*-->/g, '');
+  assert.match(html, /<strong><button class="mention-link"[^>]*>@Plamo<\/button><\/strong>/);
+  assert.match(html, /<em>penting<\/em>/);
+  assert.match(html, /<ul class="md-list"><li>satu<\/li><li>dua<\/li><\/ul>/);
+  assert.match(html, /<blockquote class="md-quote">/);
+  assert.match(html, /<code class="md-inline-code">kode<\/code>/);
+  assert.ok(!html.includes('<b>mentah</b>'), 'HTML mentah tidak boleh lolos');
+  assert.match(html, /&lt;b>mentah&lt;\/b>/);
+});
+
 test('SeatInfoDialog: dialog info kursi ter-render', async () => {
   const html = await renderComponent('SeatInfoDialog', { onMention: noop });
   assert.match(html, /<dialog/);

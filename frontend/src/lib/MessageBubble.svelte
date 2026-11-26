@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { attachmentLabel, humanSize, isImageAttachment, splitMentions } from './format';
+  import { attachmentLabel, humanSize, isImageAttachment } from './format';
+  import MarkdownText from './MarkdownText.svelte';
   import type { Message, Seat } from './types';
 
   let {
@@ -35,22 +36,6 @@
 
   const clock = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
   const date = $derived(new Date(message.createdAt));
-
-  function highlightText(value: string) {
-    const q = query.trim().toLowerCase();
-    if (!q || !value.toLowerCase().includes(q)) return [value];
-    const parts: Array<string | { hit: string }> = [];
-    let rest = value;
-    let lower = rest.toLowerCase();
-    while (true) {
-      const at = lower.indexOf(q);
-      if (at < 0) { parts.push(rest); break; }
-      parts.push(rest.slice(0, at), { hit: rest.slice(at, at + q.length) });
-      rest = rest.slice(at + q.length);
-      lower = rest.toLowerCase();
-    }
-    return parts;
-  }
 </script>
 
 <article class="message" class:message-owner={own} class:message-final={message.label} data-message-id={message.id}>
@@ -76,7 +61,7 @@
       </form>
     {:else}
       {#if message.text}
-        <div class="message-text">{#each splitMentions(message.text, seats) as segment, segmentIndex (segmentIndex)}{#if segment.seat}<button class="mention-link" type="button" title="Lihat info {segment.seat.name}" onclick={() => { const mentioned = segment.seat; if (mentioned) onMentionClick(mentioned); }}>{segment.text}</button>{:else}{#each highlightText(segment.text) as part, partIndex (partIndex)}{#if typeof part === 'string'}{part}{:else}<mark class="search-mark">{part.hit}</mark>{/if}{/each}{/if}{/each}</div>
+        <div class="message-text"><MarkdownText text={message.text} {seats} {query} {onMentionClick} /></div>
       {/if}
     {/if}
     {#if message.imageUrl}
