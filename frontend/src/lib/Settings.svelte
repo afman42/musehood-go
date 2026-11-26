@@ -35,6 +35,7 @@
   let integratorSeat = $state('MUSE');
   let toolsEnabled = $state(true);
   let codeToolEnabled = $state(true);
+  let skillsEnabled = $state(true);
   let saveStatus = $state('');
   let saving = $state(false);
 
@@ -68,6 +69,7 @@
       ({ roundRobin, demoFallback, reviewLevel } = current.settings);
       toolsEnabled = current.settings.toolsEnabled ?? true;
       codeToolEnabled = current.settings.codeToolEnabled ?? true;
+      skillsEnabled = current.settings.skillsEnabled ?? true;
       syncSeats();
       providersPanel?.resetForm();
       saveStatus = '';
@@ -82,7 +84,7 @@
       await mutate('/api/settings', {
         owner: { name: ownerName }, group: { name: groupName },
         seats: seats.map((s) => ({ ...s, skills: s.skills.split(',').map((x) => x.trim()).filter(Boolean) })),
-        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled },
+        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled, skillsEnabled },
       });
       providersPanel?.clearConnectionError();
       saveStatus = 'Tersimpan';
@@ -131,6 +133,10 @@
   </header>
   <form bind:this={form} id="settingsForm" class="settings-form" onsubmit={submit}>
     <section class="settings-section">
+      <h3>Skill kursi</h3><p class="section-hint">Saklar utama skill (SKILL.md). Nonaktif berarti skill yang dipilih per kursi tidak disisipkan ke instruksi kursi.</p>
+      <label class="toggle-row"><span><strong>Skill kursi</strong><small>{skillsEnabled ? 'Aktif — skill per kursi dipakai saat menjawab.' : 'Nonaktif — pilihan skill tersimpan tapi tidak dipakai.'}</small></span><input id="skillsEnabled" type="checkbox" role="switch" bind:checked={skillsEnabled}></label>
+    </section>
+    <section class="settings-section">
       <h3>Identitas grup</h3><p class="section-hint">Satu pemilik, tujuh kursi. Semua berada di ruang yang sama.</p>
       <div class="identity-row">
         <AvatarButton target="group" src={current?.group.avatar ?? '/avatars/group.svg'} label="Ganti foto grup" onChoose={chooseAvatar} />
@@ -143,7 +149,7 @@
       <p class="field-hint">Foto: PNG, JPEG, GIF, atau WebP. Maksimal 2 MB.</p>
     </section>
     <SettingsProviders bind:this={providersPanel} {current} {refresh} {mutate} {notify} onSave={save} {saving} />
-    <SettingsSeats bind:seats {current} {refresh} {notify} onSync={syncSeats} onSave={save} {saving} onChooseAvatar={chooseAvatar} />
+    <SettingsSeats bind:seats {current} {refresh} {notify} onSync={syncSeats} onSave={save} {saving} onChooseAvatar={chooseAvatar} {skillsEnabled} />
     <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled bind:codeToolEnabled {seats} />
     <SettingsRooms bind:roomEdits {current} {refresh} {notify} onSync={syncSeats} />
     <SettingsPresets {current} {refresh} {notify} onSave={save} onSync={syncSeats} />

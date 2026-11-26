@@ -5,7 +5,7 @@
 import { api, configureMockProvider, eventually, launchBrowser, makeReporter, startApp, startGateway } from './frontend-harness.mjs';
 
 const report = makeReporter('FRONTEND E2E');
-const app = await startApp();
+const app = await startApp({ skills: [{ name: 'contoh', description: 'Skill contoh uji', body: 'Ikuti contoh ini.' }, { name: 'gaya-singkat', description: 'Jawab singkat', body: 'Maksimal dua kalimat.' }] });
 const gateway = await startGateway();
 const browser = await launchBrowser();
 
@@ -38,24 +38,27 @@ try {
   const pinnedVisible = await eventually(async () => (await page.locator('.pinned-bar').count()) > 0, 3000).catch(() => false);
   report.check('pin pesan menampilkan pinned bar', pinnedVisible === true);
 
-  // 4. Pengaturan: field Skill aktif tersimpan.
+  // 4. Pengaturan: picker skill — cari, tekan, menempel sebagai chip.
   await page.getByRole('button', { name: 'Pengaturan grup', exact: true }).click();
   await page.locator('#settingsForm').waitFor({ state: 'visible' });
-  const skillField = page.locator('[data-skills=M01]');
-  await skillField.waitFor();
-  await skillField.evaluate(el => {
+  const skillSearch = page.locator('[data-skill-search=M01]');
+  await skillSearch.waitFor();
+  await skillSearch.evaluate(el => {
     el.scrollIntoView({ block: 'center' });
     el.focus();
-    document.execCommand('selectAll', false, null);
-    document.execCommand('insertText', false, 'contoh');
+    document.execCommand('insertText', false, 'cont');
   });
+  const m01Card = page.locator('.seat-settings', { has: page.locator('[data-skill-search=M01]') });
+  await m01Card.getByRole('button', { name: 'Tambah skill contoh' }).click();
+  await m01Card.locator('.skill-chip', { hasText: 'contoh' }).waitFor();
+  report.check('skill menempel sebagai chip setelah ditekan', true);
   await page.locator('#saveSettings').click();
   await page.locator('#saveStatus').getByText('Tersimpan').waitFor();
   await eventually(async () => {
     const state = await api(app.url, 'GET', '/api/state');
     return state.seats.find(s => s.code === 'M01')?.skills?.includes('contoh');
   });
-  report.check('field Skill aktif tersimpan ke server', true);
+  report.check('skill terpilih tersimpan ke server', true);
   await page.getByRole('button', { name: 'Tutup pengaturan' }).click();
 
   // 5. Ruang baru: buat, pindah, chat kosong; kembali ke Utama utuh.

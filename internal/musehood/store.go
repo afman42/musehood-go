@@ -63,6 +63,10 @@ type settings struct {
 	// CodeToolEnabled mengizinkan tool run_code (eksekusi kode di sandbox
 	// dengan persetujuan pemilik untuk pola berbahaya). Nil berarti aktif.
 	CodeToolEnabled *bool `json:"codeToolEnabled,omitempty"`
+	// SkillsEnabled adalah saklar utama skill kursi (SKILL.md): bila mati,
+	// skill yang dipilih per kursi tidak disisipkan ke system prompt.
+	// Nil berarti aktif.
+	SkillsEnabled *bool `json:"skillsEnabled,omitempty"`
 }
 
 func (s settings) toolsOn() bool {
@@ -71,6 +75,10 @@ func (s settings) toolsOn() bool {
 
 func (s settings) codeToolOn() bool {
 	return s.CodeToolEnabled == nil || *s.CodeToolEnabled
+}
+
+func (s settings) skillsOn() bool {
+	return s.SkillsEnabled == nil || *s.SkillsEnabled
 }
 
 // gatewayProvider adalah satu konfigurasi gateway kustom yang tersimpan.
@@ -1066,6 +1074,7 @@ type settingsUpdate struct {
 		IntegratorSeat  *string `json:"integratorSeat"`
 		ToolsEnabled    *bool   `json:"toolsEnabled"`
 		CodeToolEnabled *bool   `json:"codeToolEnabled"`
+		SkillsEnabled   *bool   `json:"skillsEnabled"`
 		ClearAPIKey     bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
@@ -1205,6 +1214,10 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		if patch.CodeToolEnabled != nil {
 			enabled := *patch.CodeToolEnabled
 			next.Settings.CodeToolEnabled = &enabled
+		}
+		if patch.SkillsEnabled != nil {
+			enabled := *patch.SkillsEnabled
+			next.Settings.SkillsEnabled = &enabled
 		}
 		if patch.IntegratorSeat != nil {
 			code := strings.TrimSpace(*patch.IntegratorSeat)

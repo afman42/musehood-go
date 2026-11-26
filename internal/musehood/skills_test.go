@@ -64,6 +64,32 @@ func TestLoadSkillsAndPrompt(t *testing.T) {
 	}
 }
 
+func TestSkillsEnabledGate(t *testing.T) {
+	app := &App{dir: t.TempDir()}
+	writeSkill(t, app, "gaya-singkat", "---\nname: gaya-singkat\ndescription: Jawab singkat\n---\nSelalu jawab maksimal dua kalimat.")
+	s := seat{identity: identity{"Plamo", ""}, Code: "M01", Role: "Pelaksana", Skills: []string{"gaya-singkat"}}
+	base := data{Group: identity{"G", ""}, Owner: owner{identity{"Arman", ""}, true}}
+
+	// Nil = aktif (bawaan).
+	if got := app.systemPrompt(s, base); !strings.Contains(got, "dua kalimat") {
+		t.Fatalf("skillsEnabled nil harus aktif: %q", got)
+	}
+	// Mati: skill tidak disisipkan meski kursi memilihnya.
+	off := false
+	disabled := base
+	disabled.Settings.SkillsEnabled = &off
+	if got := app.systemPrompt(s, disabled); strings.Contains(got, "dua kalimat") {
+		t.Fatalf("skillsEnabled=false harus menonaktifkan injeksi: %q", got)
+	}
+	// Nyala eksplisit: kembali disisipkan.
+	on := true
+	enabled := base
+	enabled.Settings.SkillsEnabled = &on
+	if got := app.systemPrompt(s, enabled); !strings.Contains(got, "dua kalimat") {
+		t.Fatalf("skillsEnabled=true harus menyisipkan: %q", got)
+	}
+}
+
 func writeCustomTool(t *testing.T, app *App, file, content string) {
 	t.Helper()
 	if err := os.MkdirAll(app.toolsDir(), 0o755); err != nil {
