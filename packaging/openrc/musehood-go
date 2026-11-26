@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+# Musehood Go — OpenRC init script (Alpine, Gentoo, Artix, ...)
+# Pasang sebagai /etc/init.d/musehood-go lalu: rc-update add musehood-go default
+
+name="musehood-go"
+description="Musehood Go — obrolan grup multi-AI"
+
+command="@BIN@"
+command_args="-host @HOST@ -port @PORT@ -data-dir @DATA_DIR@"
+command_user="@USER@:@USER@"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+directory="@DATA_DIR@"
+output_log="/var/log/musehood-go.log"
+error_log="/var/log/musehood-go.log"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --owner @USER@:@USER@ --mode 0755 "@DATA_DIR@"
+	checkpath --file --owner @USER@:@USER@ --mode 0644 "/var/log/musehood-go.log"
+}
