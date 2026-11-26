@@ -105,7 +105,12 @@
     return last ? `${authorName(last)}: ${last.text.slice(0, 120)}` : '';
   });
 
-  onMount(() => chat.startPolling());
+  onMount(() => {
+    chat.startPolling();
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => { /* PWA opsional */ });
+    }
+  });
 
   function scrollForImage() {
     if (messages.scrollHeight - messages.scrollTop - messages.clientHeight < 450) messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });

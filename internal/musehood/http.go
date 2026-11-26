@@ -124,7 +124,7 @@ func New(opts Options) (*App, error) {
 	}
 	// Permit only SvelteKit 3.4's static accessibility-announcer style attribute.
 	const announcerStyle = "style-src-attr 'unsafe-hashes' 'sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo='"
-	a.csp = "default-src 'self'; " + scripts + "; style-src 'self'; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+	a.csp = "default-src 'self'; " + scripts + "; style-src 'self'; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 	a.rememberKeyLocked(d.Settings.APIKey)
 	for _, p := range d.Providers {
 		a.rememberKeyLocked(p.APIKey)
@@ -1011,6 +1011,14 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 			if raw, err := fs.ReadFile(a.frontend, path); err == nil {
 				if strings.HasPrefix(path, "_app/immutable/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				}
+				if path == "manifest.webmanifest" {
+					w.Header().Set("Content-Type", "application/manifest+json")
+				}
+				if path == "sw.js" {
+					w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+					w.Header().Set("Cache-Control", "no-cache")
+					w.Header().Set("Service-Worker-Allowed", "/")
 				}
 				http.ServeContent(w, r, path, time.Time{}, bytes.NewReader(raw))
 				return

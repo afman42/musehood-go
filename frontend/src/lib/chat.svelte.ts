@@ -30,9 +30,9 @@ const FONT_SCALES: Record<string, string> = { S: '0.9', M: '1', L: '1.15' };
 
 function applyTheme(result: State) {
   const theme = result.settings.theme ?? (result.settings.darkMode ? 'dark' : 'light');
-  const dark = theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const dark = theme === 'dark' || (theme === 'auto' && typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.classList.toggle('dark', dark);
-  document.documentElement.style.setProperty('--font-scale', FONT_SCALES[result.settings.fontSize ?? 'M'] ?? '1');
+  document.documentElement.style?.setProperty('--font-scale', FONT_SCALES[result.settings.fontSize ?? 'M'] ?? '1');
 }
 
 export function notificationsEnabled(): boolean {
@@ -123,9 +123,11 @@ export function createChat(hooks: ChatHooks = {}) {
   }
 
   function startPolling() {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      if (current?.settings.theme === 'auto') applyTheme(current);
-    });
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if (current?.settings.theme === 'auto') applyTheme(current);
+      });
+    }
     let stopped = false;
     let pollTimer: ReturnType<typeof setTimeout>;
     let pollError = false;

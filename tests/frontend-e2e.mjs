@@ -61,7 +61,7 @@ try {
 
   // 3. Pin pesan -> pinned bar muncul.
   await page.locator('.message').first().hover();
-  await page.getByRole('button', { name: /pin|sematkan/i }).first().click().catch(() => {});
+  await page.locator('.message').first().getByRole('button', { name: /pin|sematkan/i }).first().click().catch(() => {});
   const pinnedVisible = await eventually(async () => (await page.locator('.pinned-bar').count()) > 0, 3000).catch(() => false);
   report.check('pin pesan menampilkan pinned bar', pinnedVisible === true);
 
@@ -121,8 +121,9 @@ try {
   await composer.fill('@Plamo @GLM diskusi e2e');
   await composer.press('Enter');
   await page.getByText('Balasan SSE', { exact: true }).waitFor();
+  await page.getByText('Balasan polos', { exact: true }).last().waitFor();
   await page.getByRole('button', { name: /voting|jawaban terbaik/i }).first().click();
-  await page.getByText(/Hasil voting/).waitFor({ timeout: 15000 });
+  await page.locator('.message').getByText(/Hasil voting/).first().waitFor({ timeout: 15000 });
   report.check('voting menghasilkan ringkasan integrator', true);
   report.check('badge jawaban terbaik tampil', (await page.locator('.best-label').count()) > 0);
 
