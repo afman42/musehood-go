@@ -11,12 +11,13 @@ const baseMessage = {
   text: 'Halo dunia', status: 'completed',
 };
 const bubbleProps = {
-  seat, own: false, name: 'Plamo', avatar: '/avatars/m01.svg',
+  seat, seats: [seat, { ...seat, code: 'M02', name: 'GLM', role: 'Peninjau' }],
+  own: false, name: 'Plamo', avatar: '/avatars/m01.svg',
   quoted: undefined, quotedAuthorName: '', editing: false, reactOpen: false,
   emojis: ['👍'], query: '',
   onReply: noop, onToggleReactPicker: noop, onReact: noop, onPin: noop,
   onEditStart: noop, onEditSave: noop, onEditCancel: noop, onDelete: noop,
-  onJumpQuote: noop, onImageLoad: noop,
+  onJumpQuote: noop, onImageLoad: noop, onMentionClick: noop,
 };
 
 test('MessageBubble: teks, nama penulis, dan waktu tampil', async () => {
@@ -52,6 +53,23 @@ test('MessageBubble: teks pemilik tidak di-render sebagai HTML mentah', async ()
   });
   assert.ok(!html.includes('<img src=x'), 'tag img mentah tidak boleh lolos');
   assert.match(html, /&lt;img/);
+});
+
+test('MessageBubble: mention kursi dikenal jadi tombol mention-link', async () => {
+  const html = await renderComponent('MessageBubble', {
+    ...bubbleProps,
+    message: { ...baseMessage, text: 'Halo @Plamo dan @M02, cc @Siapa' },
+  });
+  assert.match(html, /class="mention-link"[^>]*>@Plamo</);
+  assert.match(html, /class="mention-link"[^>]*>@M02</);
+  assert.ok(!html.includes('>@Siapa</button>'), 'mention tak dikenal tidak jadi tombol');
+  assert.match(html, /@Siapa/);
+});
+
+test('SeatInfoDialog: dialog info kursi ter-render', async () => {
+  const html = await renderComponent('SeatInfoDialog', { onMention: noop });
+  assert.match(html, /<dialog/);
+  assert.match(html, /seatInfoDialog/);
 });
 
 test('SeatStrip: kartu kursi dengan nama dan peran', async () => {
