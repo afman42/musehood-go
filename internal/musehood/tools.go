@@ -47,6 +47,14 @@ Tool yang tersedia:
 - edit_file: ganti sebagian isi file. Format argumen: baris pertama nama file, lalu baris <<<OLD>>>, teks lama, baris <<<NEW>>>, teks baru.
 - delete_file: hapus file di folder kerja. Argumen: nama file. Memerlukan persetujuan pemilik.
 - download_file: unduh file dari URL ke folder kerja (maks 10 MB). Baris pertama argumen: URL; baris kedua (opsional): nama file tujuan.
+- zip_files: kompres file ke zip. Baris pertama argumen: nama zip keluaran; baris berikutnya: nama file yang dimasukkan.
+- unzip_file: ekstrak zip di folder kerja. Argumen: nama file zip.
+- file_hash: hitung SHA-256 file. Argumen: nama file.
+- image_info: info gambar (format, dimensi, ukuran). Argumen: nama file gambar.
+- resize_image: perkecil gambar. Baris 1: nama file; baris 2: lebar maksimum (px); baris 3 (opsional): nama keluaran.
+- convert_image: ubah format gambar. Baris 1: nama file; baris 2: format tujuan (png atau jpeg).
+- pdf_text: ekstrak teks dari PDF. Argumen: nama file PDF.
+- csv_json: konversi CSV↔JSON. Baris 1: nama file; baris 2: arah (csv2json atau json2csv); baris 3 (opsional): nama keluaran.
 - generate_image: buat gambar dari deskripsi teks; gambar terlampir pada balasanmu. Argumen: deskripsi gambar.
 - memory_save: simpan catatan penting ke memori kursimu (akan kamu ingat di percakapan berikutnya). Argumen: catatan singkat.
 - current_time: tanggal dan waktu sekarang. Argumen: kosongkan.
@@ -160,6 +168,22 @@ func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg strin
 		return a.toolDeleteFile(ctx, s, arg), ""
 	case "download_file":
 		return a.toolDownloadFile(ctx, arg), ""
+	case "zip_files":
+		return a.toolZipFiles(arg), ""
+	case "unzip_file":
+		return a.toolUnzipFile(arg), ""
+	case "file_hash":
+		return a.toolFileHash(arg), ""
+	case "image_info":
+		return a.toolImageInfo(arg), ""
+	case "resize_image":
+		return a.toolResizeImage(arg), ""
+	case "convert_image":
+		return a.toolConvertImage(arg), ""
+	case "pdf_text":
+		return a.toolPDFText(ctx, arg), ""
+	case "csv_json":
+		return a.toolCSVJSON(arg), ""
 	case "generate_image":
 		return a.toolGenerateImage(ctx, cfg, s, arg)
 	case "memory_save":
