@@ -3,7 +3,7 @@
 // direktori data sementara, lalu membuka Chromium Playwright.
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -38,8 +38,14 @@ async function freePort() {
   return port;
 }
 
-export async function startApp() {
+export async function startApp(opts = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'musehood-fe-'));
+  // Seed skill SKILL.md ke <DATA_DIR>/skills sebelum binary jalan.
+  for (const skill of opts.skills ?? []) {
+    const skillDir = join(dir, 'runtime', 'skills', skill.name);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), `---\nname: ${skill.name}\ndescription: ${skill.description || ''}\n---\n${skill.body || ''}\n`);
+  }
   const port = await freePort();
   const child = spawn(binaryPath, [], {
     cwd: dir,

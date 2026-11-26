@@ -8,7 +8,9 @@ export type Settings = {
   integratorSeat?: string;
   toolsEnabled?: boolean;
   codeToolEnabled?: boolean;
+  skillsEnabled?: boolean;
 };
+export type SkillDef = { name: string; description: string };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
 export type Attachment = { url: string; name: string; size: number; mime: string };
 export type Message = {

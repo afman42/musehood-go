@@ -51,7 +51,9 @@ func (a *App) systemPrompt(s seat, d data) string {
 	if memory := strings.TrimSpace(s.Memory); memory != "" {
 		prompt += " Memori kursi (catatan persisten yang harus kamu ingat dan pakai): " + memory
 	}
-	prompt += a.skillsPrompt(s)
+	if d.Settings.skillsOn() {
+		prompt += a.skillsPrompt(s)
+	}
 	return prompt
 }
 

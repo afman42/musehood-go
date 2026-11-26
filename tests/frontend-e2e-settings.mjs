@@ -58,6 +58,18 @@ try {
   });
   report.check('edit alias provider tersimpan', true);
 
+  // 2b. Saklar utama skill di paling atas: mati -> simpan -> nyala lagi.
+  await page.locator('#skillsEnabled').uncheck();
+  await page.locator('#saveSettings').click();
+  await page.locator('#saveStatus').getByText('Tersimpan').waitFor();
+  let skillState = await api(app.url, 'GET', '/api/state');
+  report.check('saklar skill mati tersimpan', skillState.settings.skillsEnabled === false);
+  await page.locator('#skillsEnabled').check();
+  await page.locator('#saveSettings').click();
+  await page.locator('#saveStatus').getByText('Tersimpan').waitFor();
+  skillState = await api(app.url, 'GET', '/api/state');
+  report.check('saklar skill nyala tersimpan', skillState.settings.skillsEnabled !== false);
+
   // 3. Toggle tool + coding mati -> simpan -> nyala lagi.
   await page.locator('#toolsEnabled').uncheck();
   await page.locator('#codeToolEnabled').uncheck();

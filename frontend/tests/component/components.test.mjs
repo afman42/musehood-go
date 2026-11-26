@@ -160,6 +160,23 @@ test('Composer: lampiran selesai bertanda siap dikirim', async () => {
   assert.match(html, /✓ siap dikirim/);
 });
 
+test('SkillPicker: chip terpilih + kotak pencarian', async () => {
+  const html = await renderComponent('SkillPicker', {
+    value: 'gaya-singkat',
+    available: [
+      { name: 'gaya-singkat', description: 'Jawab singkat' },
+      { name: 'contoh', description: 'Skill contoh' },
+    ],
+    code: 'M01',
+  });
+  assert.match(html, /skill-chip/);
+  assert.match(html, /gaya-singkat/);
+  assert.match(html, /Hapus skill gaya-singkat/);
+  assert.match(html, /data-skill-search="M01"/);
+  // Hasil pencarian hanya muncul saat mengetik (diuji di E2E).
+  assert.doesNotMatch(html, /skill-result/);
+});
+
 test('AvatarButton: tombol dengan label dan gambar avatar', async () => {
   const html = await renderComponent('AvatarButton', {
     target: 'owner', src: '/avatars/owner.svg', label: 'Ganti foto pemilik', onChoose: noop,

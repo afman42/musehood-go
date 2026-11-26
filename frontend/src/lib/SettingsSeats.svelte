@@ -1,9 +1,10 @@
 <script lang="ts">
   import { api, apiDelete, errorText } from './api';
   import AvatarButton from './AvatarButton.svelte';
-  import type { ModelTestResult, SeatEdit, State } from './types';
+  import SkillPicker from './SkillPicker.svelte';
+  import type { ModelTestResult, SeatEdit, SkillDef, State } from './types';
 
-  let { seats = $bindable([]), current, refresh, notify, onSync, onSave, saving, onChooseAvatar }: {
+  let { seats = $bindable([]), current, refresh, notify, onSync, onSave, saving, onChooseAvatar, skillsEnabled }: {
     seats?: SeatEdit[];
     current: State | undefined;
     refresh: () => Promise<void>;
@@ -12,7 +13,18 @@
     onSave: () => Promise<void>;
     saving: boolean;
     onChooseAvatar: (target: string) => void;
+    skillsEnabled: boolean;
   } = $props();
+
+  let availableSkills = $state<SkillDef[]>([]);
+  let skillsLoaded = false;
+  $effect(() => {
+    if (skillsLoaded) return;
+    skillsLoaded = true;
+    api<{ skills: SkillDef[] }>('/api/skills')
+      .then((out) => { availableSkills = out.skills ?? []; })
+      .catch(() => { /* daftar kosong: picker tetap bisa nama manual */ });
+  });
 
   let newSeatName = $state('');
   let newSeatRole = $state('');
@@ -123,10 +135,11 @@
           <textarea aria-label={`Memori ${item.code}`} rows="2" maxlength="4000" placeholder="Catatan persisten yang selalu diingat kursi ini…" data-memory={item.code} bind:value={item.memory}></textarea>
         </label>
         <span class="field-hint">Disisipkan ke instruksi kursi setiap kali menjawab; tetap ada setelah chat dibersihkan.</span>
-        <label class="model-label">Skill aktif
-          <input aria-label={`Skill ${item.code}`} maxlength="600" placeholder="Nama skill dari folder skills/, pisahkan koma" autocomplete="off" spellcheck="false" data-skills={item.code} bind:value={item.skills}>
-        </label>
-        <span class="field-hint">Skill adalah file SKILL.md di folder skills/ server; isinya disisipkan ke instruksi kursi.</span>
+        <span class="model-label">Skill aktif</span>
+        <SkillPicker bind:value={item.skills} available={availableSkills} code={item.code} />
+        <span class="field-hint">{skillsEnabled
+          ? 'Cari skill lalu tekan untuk menempel ke kursi ini; isinya (SKILL.md di folder skills/ server) disisipkan ke instruksi kursi.'
+          : 'Skill sedang NONAKTIF global (saklar di bagian atas Pengaturan). Pilihan tetap tersimpan, tapi tidak dipakai sampai diaktifkan lagi.'}</span>
         {#if item.code.startsWith('C')}
           <button class="text-button danger-text" type="button" onclick={() => removeSeat(item.code, item.name)}>Hapus kursi ini</button>
         {/if}

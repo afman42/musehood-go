@@ -161,7 +161,7 @@ API: `POST /api/approvals/{id}` dengan `{approved: bool}`; permintaan yang menun
 
 ### Skill per kursi
 
-Kursi dapat diberi **skill**: instruksi tambahan dalam format `SKILL.md` yang sama dengan skill pi (frontmatter `name`/`description` + badan Markdown). Letakkan skill sebagai `skills/<nama>/SKILL.md` atau file `skills/<nama>.md` di direktori data, lalu aktifkan namanya pada kursi lewat Pengaturan (field **Skill aktif**, pisahkan koma). Badan skill disisipkan ke system prompt kursi setiap kali menjawab (maks 6.000 karakter per skill, 12.000 total). Daftar skill yang tersedia: `GET /api/skills`. Contoh ada di `skills/contoh/SKILL.md` — skill pi yang sudah ada bisa disalin apa adanya ke folder ini.
+Kursi dapat diberi **skill**: instruksi tambahan dalam format `SKILL.md` yang sama dengan skill pi (frontmatter `name`/`description` + badan Markdown). Letakkan skill sebagai `skills/<nama>/SKILL.md` atau file `skills/<nama>.md` di direktori data, lalu pilih untuk kursi lewat Pengaturan: pada **Skill aktif** cari nama skill lalu tekan untuk menempelkannya sebagai chip (bisa banyak; nama manual juga bisa). Saklar utama **Skill kursi** di bagian paling atas Pengaturan mengaktifkan/menonaktifkan semua skill sekaligus (`settings.skillsEnabled`, bawaan aktif). Badan skill disisipkan ke system prompt kursi setiap kali menjawab (maks 6.000 karakter per skill, 12.000 total). Daftar skill yang tersedia: `GET /api/skills`. Contoh ada di `skills/contoh/SKILL.md` — skill pi yang sudah ada bisa disalin apa adanya ke folder ini.
 
 ### Tool kustom
 
