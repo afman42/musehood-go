@@ -345,8 +345,11 @@ func TestSearchFilters(t *testing.T) {
 	if got := count("/api/search?q=unikzebra"); got < 2 {
 		t.Fatalf("pencarian dasar harus menemukan >=2, dapat %d", got)
 	}
-	if got := count("/api/search?q=unikzebra&seat=M01"); got != 1 {
-		t.Fatalf("filter kursi M01 harus 1, dapat %d", got)
+	if got := count("/api/search?q=unikzebra&seat=M01"); got != 0 {
+		t.Fatalf("filter kursi M01 harus 0 (balasan kursi tidak memuat kata itu), dapat %d", got)
+	}
+	if got := count("/api/search?q=teks%20polos&seat=M02"); got != 1 {
+		t.Fatalf("filter kursi M02 harus 1, dapat %d", got)
 	}
 	if got := count("/api/search?q=unikzebra&seat=owner"); got != 2 {
 		t.Fatalf("filter pemilik harus 2, dapat %d", got)
