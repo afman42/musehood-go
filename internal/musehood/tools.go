@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -45,6 +46,16 @@ Tool yang tersedia:
 
 Gunakan tool hanya bila benar-benar perlu (mis. butuh info terkini dari web atau isi file). Bila tidak perlu, jawab langsung tanpa blok tool.`
 
+const codeToolInstruction = `
+- run_code: jalankan kode di sandbox terisolasi (tanpa jaringan, maks 10 detik). Baris pertama argumen: bahasa (python atau javascript); baris berikutnya: kode. Hasil stdout/stderr dikembalikan kepadamu. Kode yang terdeteksi berbahaya memerlukan persetujuan pemilik sebelum dijalankan.`
+
+func buildToolInstructions(code bool) string {
+	if code {
+		return toolInstructions + codeToolInstruction
+	}
+	return toolInstructions
+}
+
 func parseToolBlock(text string) (name, arg string, found bool) {
 	match := toolBlockPattern.FindStringSubmatch(text)
 	if match == nil {
@@ -68,7 +79,7 @@ func truncateToolResult(s string) string {
 // model memuat blok tool, tool dijalankan dan hasilnya dikirim kembali
 // sebagai pesan lanjutan (maksimal maxToolRounds putaran). Bila putaran
 // lanjutan gagal, teks terakhir yang berhasil dipakai.
-func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools bool) (workerReply, error) {
+func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools, code bool) (workerReply, error) {
 	text, err := a.chat(ctx, cfg, s, history)
 	if err != nil {
 		return workerReply{}, err
@@ -82,7 +93,7 @@ func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history [
 		if !found {
 			break
 		}
-		result := a.runTool(ctx, name, arg)
+		result := a.runTool(ctx, s, name, arg, code)
 		used = append(used, name)
 		history = append(history,
 			gatewayMessage{"assistant", text},
@@ -115,7 +126,7 @@ func (a *App) sandboxPath(name string) (string, error) {
 	return full, nil
 }
 
-func (a *App) runTool(ctx context.Context, name, arg string) string {
+func (a *App) runTool(ctx context.Context, s seat, name, arg string, code bool) string {
 	switch name {
 	case "web_search":
 		return a.toolWebSearch(ctx, arg)
@@ -129,6 +140,11 @@ func (a *App) runTool(ctx context.Context, name, arg string) string {
 		return a.toolWriteFile(arg)
 	case "current_time":
 		return toolCurrentTime()
+	case "run_code":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan."
+		}
+		return a.toolRunCode(ctx, s, arg)
 	default:
 		return fmt.Sprintf("Tool %q tidak dikenal.", name)
 	}
@@ -310,4 +326,182 @@ func (a *App) toolWebSearch(ctx context.Context, query string) string {
 		lines = append(lines, fmt.Sprintf("%d. %s\n%s\n%s", i+1, title, snippet, href))
 	}
 	return truncateToolResult(strings.Join(lines, "\n\n"))
+}
+
+// --- Tool coding (run_code) dengan sandbox + persetujuan pemilik ---
+
+const codeTimeout = 10 * time.Second
+const approvalTimeout = 180 * time.Second
+
+// dangerousCodePatterns mendeteksi kode yang memerlukan persetujuan
+// pemilik sebelum dijalankan (pola seperti deteksi perintah berbahaya
+// pada agent terminal; berbasis pola, bukan jaminan).
+var dangerousCodePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\brm\s+-[a-z]*[rf]`),
+	regexp.MustCompile(`(?i)\b(sudo|su\s+-|doas)\b`),
+	regexp.MustCompile(`(?i)\b(curl|wget|nc|netcat|ssh|scp|ftp)\b`),
+	regexp.MustCompile(`(?i)\b(socket|urllib|axios|XMLHttpRequest)\b|\b(requests\.|http\.client|fetch\s*\()`),
+	regexp.MustCompile(`(?i)\b(os\.system|subprocess|child_process|__import__)\b|\b(exec|eval|compile)\s*\(`),
+	regexp.MustCompile(`(?i)(/etc/(passwd|shadow)|muse-secrets|\.ssh|id_rsa|credentials)`),
+	regexp.MustCompile(`(?i)\b(shutil\.rmtree|os\.remove|os\.unlink|fs\.rm|unlinkSync|rmdir)\b`),
+	regexp.MustCompile(`(?i)\b(chmod|chown|mkfs|dd\s+if=|shutdown|reboot|killall|pkill)\b`),
+	regexp.MustCompile(`(?i)\bwhile\s+(True|1)\b|for\s*\(\s*;\s*;`),
+	regexp.MustCompile(`(?i)\b(open|readFileSync|createReadStream)\s*\(\s*['"]/`), // baca path absolut
+}
+
+func dangerousCode(code string) (string, bool) {
+	for _, pattern := range dangerousCodePatterns {
+		if match := pattern.FindString(code); match != "" {
+			return match, true
+		}
+	}
+	return "", false
+}
+
+// codeApproval adalah permintaan persetujuan pemilik untuk menjalankan
+// kode yang terdeteksi berbahaya.
+type codeApproval struct {
+	ID        string `json:"id"`
+	SeatCode  string `json:"seatCode"`
+	SeatName  string `json:"seatName"`
+	Language  string `json:"language"`
+	Code      string `json:"code"`
+	CreatedAt string `json:"createdAt"`
+	done      chan bool
+}
+
+func (a *App) requestCodeApproval(ctx context.Context, s seat, language, code string) bool {
+	approval := &codeApproval{
+		ID: uuid(), SeatCode: s.Code, SeatName: s.Name,
+		Language: language, Code: code, CreatedAt: now(),
+		done: make(chan bool, 1),
+	}
+	a.approvalMu.Lock()
+	if a.approvals == nil {
+		a.approvals = map[string]*codeApproval{}
+	}
+	a.approvals[approval.ID] = approval
+	a.approvalMu.Unlock()
+	defer func() {
+		a.approvalMu.Lock()
+		delete(a.approvals, approval.ID)
+		a.approvalMu.Unlock()
+	}()
+	select {
+	case approved := <-approval.done:
+		return approved
+	case <-time.After(approvalTimeout):
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (a *App) pendingApprovals() []codeApproval {
+	a.approvalMu.Lock()
+	defer a.approvalMu.Unlock()
+	out := make([]codeApproval, 0, len(a.approvals))
+	for _, approval := range a.approvals {
+		out = append(out, *approval)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	return out
+}
+
+func (a *App) decideApproval(id string, approved bool) bool {
+	a.approvalMu.Lock()
+	defer a.approvalMu.Unlock()
+	approval, ok := a.approvals[id]
+	if !ok {
+		return false
+	}
+	select {
+	case approval.done <- approved:
+	default:
+	}
+	return true
+}
+
+func (a *App) toolRunCode(ctx context.Context, s seat, arg string) string {
+	language, code, found := strings.Cut(arg, "\n")
+	language = strings.ToLower(strings.TrimSpace(language))
+	if !found || strings.TrimSpace(code) == "" {
+		return "Error: format run_code adalah baris pertama bahasa (python/javascript), baris berikutnya kode."
+	}
+	var ext, interpreter string
+	switch language {
+	case "python", "py":
+		language, ext, interpreter = "python", "py", "python3"
+	case "javascript", "js", "node":
+		language, ext, interpreter = "javascript", "js", "node"
+	default:
+		return "Error: bahasa harus python atau javascript."
+	}
+	if len(code) > maxSandboxFileBytes {
+		return "Error: kode terlalu besar (maks 100 KB)."
+	}
+	if match, dangerous := dangerousCode(code); dangerous {
+		if !a.requestCodeApproval(ctx, s, language, code) {
+			return fmt.Sprintf("Kode TIDAK dijalankan: terdeteksi pola berbahaya (%q) dan pemilik menolak atau tidak menyetujui dalam %d detik. Tulis ulang kode yang lebih aman atau jelaskan kebutuhanmu.", match, int(approvalTimeout.Seconds()))
+		}
+	}
+	return a.executeCode(ctx, interpreter, ext, code)
+}
+
+// executeCode menjalankan kode di sandbox bubblewrap sebagai user nobody:
+// filesystem di luar folder kerja tidak terlihat, tanpa jaringan, dengan
+// batas CPU/memori/proses lewat cgroup systemd-run --scope.
+func (a *App) executeCode(ctx context.Context, interpreter, ext, code string) string {
+	dir := a.sandboxDir()
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		return "Error: gagal membuat folder kerja."
+	}
+	name := "run-" + uuid() + "." + ext
+	full := filepath.Join(dir, name)
+	if err := os.WriteFile(full, []byte(code), 0o644); err != nil {
+		return "Error: gagal menulis berkas kode."
+	}
+	defer os.Remove(full)
+
+	bwrapArgs := []string{
+		"--ro-bind", "/usr", "/usr",
+		"--ro-bind", "/lib", "/lib",
+		"--ro-bind", "/lib64", "/lib64",
+		"--ro-bind", "/bin", "/bin",
+		"--ro-bind", "/etc/alternatives", "/etc/alternatives",
+		"--dev", "/dev",
+		"--tmpfs", "/tmp",
+		"--bind", dir, "/work",
+		"--chdir", "/work",
+		"--unshare-user", "--unshare-ipc", "--unshare-net", "--unshare-uts", "--unshare-cgroup",
+		"--die-with-parent",
+		"--uid", "65534", "--gid", "65534",
+		"--clearenv", "--setenv", "PATH", "/usr/bin:/bin",
+		"timeout", fmt.Sprint(int(codeTimeout.Seconds())), interpreter, name,
+	}
+	runCtx, cancel := context.WithTimeout(ctx, codeTimeout+15*time.Second)
+	defer cancel()
+
+	args := append([]string{"--quiet", "--scope", "-p", "MemoryMax=256M", "-p", "TasksMax=64", "-p", "CPUQuota=50%", "bwrap"}, bwrapArgs...)
+	cmd := exec.CommandContext(runCtx, "systemd-run", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil && strings.Contains(string(out), "Failed to") {
+		// systemd-run tidak tersedia di lingkungan ini: jalankan bwrap langsung.
+		cmd = exec.CommandContext(runCtx, "bwrap", bwrapArgs...)
+		out, err = cmd.CombinedOutput()
+	}
+	text := strings.TrimSpace(string(out))
+	if err != nil {
+		if runCtx.Err() == context.DeadlineExceeded {
+			return truncateToolResult("Error: kode melebihi batas waktu.\n" + text)
+		}
+		if text == "" {
+			text = err.Error()
+		}
+		return truncateToolResult("Kode selesai dengan error:\n" + text)
+	}
+	if text == "" {
+		text = "(tidak ada output)"
+	}
+	return truncateToolResult(text)
 }

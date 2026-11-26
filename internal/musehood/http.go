@@ -46,6 +46,8 @@ type App struct {
 	mentionPatterns []seatMentionPattern
 	running         map[*job]context.CancelFunc
 	closed          bool
+	approvalMu      sync.Mutex
+	approvals       map[string]*codeApproval
 }
 type apiError struct {
 	status  int
@@ -350,6 +352,8 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
 			}
+		} else if strings.HasPrefix(path, "/api/approvals/") && !strings.Contains(strings.TrimPrefix(path, "/api/approvals/"), "/") {
+			want = http.MethodPost
 		} else if _, _, ok := messageAction(path); ok {
 			want = http.MethodPost
 		} else {
@@ -495,6 +499,19 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return created, nil
 		})
 	default:
+		if strings.HasPrefix(path, "/api/approvals/") {
+			id := strings.TrimPrefix(path, "/api/approvals/")
+			var body struct {
+				Approved bool `json:"approved"`
+			}
+			if err := readObject(w, r, &body); err != nil {
+				return 0, nil, err
+			}
+			if !a.decideApproval(id, body.Approved) {
+				return 0, nil, problem(404, "Permintaan persetujuan tidak ditemukan atau sudah kedaluwarsa.")
+			}
+			return a.respondLocked(200, func() (any, error) { return a.stateLocked(), nil })
+		}
 		if strings.HasPrefix(path, "/api/rooms/") {
 			rest := strings.TrimPrefix(path, "/api/rooms/")
 			parts := strings.Split(rest, "/")

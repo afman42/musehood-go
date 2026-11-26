@@ -57,10 +57,17 @@ type settings struct {
 	// ToolsEnabled mengizinkan kursi gateway memakai tool (web_search,
 	// fetch_url, file sandbox, current_time). Nil berarti aktif.
 	ToolsEnabled *bool `json:"toolsEnabled,omitempty"`
+	// CodeToolEnabled mengizinkan tool run_code (eksekusi kode di sandbox
+	// dengan persetujuan pemilik untuk pola berbahaya). Nil berarti aktif.
+	CodeToolEnabled *bool `json:"codeToolEnabled,omitempty"`
 }
 
 func (s settings) toolsOn() bool {
 	return s.ToolsEnabled == nil || *s.ToolsEnabled
+}
+
+func (s settings) codeToolOn() bool {
+	return s.CodeToolEnabled == nil || *s.CodeToolEnabled
 }
 
 // gatewayProvider adalah satu konfigurasi gateway kustom yang tersimpan.
@@ -1016,13 +1023,14 @@ func (a *App) stateLocked() any {
 			Present int `json:"present"`
 			Total   int `json:"total"`
 		} `json:"presence"`
+		PendingApprovals []codeApproval `json:"pendingApprovals"`
 	}{d, views, struct {
 		settings
 		HasAPIKey bool `json:"hasApiKey"`
 	}{d.Settings, len(key) > 0}, struct {
 		Present int `json:"present"`
 		Total   int `json:"total"`
-	}{present, 1 + len(d.Seats)}}
+	}{present, 1 + len(d.Seats)}, a.pendingApprovals()}
 }
 
 type nameUpdate struct {
@@ -1052,6 +1060,7 @@ type settingsUpdate struct {
 		DarkMode        *bool   `json:"darkMode"`
 		IntegratorSeat  *string `json:"integratorSeat"`
 		ToolsEnabled    *bool   `json:"toolsEnabled"`
+		CodeToolEnabled *bool   `json:"codeToolEnabled"`
 		ClearAPIKey     bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
@@ -1170,6 +1179,10 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		if patch.ToolsEnabled != nil {
 			enabled := *patch.ToolsEnabled
 			next.Settings.ToolsEnabled = &enabled
+		}
+		if patch.CodeToolEnabled != nil {
+			enabled := *patch.CodeToolEnabled
+			next.Settings.CodeToolEnabled = &enabled
 		}
 		if patch.IntegratorSeat != nil {
 			code := strings.TrimSpace(*patch.IntegratorSeat)

@@ -211,3 +211,11 @@ html.dark .messages::-webkit-scrollbar-thumb{background:#3a4a3f}
 .tools-used{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
 .tool-chip{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9.5px;background:#e9eee3;color:#4c6450;border:1px solid #d8e5ce;border-radius:20px;padding:3px 8px}
 html.dark .tool-chip{background:#243528;color:#9db8a2;border-color:#33473a}
+
+/* Banner persetujuan kode berbahaya */
+.approval-banner{margin:10px 14px 0;padding:12px 14px;border:1px solid #e5c07b;background:#fff8e6;border-radius:12px;animation:msg-in .25s ease both}
+.approval-title{font-size:12px;font-weight:650;color:#7a5a12;margin-bottom:8px}
+.approval-code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;line-height:1.6;background:#2b2118;color:#f5e6c8;border-radius:8px;padding:10px;max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:10px}
+.approval-actions{display:flex;gap:8px;justify-content:flex-end}
+html.dark .approval-banner{background:#33290f;border-color:#6b5518}
+html.dark .approval-title{color:#e8c97a}

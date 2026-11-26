@@ -9,6 +9,7 @@
   import MessageBubble from '../../lib/MessageBubble.svelte';
   import Composer from '../../lib/Composer.svelte';
   import MentionDialog from '../../lib/MentionDialog.svelte';
+  import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
   import { errorText } from '../../lib/api';
@@ -328,6 +329,9 @@
       {/each}
     {/if}
   </section>
+  {#if current?.pendingApprovals?.length}
+    <ApprovalBanner approvals={current.pendingApprovals} onDecide={(id, approved) => chat.decideApproval(id, approved).catch(e => chat.notify(errorText(e), true))} />
+  {/if}
   <Composer bind:this={composer} bind:text {submitting} {asking} {voting} {uploadingImage} {uploadingFile}
     {replyTo} replyAuthorName={replyTo ? authorName(replyTo) : ''} {pendingImage} {pendingFile}
     onSend={send} onProgress={progress} onVote={startVote}
