@@ -286,3 +286,24 @@ html.dark .md-quote{color:#b7cbb4;border-left-color:#3f5c46}
 .md-list li{margin:2px 0}
 .md-hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .message-text a{color:var(--green);text-decoration:underline;overflow-wrap:anywhere}
+.md-code span{transition:color .15s ease}
+.shj-syn-kwd{color:#c22e4a;font-weight:600}
+.shj-syn-str{color:#1f7a3d}
+.shj-syn-num,.shj-syn-bool,.shj-syn-esc{color:#0b5fa5}
+.shj-syn-cmnt{color:#6b7a6d;font-style:italic}
+.shj-syn-func,.shj-syn-section{color:#6d3fc0}
+.shj-syn-class,.shj-syn-type{color:#b3540a}
+.shj-syn-var{color:#243b2c}
+.shj-syn-oper{color:#c22e4a}
+.shj-syn-insert{color:#1f7a3d}
+.shj-syn-deleted,.shj-syn-err{color:#b31d28}
+html.dark .shj-syn-kwd{color:#ff8fa3}
+html.dark .shj-syn-str{color:#a8dba8}
+html.dark .shj-syn-num,html.dark .shj-syn-bool,html.dark .shj-syn-esc{color:#8ec9ff}
+html.dark .shj-syn-cmnt{color:#93a89a}
+html.dark .shj-syn-func,html.dark .shj-syn-section{color:#d3b8ff}
+html.dark .shj-syn-class,html.dark .shj-syn-type{color:#ffb27a}
+html.dark .shj-syn-var{color:#e6f0e4}
+html.dark .shj-syn-oper{color:#ff8fa3}
+html.dark .shj-syn-insert{color:#8fe3a0}
+html.dark .shj-syn-deleted,html.dark .shj-syn-err{color:#ffa198}

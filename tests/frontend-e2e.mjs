@@ -50,6 +50,15 @@ try {
   const mdItems = await page.locator('.message-owner .md-list li').count();
   report.check('Markdown dirender di bubble (strong + daftar)', mdStrong === 'tebal' && mdItems === 2, `strong=${mdStrong} items=${mdItems}`);
 
+  // 2d. Blok kode diberi syntax highlighting (bahasa dimuat malas).
+  await composer.fill('Contoh kode:\n\n```js\nconst pesan = "halo";\n```');
+  await composer.press('Enter');
+  const kwdSpan = page.locator('.message-owner .md-code .shj-syn-kwd').last();
+  await kwdSpan.waitFor();
+  const kwdText = await kwdSpan.textContent();
+  const strText = await page.locator('.message-owner .md-code .shj-syn-str').last().textContent();
+  report.check('blok kode JS ter-highlight (kwd + str)', kwdText === 'const' && strText === '"halo"', `kwd=${kwdText} str=${strText}`);
+
   // 3. Pin pesan -> pinned bar muncul.
   await page.locator('.message').first().hover();
   await page.getByRole('button', { name: /pin|sematkan/i }).first().click().catch(() => {});
