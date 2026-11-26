@@ -552,8 +552,9 @@ func (a *App) testModel(ctx context.Context, model string) (int, json.RawMessage
 	}
 	a.mu.Lock()
 	cfg := a.data.Settings
+	cfg, testName := a.data.resolveModelProviderLocked(cfg, model)
 	a.mu.Unlock()
-	latency, reply, err := a.testOneModel(ctx, cfg, model)
+	latency, reply, err := a.testOneModel(ctx, cfg, testName)
 	if err != nil {
 		return 0, nil, err
 	}

@@ -339,6 +339,26 @@ func (d *data) providerConfig(p gatewayProvider) settings {
 	return settings{BaseURL: p.BaseURL, APIKey: p.APIKey, ProviderName: p.Name, GatewayProtocol: p.Protocol}
 }
 
+// resolveModelProviderLocked memeriksa awalan "alias/" pada nama model kursi.
+// Bila awalan cocok dengan alias provider terdaftar, panggilan gateway memakai
+// konfigurasi provider itu dan nama model tanpa awalan — jadi model kursi
+// ditulis "alias/model" dan alias menentukan providernya. Tanpa kecocokan,
+// model dikirim apa adanya ke provider aktif (kompatibel mundur: nama model
+// yang mengandung "/" seperti "deepseek/deepseek-v4-flash" tetap utuh selama
+// awalannya bukan alias provider mana pun). Pemanggil wajib memegang a.mu.
+func (d *data) resolveModelProviderLocked(cfg settings, model string) (settings, string) {
+	prefix, rest, found := strings.Cut(model, "/")
+	if !found || prefix == "" || rest == "" {
+		return cfg, model
+	}
+	for i := range d.Providers {
+		if d.Providers[i].Alias != "" && d.Providers[i].Alias == prefix {
+			return d.providerConfig(d.Providers[i]), rest
+		}
+	}
+	return cfg, model
+}
+
 func (d *data) providerView(p gatewayProvider) gatewayProviderView {
 	return gatewayProviderView{ID: p.ID, Name: p.Name, Alias: p.Alias, BaseURL: p.BaseURL, Protocol: p.Protocol, HasAPIKey: p.APIKey != "", Active: p.ID == d.Settings.ActiveProviderID}
 }
