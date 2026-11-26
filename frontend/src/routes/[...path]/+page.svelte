@@ -10,6 +10,7 @@
   import Composer from '../../lib/Composer.svelte';
   import MentionDialog from '../../lib/MentionDialog.svelte';
   import SeatInfoDialog from '../../lib/SeatInfoDialog.svelte';
+  import ScheduleDialog from '../../lib/ScheduleDialog.svelte';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
@@ -21,6 +22,7 @@
   let settingsPanel = $state<ReturnType<typeof Settings>>();
   let mentionDialog = $state<ReturnType<typeof MentionDialog>>();
   let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialog>>();
+  let scheduleDialog = $state<ReturnType<typeof ScheduleDialog>>();
   let roomDialog = $state<ReturnType<typeof RoomDialog>>();
   let composer = $state<ReturnType<typeof Composer>>();
   let searchBar = $state<ReturnType<typeof SearchBar>>();
@@ -163,6 +165,11 @@
     if (!window.confirm('Hapus pesan ini secara permanen?')) return;
     if (editingId === message.id) { editingId = ''; editText = ''; }
     try { await chat.removeMessage(message); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  async function regenerateMessage(message: Message) {
+    try { await chat.regenerateMessage(message); }
     catch (error) { chat.notify(errorText(error), true); }
   }
 
@@ -331,6 +338,7 @@
           onJumpQuote={jumpToQuote}
           onImageLoad={scrollForImage}
           onMentionClick={(mentioned) => seatInfoDialog?.open(mentioned)}
+          onRegenerate={() => regenerateMessage(message)}
         />
       {/each}
     {/if}
@@ -344,12 +352,14 @@
     onOpenMention={() => { if (current) mentionDialog?.open(); }}
     onImagePrompt={() => composer?.setText(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}
     onUploadImage={() => imageInput.click()} onUploadFile={() => fileInput.click()}
-    onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null} />
+    onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null}
+    onSchedule={() => scheduleDialog?.open(text)} />
 </main>
 
 <Settings bind:this={settingsPanel} current={chat.current} refresh={chat.refresh} mutate={chat.mutate} notify={chat.notify} notice={chat.notice} />
 <MentionDialog bind:this={mentionDialog} seats={chat.roomSeats} notice={chat.notice} onPick={(seat) => composer?.insertMention(seat.name)} />
 <SeatInfoDialog bind:this={seatInfoDialog} onMention={(seat) => composer?.insertMention(seat.name)} />
+<ScheduleDialog bind:this={scheduleDialog} listScheduled={chat.listScheduled} createScheduled={chat.createScheduled} updateScheduled={chat.updateScheduled} deleteScheduled={chat.deleteScheduled} notify={chat.notify} roomId={current?.activeRoomId ?? ''} />
 <RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
 <Toast notice={chat.notice} target={null} />
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>

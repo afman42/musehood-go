@@ -295,7 +295,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools":
 		want = http.MethodGet
-	case "/api/providers", "/api/rooms", "/api/presets":
+	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.Header().Set("Allow", "GET, POST")
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
@@ -358,6 +358,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			}
 		} else if strings.HasPrefix(path, "/api/approvals/") && !strings.Contains(strings.TrimPrefix(path, "/api/approvals/"), "/") {
 			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/scheduled/") && !strings.Contains(strings.TrimPrefix(path, "/api/scheduled/"), "/") {
+			if r.Method == http.MethodDelete {
+				want = http.MethodDelete
+			} else if r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				w.Header().Set("Allow", "POST, DELETE")
+				return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
+			}
 		} else if _, _, ok := messageAction(path); ok {
 			want = http.MethodPost
 		} else {
@@ -392,6 +401,21 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return 0, nil, err
 		}
 		return a.respondLocked(201, func() (any, error) { return a.createPresetLocked(body.Name) })
+	case "/api/scheduled":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) {
+				items := a.data.Scheduled
+				if items == nil {
+					items = []scheduledMessage{}
+				}
+				return map[string]any{"scheduled": items}, nil
+			})
+		}
+		var input scheduledInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) { return a.createScheduledLocked(input) })
 	case "/api/skills":
 		return a.respondLocked(200, func() (any, error) { return map[string]any{"skills": a.loadSkills()}, nil })
 	case "/api/tools":
@@ -514,6 +538,17 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return created, nil
 		})
 	default:
+		if strings.HasPrefix(path, "/api/scheduled/") {
+			id := strings.TrimPrefix(path, "/api/scheduled/")
+			if r.Method == http.MethodDelete {
+				return a.respondLocked(200, func() (any, error) { return map[string]bool{"ok": true}, a.deleteScheduledLocked(id) })
+			}
+			var input scheduledInput
+			if err := readObject(w, r, &input); err != nil {
+				return 0, nil, err
+			}
+			return a.respondLocked(200, func() (any, error) { return a.updateScheduledLocked(id, input) })
+		}
 		if strings.HasPrefix(path, "/api/approvals/") {
 			id := strings.TrimPrefix(path, "/api/approvals/")
 			var body struct {

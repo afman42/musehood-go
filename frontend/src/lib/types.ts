@@ -23,6 +23,11 @@ export type Message = {
 };
 export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
 export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[] };
+export type ScheduledMessage = {
+  id: string; roomId: string; text: string; sendAt?: string;
+  recur?: string; timeOfDay?: string; weekday?: number; intervalHours?: number;
+  tzOffsetMinutes?: number; enabled: boolean; nextAt?: string; lastSentAt?: string; createdAt: string;
+};
 export type PresetSeat = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; fallbackModel?: string; fallbackModels?: string[]; disabledTools?: string[]; memory?: string; skills?: string[] };
 export type SeatPreset = { id: string; name: string; createdAt: string; seats: PresetSeat[] };
 export type UsageStat = { requests: number; success: number; failed: number; totalLatencyMs: number; promptTokens: number; completionTokens: number; lastAt?: string; estimatedCostUsd?: number };

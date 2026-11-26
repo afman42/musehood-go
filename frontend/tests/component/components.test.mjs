@@ -17,7 +17,7 @@ const bubbleProps = {
   emojis: ['👍'], query: '',
   onReply: noop, onToggleReactPicker: noop, onReact: noop, onPin: noop,
   onEditStart: noop, onEditSave: noop, onEditCancel: noop, onDelete: noop,
-  onJumpQuote: noop, onImageLoad: noop, onMentionClick: noop,
+  onJumpQuote: noop, onImageLoad: noop, onMentionClick: noop, onRegenerate: noop,
 };
 
 test('MessageBubble: teks, nama penulis, dan waktu tampil', async () => {
@@ -184,7 +184,7 @@ const composerProps = {
   replyTo: undefined, replyAuthorName: '', pendingImage: '', pendingFile: null,
   onSend: noop, onProgress: noop, onVote: noop, onOpenMention: noop,
   onImagePrompt: noop, onUploadImage: noop, onUploadFile: noop,
-  onCancelReply: noop, onCancelImage: noop, onCancelFile: noop,
+  onCancelReply: noop, onCancelImage: noop, onCancelFile: noop, onSchedule: noop,
 };
 
 test('Composer: textarea pesan dan tombol aksi berlabel', async () => {

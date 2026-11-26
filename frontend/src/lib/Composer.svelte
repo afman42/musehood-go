@@ -7,7 +7,7 @@
     text = $bindable(''), submitting, asking, voting, uploadingImage, uploadingFile, uploadProgress,
     replyTo, replyAuthorName, pendingImage, pendingFile,
     onSend, onProgress, onVote, onOpenMention, onImagePrompt, onUploadImage, onUploadFile,
-    onCancelReply, onCancelImage, onCancelFile,
+    onCancelReply, onCancelImage, onCancelFile, onSchedule,
   }: {
     text?: string;
     submitting: boolean;
@@ -30,6 +30,7 @@
     onCancelReply: () => void;
     onCancelImage: () => void;
     onCancelFile: () => void;
+    onSchedule: () => void;
   } = $props();
 
   let input: HTMLTextAreaElement;
@@ -106,6 +107,7 @@
     <button id="mentionButton" class="action-chip" type="button" onclick={onOpenMention}>@ Kursi</button>
     <button id="progressButton" class="action-chip" type="button" onclick={onProgress} disabled={asking}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10a7 7 0 1 0 2-5M3 3v4h4M10 6v4l3 2"/></svg>Tanya Progres</button>
     <button id="voteButton" class="action-chip" type="button" onclick={onVote} disabled={voting}>★ {voting ? 'Memulai voting…' : 'Voting Jawaban Terbaik'}</button>
+    <button id="scheduleButton" class="action-chip" type="button" onclick={onSchedule}>⏰ Jadwalkan</button>
     <button id="imageButton" class="action-chip" type="button" onclick={onImagePrompt}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3"/><circle cx="7" cy="7" r="1.4"/><path d="m3 15 4-4 3 3 3-5 4 6"/></svg>Buat Gambar</button>
     <button id="uploadImageButton" class="action-chip" type="button" onclick={onUploadImage} disabled={uploadingImage}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V4m0 0L6.5 7.5M10 4l3.5 3.5M4 13v2.5h12V13"/></svg>{uploadingImage ? `Mengunggah… ${uploadProgress ?? 0}%` : 'Kirim Gambar'}</button>
     <button id="uploadFileButton" class="action-chip" type="button" onclick={onUploadFile} disabled={uploadingFile}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v8m0 0-3-3m3 3 3-3M4 15v2.5h12V15"/></svg>{uploadingFile ? `Mengunggah… ${uploadProgress ?? 0}%` : 'Lampirkan File'}</button>

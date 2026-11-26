@@ -318,3 +318,15 @@ html.dark .tool-card{background:#223128}
 .tool-card.tool-fail summary{color:var(--red)}
 .tool-arg{font-size:12px;margin:6px 0;overflow-wrap:anywhere}
 .tool-result{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11.5px;white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0;max-height:220px;overflow:auto}
+.schedule-dialog{width:min(440px,calc(100% - 32px))}
+.schedule-dialog label{display:block;font-size:11px;font-weight:650;margin-top:12px}
+.schedule-dialog textarea,.schedule-dialog input,.schedule-dialog select{display:block;width:100%;background:#fff;border:1px solid #dfe6da;border-radius:8px;padding:9px 11px;margin-top:6px;color:var(--ink);font-size:13px}
+html.dark .schedule-dialog textarea,html.dark .schedule-dialog input,html.dark .schedule-dialog select{background:#2a3a31;border-color:#3c4f42}
+.schedule-dialog .primary-button{margin-top:14px;width:100%}
+.schedule-list-title{font-size:13px;margin:18px 0 8px}
+.schedule-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.schedule-item{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.schedule-item>div{flex:1;min-width:0}
+.schedule-item strong{display:block;font-size:12.5px;overflow-wrap:anywhere}
+.schedule-item small{display:block;color:var(--muted);font-size:10.5px;margin-top:3px}
+.schedule-item.disabled{opacity:.55}

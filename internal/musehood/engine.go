@@ -163,6 +163,7 @@ func (a *App) saveJobLocked() {
 	}
 }
 func (a *App) tickLocked() {
+	a.runSchedulesLocked()
 	for _, j := range a.data.Jobs {
 		a.advanceLocked(j)
 	}

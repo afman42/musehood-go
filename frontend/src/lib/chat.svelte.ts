@@ -1,5 +1,15 @@
-import { api, errorText } from './api';
-import type { Attachment, Message, Notice, SearchResult, State } from './types';
+import { api, apiDelete, errorText } from './api';
+import type { Attachment, Message, Notice, ScheduledMessage, SearchResult, State } from './types';
+
+export const NOTIFY_KEY = 'musehood-notify';
+
+export function notificationsEnabled(): boolean {
+  try {
+    return localStorage.getItem(NOTIFY_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted';
+  } catch {
+    return false;
+  }
+}
 
 export type ChatHooks = {
   // Dipanggil tepat sebelum state baru diterapkan (mis. untuk mengukur
@@ -19,6 +29,28 @@ export function createChat(hooks: ChatHooks = {}) {
   let requested = 0;
   let applied = 0;
   let messageKey = '';
+  const notifiedIds = new Set<string>();
+  let notificationsPrimed = false;
+
+  // Notifikasi browser: balasan kursi yang selesai saat tab tersembunyi.
+  function maybeNotify(result: State) {
+    const completed = result.messages.filter(m => m.authorType === 'seat' && m.status === 'completed');
+    if (!notificationsPrimed) {
+      for (const m of completed) notifiedIds.add(m.id);
+      notificationsPrimed = true;
+      return;
+    }
+    for (const m of completed) {
+      if (notifiedIds.has(m.id)) continue;
+      notifiedIds.add(m.id);
+      if (!document.hidden || !notificationsEnabled()) continue;
+      const seat = result.seats.find(s => s.code === m.seat);
+      const body = (m.text || 'Balasan baru').slice(0, 120);
+      try {
+        new Notification(`${seat?.name ?? m.seat ?? 'Kursi'} membalas`, { body, tag: m.id });
+      } catch { /* notifikasi tidak tersedia */ }
+    }
+  }
 
   const activeRoom = $derived.by(() => current?.rooms?.find(r => r.id === current?.activeRoomId));
   const roomSeats = $derived.by(() => {
@@ -47,6 +79,7 @@ export function createChat(hooks: ChatHooks = {}) {
     hooks.beforeApply?.();
     messageKey = nextKey;
     current = result;
+    maybeNotify(result);
     document.documentElement.classList.toggle('dark', result.settings.darkMode);
     if (changed) await hooks.afterApply?.();
   }
@@ -117,6 +150,27 @@ export function createChat(hooks: ChatHooks = {}) {
 
   async function saveEdit(id: string, text: string) {
     await mutate(`/api/message/${id}/edit`, { text });
+  }
+
+  async function regenerateMessage(message: Message) {
+    await mutate(`/api/message/${message.id}/regenerate`, {});
+  }
+
+  async function listScheduled(): Promise<ScheduledMessage[]> {
+    const out = await api<{ scheduled: ScheduledMessage[] }>('/api/scheduled');
+    return out.scheduled ?? [];
+  }
+
+  async function createScheduled(body: object): Promise<ScheduledMessage> {
+    return api<ScheduledMessage>('/api/scheduled', body);
+  }
+
+  async function updateScheduled(id: string, body: object): Promise<ScheduledMessage> {
+    return api<ScheduledMessage>(`/api/scheduled/${id}`, body);
+  }
+
+  async function deleteScheduled(id: string) {
+    await apiDelete(`/api/scheduled/${id}`);
   }
 
   // Unggah FormData dengan laporan kemajuan (0-100) lewat XHR; di
@@ -196,6 +250,11 @@ export function createChat(hooks: ChatHooks = {}) {
     toggleReact,
     removeMessage,
     saveEdit,
+    regenerateMessage,
+    listScheduled,
+    createScheduled,
+    updateScheduled,
+    deleteScheduled,
     uploadImage,
     uploadFile,
     scheduleSearch,

@@ -6,7 +6,7 @@
   let {
     message, seat, seats, own, name, avatar, quoted, quotedAuthorName,
     editing, editText = $bindable(''), reactOpen, emojis, query,
-    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick,
+    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick, onRegenerate,
   }: {
     message: Message;
     seat: Seat | undefined;
@@ -32,6 +32,7 @@
     onJumpQuote: (id: string) => void;
     onImageLoad: () => void;
     onMentionClick: (seat: Seat) => void;
+    onRegenerate: () => void;
   } = $props();
 
   const clock = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -114,6 +115,7 @@
         </div>
         <button class="msg-action" class:pin-active={message.pinned} type="button" aria-label={message.pinned ? 'Lepas sematan' : 'Sematkan pesan'} title={message.pinned ? 'Lepas sematan' : 'Sematkan'} onclick={onPin}>📌</button>
         {#if own}<button class="msg-action" type="button" aria-label="Ubah pesan" title="Ubah" onclick={onEditStart}>✎</button>{/if}
+        {#if !own}<button class="msg-action" type="button" aria-label="Buat ulang balasan" title="Buat ulang balasan" onclick={onRegenerate}>↻</button>{/if}
         <button class="msg-action" type="button" aria-label="Hapus pesan" title="Hapus" onclick={onDelete}>🗑</button>
       </div>
     {/if}

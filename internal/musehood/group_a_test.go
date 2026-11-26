@@ -187,3 +187,77 @@ func TestStreamingEndToEndAndFallback(t *testing.T) {
 		t.Fatalf("fallback non-stream salah: %v", msgs[3])
 	}
 }
+
+// Grup C: regenerate, pesan terjadwal, jadwal berulang.
+
+func TestRegenerateMessage(t *testing.T) {
+	f := setup(t, nil)
+	f.api("POST", "/api/message", object{"text": "@Plamo halo"}, 202)
+	msgs := f.finish(2)
+	oldID := msgs[1]["id"].(string)
+	f.api("POST", "/api/message/"+oldID+"/regenerate", object{}, 202)
+	msgs = f.finish(2)
+	if msgs[1]["id"] == oldID {
+		t.Fatal("regenerate harus membuat pesan baru")
+	}
+	if msgs[1]["status"] != "completed" {
+		t.Fatalf("balasan regenerate tidak selesai: %v", msgs[1])
+	}
+	// Pesan pemilik tidak bisa di-regenerate.
+	ownerID := msgs[0]["id"].(string)
+	f.api("POST", "/api/message/"+ownerID+"/regenerate", object{}, 403)
+}
+
+func TestScheduledMessagesCRUDAndFire(t *testing.T) {
+	f := setup(t, nil)
+	// Sekali kirim yang sudah jatuh tempo (1 menit lalu) → terkirim pada tick.
+	past := time.Now().Add(-time.Minute).UTC().Format("2006-01-02T15:04:05.000Z")
+	created := f.api("POST", "/api/scheduled", object{"text": "@Plamo pesan terjadwal", "sendAt": past}, 201)
+	if created["id"] == nil || created["nextAt"] == nil {
+		t.Fatalf("jadwal tidak dibuat: %v", created)
+	}
+	msgs := f.finish(2)
+	if msgs[0]["text"] != "@Plamo pesan terjadwal" {
+		t.Fatalf("pesan terjadwal tidak terkirim: %v", msgs[0])
+	}
+	list := f.api("GET", "/api/scheduled", nil, 200)
+	if len(asObjects(list["scheduled"])) != 0 {
+		t.Fatal("jadwal sekali kirim harus hilang setelah terkirim")
+	}
+	// Jadwal berulang harian: dibuat, dinonaktifkan, dihapus.
+	rec := f.api("POST", "/api/scheduled", object{"text": "ringkasan pagi", "recur": "daily", "timeOfDay": "07:00", "tzOffsetMinutes": 420}, 201)
+	recID := rec["id"].(string)
+	nextAt, _ := rec["nextAt"].(string)
+	parsed, err := time.Parse(time.RFC3339Nano, nextAt)
+	if err != nil {
+		t.Fatalf("nextAt tidak valid: %q", nextAt)
+	}
+	// 07:00 WIB = 00:00 UTC.
+	if parsed.Hour() != 0 || parsed.Minute() != 0 {
+		t.Fatalf("nextAt harian harus 00:00 UTC (07:00 WIB), dapat %v", parsed)
+	}
+	updated := f.api("POST", "/api/scheduled/"+recID, object{"enabled": false}, 200)
+	if updated["enabled"] != false {
+		t.Fatalf("toggle jadwal gagal: %v", updated)
+	}
+	f.api("DELETE", "/api/scheduled/"+recID, nil, 200)
+	f.api("GET", "/api/scheduled", nil, 200)
+	f.api("DELETE", "/api/scheduled/"+recID, nil, 404)
+	// Validasi.
+	f.api("POST", "/api/scheduled", object{"text": "", "sendAt": past}, 400)
+	f.api("POST", "/api/scheduled", object{"text": "x", "recur": "daily", "timeOfDay": "25:99"}, 400)
+}
+
+func TestComputeNextAtWeekly(t *testing.T) {
+	// Rabu 2026-11-25 10:00 WIB (UTC+7) → jadwal Senin 07:00 WIB berikutnya = 2026-11-30 00:00 UTC.
+	from := time.Date(2026, 11, 25, 3, 0, 0, 0, time.UTC)
+	s := scheduledMessage{Recur: "weekly", TimeOfDay: "07:00", Weekday: 1, TzOffsetMinutes: 420}
+	next, err := computeNextAt(s, from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC)
+	if !next.UTC().Equal(want) {
+		t.Fatalf("weekly next = %v, ingin %v", next.UTC(), want)
+	}
+}

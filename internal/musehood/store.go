@@ -303,6 +303,8 @@ type data struct {
 	ActiveRoomID string                `json:"activeRoomId"`
 	Presets      []seatPreset          `json:"presets,omitempty"`
 	Stats        map[string]*usageStat `json:"stats,omitempty"`
+	// Scheduled adalah pesan terjadwal (sekali kirim & berulang).
+	Scheduled []scheduledMessage `json:"scheduled,omitempty"`
 }
 
 const defaultRoomID = "room-utama"
