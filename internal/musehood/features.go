@@ -368,6 +368,12 @@ func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	for _, j := range incoming.Jobs {
+		if j == nil || j.Index < 0 || j.Index > len(j.Steps) {
+			a.writeJSON(w, 0, nil, problem(400, "Pekerjaan cadangan tidak valid."))
+			return
+		}
+	}
 	a.mu.Lock()
 	for i := range incoming.Providers {
 		if incoming.Providers[i].APIKey == "" {

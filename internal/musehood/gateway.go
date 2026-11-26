@@ -200,6 +200,7 @@ func (a *App) gateway(ctx context.Context, cfg settings, route string, body any)
 func (a *App) models(ctx context.Context, cfg settings) ([]string, error) {
 	return a.protocolModels(ctx, cfg)
 }
+
 // recordStat mencatat satu panggilan gateway ke statistik pemakaian.
 // Dipanggil dari goroutine pekerjaan (tanpa mutex), jadi ia mengunci sendiri;
 // penyimpanan ke disk terjadi pada save berikutnya (finishStepLocked dll).

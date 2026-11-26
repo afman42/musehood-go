@@ -119,6 +119,7 @@ func (a *App) validateWorker(ctx context.Context, kind string, reply workerReply
 	}
 	return reply, nil
 }
+
 // cancelQueueIDsLocked menghapus file antrean untuk ID tertentu saja,
 // dipakai saat membersihkan satu ruang agar antrean ruang lain tetap jalan.
 func (a *App) cancelQueueIDsLocked(ids map[string]bool) error {

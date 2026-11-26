@@ -222,7 +222,7 @@
 
   async function saveRoom(room: { id: string; name: string; seatCodes: string[] }) {
     try {
-      await api(`/api/rooms/${room.id}`, { name: room.name, seatCodes: room.seatCodes });
+      await api(`/api/rooms/${room.id}`, { name: room.name, seatCodes: room.seatCodes.length === (current?.seats.length ?? 0) ? [] : room.seatCodes });
       await refresh();
       syncSeats();
       notify('Ruang diperbarui.');
