@@ -5,7 +5,7 @@
 import { api, configureMockProvider, eventually, launchBrowser, makeReporter, startApp, startGateway } from './frontend-harness.mjs';
 
 const report = makeReporter('FRONTEND E2E');
-const app = await startApp({ skills: [{ name: 'contoh', description: 'Skill contoh uji', body: 'Ikuti contoh ini.' }, { name: 'gaya-singkat', description: 'Jawab singkat', body: 'Maksimal dua kalimat.' }] });
+const app = await startApp({ skills: [{ name: 'contoh', description: 'Skill contoh uji', body: 'Ikuti contoh ini.' }, { name: 'gaya-singkat', description: 'Jawab singkat', body: 'Maksimal dua kalimat.' }], homeSkills: [{ name: 'skillsh-contoh', description: 'Skill dari skills.sh', body: 'Dari direktori skills.sh.' }] });
 const gateway = await startGateway();
 const browser = await launchBrowser();
 
@@ -50,6 +50,15 @@ try {
   });
   const m01Card = page.locator('.seat-settings', { has: page.locator('[data-skill-search=M01]') });
   await m01Card.getByRole('button', { name: 'Tambah skill contoh' }).click();
+  // Skill dari direktori skills.sh (~/.agents/skills) ikut muncul + berlabel sumber.
+  await skillSearch.evaluate(el => {
+    el.focus();
+    document.execCommand('insertText', false, 'skillsh');
+  });
+  const skillshResult = m01Card.getByRole('button', { name: 'Tambah skill skillsh-contoh' });
+  await skillshResult.waitFor();
+  const skillshLabel = await skillshResult.locator('.skill-source').textContent();
+  report.check('skill skills.sh muncul di picker berlabel sumber', skillshLabel === 'skills.sh');
   await m01Card.locator('.skill-chip', { hasText: 'contoh' }).waitFor();
   report.check('skill menempel sebagai chip setelah ditekan', true);
   await page.locator('#saveSettings').click();

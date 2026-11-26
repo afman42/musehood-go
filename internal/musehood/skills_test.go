@@ -34,6 +34,7 @@ func TestParseSkill(t *testing.T) {
 }
 
 func TestLoadSkillsAndPrompt(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // isolasi dari ~/.agents/skills asli
 	app := &App{dir: t.TempDir()}
 	writeSkill(t, app, "gaya-singkat", "---\nname: gaya-singkat\ndescription: Jawab singkat\n---\nSelalu jawab maksimal dua kalimat.")
 	if err := os.WriteFile(filepath.Join(app.skillsDir(), "bebas.md"), []byte("Skill file tunggal."), 0o644); err != nil {
@@ -65,6 +66,7 @@ func TestLoadSkillsAndPrompt(t *testing.T) {
 }
 
 func TestSkillsEnabledGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	app := &App{dir: t.TempDir()}
 	writeSkill(t, app, "gaya-singkat", "---\nname: gaya-singkat\ndescription: Jawab singkat\n---\nSelalu jawab maksimal dua kalimat.")
 	s := seat{identity: identity{"Plamo", ""}, Code: "M01", Role: "Pelaksana", Skills: []string{"gaya-singkat"}}
@@ -87,6 +89,67 @@ func TestSkillsEnabledGate(t *testing.T) {
 	enabled.Settings.SkillsEnabled = &on
 	if got := app.systemPrompt(s, enabled); !strings.Contains(got, "dua kalimat") {
 		t.Fatalf("skillsEnabled=true harus menyisipkan: %q", got)
+	}
+}
+
+func TestLoadSkillsSkillsShDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	app := &App{dir: t.TempDir()}
+
+	writeHomeSkill := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(home, rel)
+		if err := os.MkdirAll(full, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(full, "SKILL.md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Skill dari direktori universal skills.sh.
+	writeHomeSkill(".agents/skills/alpha", "---\nname: alpha\ndescription: Dari skills.sh\n---\nIsi alpha versi skills.sh.")
+	writeHomeSkill(".agents/skills/gamma", "---\nname: gamma\ndescription: Gamma\n---\nIsi gamma.")
+	// ~/.claude/skills berupa symlink ke skill yang sama (pola skills CLI).
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, ".agents", "skills", "alpha"), filepath.Join(home, ".claude", "skills", "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	// Skill lokal dengan nama sama harus menang.
+	writeSkill(t, app, "alpha", "---\nname: alpha\ndescription: Lokal\n---\nIsi alpha versi lokal.")
+
+	skills := app.loadSkills()
+	byName := map[string]skillDef{}
+	for _, s := range skills {
+		byName[s.Name] = s
+	}
+	if len(skills) != 2 {
+		t.Fatalf("jumlah skill = %d (%+v)", len(skills), skills)
+	}
+	if got := byName["alpha"]; got.Source != "lokal" || !strings.Contains(got.Body, "versi lokal") {
+		t.Fatalf("alpha lokal harus menang: %+v", got)
+	}
+	if got := byName["gamma"]; got.Source != "skills.sh" {
+		t.Fatalf("gamma harus dari skills.sh: %+v", got)
+	}
+}
+
+func TestLoadSkillsCache(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	app := &App{dir: t.TempDir()}
+	writeSkill(t, app, "satu", "---\nname: satu\n---\nIsi satu.")
+	if got := app.loadSkills(); len(got) != 1 {
+		t.Fatalf("awal: %d skill", len(got))
+	}
+	writeSkill(t, app, "dua", "---\nname: dua\n---\nIsi dua.")
+	if got := app.loadSkills(); len(got) != 1 {
+		t.Fatalf("cache harus menahan hasil lama: %d skill", len(got))
+	}
+	app.skillsCacheAt = time.Now().Add(-skillsCacheTTL - time.Second)
+	if got := app.loadSkills(); len(got) != 2 {
+		t.Fatalf("setelah TTL harus memindai ulang: %d skill", len(got))
 	}
 }
 

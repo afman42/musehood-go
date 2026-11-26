@@ -46,10 +46,19 @@ export async function startApp(opts = {}) {
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, 'SKILL.md'), `---\nname: ${skill.name}\ndescription: ${skill.description || ''}\n---\n${skill.body || ''}\n`);
   }
+  // HOME terisolasi agar pemindaian skills.sh (~/.agents/skills) tidak
+  // membaca skill asli mesin; opts.homeSkills men-seed direktori itu.
+  const home = join(dir, 'home');
+  mkdirSync(home, { recursive: true });
+  for (const skill of opts.homeSkills ?? []) {
+    const skillDir = join(home, '.agents', 'skills', skill.name);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), `---\nname: ${skill.name}\ndescription: ${skill.description || ''}\n---\n${skill.body || ''}\n`);
+  }
   const port = await freePort();
   const child = spawn(binaryPath, [], {
     cwd: dir,
-    env: { ...process.env, DATA_DIR: join(dir, 'runtime'), PORT: String(port) },
+    env: { ...process.env, DATA_DIR: join(dir, 'runtime'), PORT: String(port), HOME: home },
   });
   let log = '';
   child.stdout.on('data', c => { log += c; });

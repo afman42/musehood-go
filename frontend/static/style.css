@@ -246,3 +246,4 @@ html.dark .composer-hint{color:#9db8a8}
 .skill-result small{color:var(--muted)}
 .skill-empty{margin:2px 0;font-size:12px;color:var(--muted)}
 html.dark .skill-result{background:#26332b}
+.skill-source{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}

@@ -8,6 +8,7 @@ Type=simple
 User=root
 WorkingDirectory=/home/hatch/workspace/musehood-go
 Environment=PORT=3001
+Environment=HOME=/home/hatch
 # TRUSTED_HOSTS dibaca dari file agar runner tunnel localhost.run bisa
 # memperbaruinya tiap subdomain berubah (lihat run-lhr-tunnel.sh).
 EnvironmentFile=/home/hatch/workspace/musehood-go/trusted-hosts.env

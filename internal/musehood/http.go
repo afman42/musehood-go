@@ -40,6 +40,9 @@ type App struct {
 	wg              sync.WaitGroup
 	museWait        time.Duration
 	mu              sync.Mutex
+	skillsMu        sync.Mutex
+	skillsCache     []skillDef
+	skillsCacheAt   time.Time
 	data            data
 	secrets         []string
 	redactor        *strings.Replacer

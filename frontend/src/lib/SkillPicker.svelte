@@ -48,7 +48,7 @@
     <div class="skill-results">
       {#each results as skill (skill.name)}
         <button class="skill-result" type="button" aria-label={`Tambah skill ${skill.name}`} onclick={() => add(skill.name)}>
-          <strong>{skill.name}</strong>{#if skill.description}<small>{skill.description}</small>{/if}
+          <strong>{skill.name}</strong>{#if skill.source}<span class="skill-source">{skill.source}</span>{/if}{#if skill.description}<small>{skill.description}</small>{/if}
         </button>
       {/each}
       {#if showCustom}
