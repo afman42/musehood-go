@@ -273,6 +273,11 @@ func (a *App) advanceLocked(j *job) {
 			continue
 		}
 		cfg := a.data.Settings
+		if member.Model != nil {
+			var resolved string
+			cfg, resolved = a.data.resolveModelProviderLocked(cfg, *member.Model)
+			member.Model = &resolved
+		}
 		if s.Kind == "image" {
 			if protocolOf(cfg) != protoOpenAI {
 				// Protokol tanpa endpoint gambar: langsung pakai jalur gambar pekerja Muse.
