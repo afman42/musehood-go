@@ -42,6 +42,14 @@ try {
   report.check('tombol Mention di modal mengisi composer', (await composer.inputValue()) === '@Plamo ');
   await composer.fill('');
 
+  // 2c. Teks Markdown dirender di bubble (bold + daftar).
+  await composer.fill('Markdown **tebal**:\n- item satu\n- item dua');
+  await composer.press('Enter');
+  await page.locator('.message-owner .md-list li').first().waitFor();
+  const mdStrong = await page.locator('.message-owner strong').last().textContent();
+  const mdItems = await page.locator('.message-owner .md-list li').count();
+  report.check('Markdown dirender di bubble (strong + daftar)', mdStrong === 'tebal' && mdItems === 2, `strong=${mdStrong} items=${mdItems}`);
+
   // 3. Pin pesan -> pinned bar muncul.
   await page.locator('.message').first().hover();
   await page.getByRole('button', { name: /pin|sematkan/i }).first().click().catch(() => {});

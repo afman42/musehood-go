@@ -17,6 +17,23 @@ export function attachmentLabel(message: Message): string {
   return '';
 }
 
+// Sorot kemunculan kata kunci pencarian di dalam teks (untuk <mark>).
+export function highlightParts(value: string, query: string): Array<string | { hit: string }> {
+  const q = query.trim().toLowerCase();
+  if (!q || !value.toLowerCase().includes(q)) return [value];
+  const parts: Array<string | { hit: string }> = [];
+  let rest = value;
+  let lower = rest.toLowerCase();
+  while (true) {
+    const at = lower.indexOf(q);
+    if (at < 0) { parts.push(rest); break; }
+    parts.push(rest.slice(0, at), { hit: rest.slice(at, at + q.length) });
+    rest = rest.slice(at + q.length);
+    lower = rest.toLowerCase();
+  }
+  return parts;
+}
+
 export type MentionSegment = { text: string; seat?: Seat };
 
 // Pecah teks pesan menjadi segmen biasa dan segmen mention (@Nama/@KODE
