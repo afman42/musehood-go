@@ -295,7 +295,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools":
 		want = http.MethodGet
-	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled":
+	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled", "/api/templates":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.Header().Set("Allow", "GET, POST")
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
@@ -320,7 +320,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					w.Header().Set("Allow", "POST, DELETE")
 					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 				}
-			} else if len(parts) == 2 && parts[1] == "activate" && r.Method == http.MethodPost {
+			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize") && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
@@ -358,6 +358,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			}
 		} else if strings.HasPrefix(path, "/api/approvals/") && !strings.Contains(strings.TrimPrefix(path, "/api/approvals/"), "/") {
 			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/templates/") && !strings.Contains(strings.TrimPrefix(path, "/api/templates/"), "/") {
+			if r.Method == http.MethodDelete {
+				want = http.MethodDelete
+			} else if r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				w.Header().Set("Allow", "POST, DELETE")
+				return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
+			}
 		} else if strings.HasPrefix(path, "/api/scheduled/") && !strings.Contains(strings.TrimPrefix(path, "/api/scheduled/"), "/") {
 			if r.Method == http.MethodDelete {
 				want = http.MethodDelete
@@ -401,6 +410,21 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return 0, nil, err
 		}
 		return a.respondLocked(201, func() (any, error) { return a.createPresetLocked(body.Name) })
+	case "/api/templates":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) {
+				items := a.data.Templates
+				if items == nil {
+					items = []discussionTemplate{}
+				}
+				return map[string]any{"templates": items}, nil
+			})
+		}
+		var input templateInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) { return a.createTemplateLocked(input) })
 	case "/api/scheduled":
 		if r.Method == http.MethodGet {
 			return a.respondLocked(200, func() (any, error) {
@@ -482,11 +506,19 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			ImageURL   string      `json:"imageUrl"`
 			Attachment *attachment `json:"attachment"`
 			RoomID     string      `json:"roomId"`
+			TemplateID string      `json:"templateId"`
 		}
 		if err := readObject(w, r, &body); err != nil {
 			return 0, nil, err
 		}
 		return a.respondLocked(202, func() (any, error) {
+			if body.TemplateID != "" {
+				j, err := a.submitTemplateLocked(body.Text, body.RoomID, body.TemplateID)
+				if err != nil {
+					return nil, err
+				}
+				return a.jobResponseLocked(j), nil
+			}
 			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, body.Attachment, body.RoomID, false)
 			if err != nil {
 				return nil, err
@@ -546,6 +578,17 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return created, nil
 		})
 	default:
+		if strings.HasPrefix(path, "/api/templates/") {
+			id := strings.TrimPrefix(path, "/api/templates/")
+			if r.Method == http.MethodDelete {
+				return a.respondLocked(200, func() (any, error) { return map[string]bool{"ok": true}, a.deleteTemplateLocked(id) })
+			}
+			var input templateInput
+			if err := readObject(w, r, &input); err != nil {
+				return 0, nil, err
+			}
+			return a.respondLocked(200, func() (any, error) { return a.updateTemplateLocked(id, input) })
+		}
 		if strings.HasPrefix(path, "/api/scheduled/") {
 			id := strings.TrimPrefix(path, "/api/scheduled/")
 			if r.Method == http.MethodDelete {
@@ -575,6 +618,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			parts := strings.Split(rest, "/")
 			if len(parts) == 2 && parts[1] == "activate" {
 				return a.respondLocked(200, func() (any, error) { return a.activateRoomLocked(parts[0]) })
+			}
+			if len(parts) == 2 && parts[1] == "summarize" {
+				return a.respondLocked(202, func() (any, error) {
+					j, err := a.summarizeRoomLocked(parts[0])
+					if err != nil {
+						return nil, err
+					}
+					return a.jobResponseLocked(j), nil
+				})
 			}
 			if len(parts) == 1 {
 				if r.Method == http.MethodDelete {

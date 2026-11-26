@@ -66,6 +66,7 @@
   let uploadProgress = $state<number | null>(null);
   let searchOpen = $state(false);
   let searchFilters = $state<SearchFilters>(emptySearchFilters());
+  let selectedTemplate = $state('');
   let query = $state('');
   let matchIndex = $state(0);
 
@@ -95,6 +96,7 @@
         ...(replyTo ? { replyTo: replyTo.id } : {}),
         ...(pendingImage ? { imageUrl: pendingImage } : {}),
         ...(pendingFile ? { attachment: pendingFile } : {}),
+        ...(selectedTemplate ? { templateId: selectedTemplate } : {}),
       });
       await composer?.setText('');
       replyTo = undefined;
@@ -279,7 +281,7 @@
     </div>
   </header>
   {#if current && current.rooms.length > 0}
-    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => roomDialog?.open()} />
+    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => roomDialog?.open()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} />
   {/if}
   {#if searchOpen}
     <SearchBar bind:this={searchBar} bind:query bind:filters={searchFilters} seats={current?.seats ?? []} rooms={current?.rooms ?? []} matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}
@@ -349,6 +351,7 @@
   {/if}
   <Composer bind:this={composer} bind:text {submitting} {asking} {voting} {uploadingImage} {uploadingFile} {uploadProgress}
     {replyTo} replyAuthorName={replyTo ? authorName(replyTo) : ''} {pendingImage} {pendingFile}
+    templates={current?.templates ?? []} bind:selectedTemplate
     onSend={send} onProgress={progress} onVote={startVote}
     onOpenMention={() => { if (current) mentionDialog?.open(); }}
     onImagePrompt={() => composer?.setText(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}

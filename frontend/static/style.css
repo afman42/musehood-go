@@ -337,3 +337,13 @@ html.dark .schedule-dialog textarea,html.dark .schedule-dialog input,html.dark .
 .search-filter-grid select,.search-filter-grid input[type=date]{height:34px;border:1px solid #dfe6da;border-radius:7px;padding:5px 8px;font-size:12px;background:#fff;color:var(--ink)}
 html.dark .search-filter-grid select,html.dark .search-filter-grid input[type=date]{background:#2a3a31;border-color:#3c4f42}
 .search-filter-grid .check-label{flex-direction:row;align-items:center;gap:6px}
+.template-list{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:8px}
+.template-item{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.template-item>div{flex:1;min-width:0}
+.template-item strong{display:block;font-size:12.5px}
+.template-item small{display:block;color:var(--muted);font-size:10.5px;margin-top:3px;overflow-wrap:anywhere}
+.template-seat-picker{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.template-step{background:#edf3e7;border:1px solid #d8e5ce;border-radius:7px;padding:3px 8px;font-size:11px;margin:2px}
+html.dark .template-step{background:#2a3a31;border-color:#3c4f42;color:var(--ink)}
+.template-select{height:34px;border:1px solid #dfe6da;border-radius:8px;padding:5px 8px;font-size:12px;background:#fff;color:var(--ink);max-width:190px}
+html.dark .template-select{background:#2a3a31;border-color:#3c4f42}

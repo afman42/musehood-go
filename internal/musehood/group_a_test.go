@@ -364,3 +364,85 @@ func TestSearchFilters(t *testing.T) {
 		t.Fatalf("filter tanpa kata kunci harus jalan, dapat %d", got)
 	}
 }
+
+// Grup G: template diskusi, ringkasan, kompaksi.
+
+func TestTemplatesCRUDAndUse(t *testing.T) {
+	f := setup(t, nil)
+	created := f.api("POST", "/api/templates", object{"name": "Brainstorm", "seats": []any{"M01", "M02"}, "instruction": "Beri sudut pandang berbeda."}, 201)
+	id, _ := created["id"].(string)
+	if id == "" {
+		t.Fatalf("template harus punya id: %v", created)
+	}
+	list := f.api("GET", "/api/templates", nil, 200)
+	if len(asObjects(list["templates"])) != 1 {
+		t.Fatalf("daftar template harus 1: %v", list)
+	}
+	f.api("POST", "/api/templates", object{"name": "", "seats": []any{"M01"}}, 400)
+	f.api("POST", "/api/templates", object{"name": "X", "seats": []any{"ZZZ"}}, 400)
+	job := f.api("POST", "/api/message", object{"text": "ide aplikasi", "templateId": id}, 202)
+	jobID, _ := job["jobId"].(string)
+	f.finish(3)
+	state := f.state()
+	var jobKind string
+	for _, j := range asObjects(state["jobs"]) {
+		if j["id"] == jobID {
+			jobKind, _ = j["kind"].(string)
+			steps := asObjects(j["steps"])
+			if len(steps) != 2 || steps[0]["seat"] != "M01" || steps[1]["seat"] != "M02" {
+				t.Fatalf("langkah template harus M01 lalu M02: %v", steps)
+			}
+		}
+	}
+	if jobKind != "template" {
+		t.Fatalf("kind pekerjaan harus template, dapat %q", jobKind)
+	}
+	f.api("DELETE", "/api/templates/"+id, nil, 200)
+	f.api("POST", "/api/message", object{"text": "halo", "templateId": id}, 404)
+}
+
+func TestSummarizeRoomAndCompaction(t *testing.T) {
+	f := setup(t, nil)
+	f.api("POST", "/api/message", object{"text": "@Plamo diskusi awal"}, 202)
+	f.finish(2)
+	roomID, _ := f.state()["activeRoomId"].(string)
+	f.api("POST", "/api/rooms/"+roomID+"/summarize", nil, 202)
+	f.finish(3)
+	state := f.state()
+	found := false
+	for _, m := range asObjects(state["messages"]) {
+		if m["label"] == summaryLabel {
+			found = true
+			if m["pinned"] != true {
+				t.Fatalf("pesan ringkasan harus tersemat: %v", m)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("pesan ringkasan tidak ditemukan")
+	}
+	for _, r := range asObjects(state["rooms"]) {
+		if r["id"] == roomID {
+			if s, _ := r["summary"].(string); s == "" {
+				t.Fatal("ringkasan ruang harus tersimpan")
+			}
+			if c, _ := r["summaryCount"].(float64); c < 3 {
+				t.Fatalf("summaryCount harus >=3, dapat %v", c)
+			}
+		}
+	}
+	// Kompaksi: ruang dengan ringkasan + >40 pesan -> konteks diawali ringkasan.
+	d := f.app.data
+	room := d.findRoom(roomID)
+	room.Summary = "ringkasan lama"
+	for i := 0; i < 45; i++ {
+		d.Messages = append(d.Messages, &message{ID: uuid(), RoomID: roomID, AuthorType: "owner", Text: "pesan lama", Status: "completed"})
+	}
+	ctx := contextFor(d, &job{RoomID: roomID, Prompt: "lanjut"})
+	if len(ctx.History) == 0 || ctx.History[0].Text != "ringkasan lama" {
+		t.Fatalf("konteks kompak harus diawali ringkasan: %+v", ctx.History[:1])
+	}
+	if len(ctx.History) > 41 {
+		t.Fatalf("konteks kompak maksimal 41 entri, dapat %d", len(ctx.History))
+	}
+}

@@ -23,6 +23,7 @@ export type Message = {
 };
 export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
 export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[] };
+export type DiscussionTemplate = { id: string; name: string; seats: string[]; instruction?: string; createdAt: string };
 export type ScheduledMessage = {
   id: string; roomId: string; text: string; sendAt?: string;
   recur?: string; timeOfDay?: string; weekday?: number; intervalHours?: number;
@@ -42,6 +43,7 @@ export type State = {
   group: Identity; owner: Identity; seats: Seat[]; settings: Settings; providers: GatewayProvider[]; messages: Message[];
   presence: { present: number; total: number }; connection: Connection | null;
   rooms: Room[]; activeRoomId: string; presets?: SeatPreset[]; stats?: Record<string, UsageStat>;
+  templates?: DiscussionTemplate[]; scheduled?: ScheduledMessage[];
   pendingApprovals?: Approval[];
 };
 export type Notice = { text: string; error: boolean; target: string | null };

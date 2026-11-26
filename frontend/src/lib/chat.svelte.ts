@@ -105,14 +105,22 @@ export function createChat(hooks: ChatHooks = {}) {
     return () => { stopped = true; clearTimeout(pollTimer); clearTimeout(timer); };
   }
 
-  async function sendMessage(payload: { text: string; replyTo?: string; imageUrl?: string; attachment?: Attachment }) {
+  async function sendMessage(payload: { text: string; replyTo?: string; imageUrl?: string; attachment?: Attachment; templateId?: string }) {
     await api('/api/message', {
       text: payload.text,
       ...(current?.activeRoomId ? { roomId: current.activeRoomId } : {}),
       ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
       ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
       ...(payload.attachment ? { attachment: payload.attachment } : {}),
+      ...(payload.templateId ? { templateId: payload.templateId } : {}),
     });
+    await refresh();
+  }
+
+  async function summarizeRoom() {
+    if (!current?.activeRoomId) return;
+    await api(`/api/rooms/${current.activeRoomId}/summarize`, {});
+    notify('Ringkasan diskusi sedang dibuat oleh kursi integrator.');
     await refresh();
   }
 
@@ -249,6 +257,7 @@ export function createChat(hooks: ChatHooks = {}) {
     mutate,
     startPolling,
     sendMessage,
+    summarizeRoom,
     progress,
     startVote,
     activateRoom,

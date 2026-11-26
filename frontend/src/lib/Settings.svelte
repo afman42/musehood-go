@@ -8,6 +8,7 @@
   import SettingsDiscussion from './SettingsDiscussion.svelte';
   import SettingsRooms from './SettingsRooms.svelte';
   import SettingsPresets from './SettingsPresets.svelte';
+  import SettingsTemplates from './SettingsTemplates.svelte';
   import SettingsStats from './SettingsStats.svelte';
   import SettingsBackup from './SettingsBackup.svelte';
   import type { Notice, ReviewLevel, RoomEdit, SeatEdit, State } from './types';
@@ -157,6 +158,7 @@
     <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled bind:codeToolEnabled bind:streamingEnabled {seats} />
     <SettingsRooms bind:roomEdits {current} {refresh} {notify} onSync={syncSeats} />
     <SettingsPresets {current} {refresh} {notify} onSave={save} onSync={syncSeats} />
+    <SettingsTemplates {current} {refresh} {notify} />
     <SettingsStats {current} />
     <SettingsBackup {current} {refresh} {notify} onSync={syncSeats} />
     <section class="settings-section danger-section">

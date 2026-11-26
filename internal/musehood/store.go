@@ -246,6 +246,10 @@ type room struct {
 	Name      string   `json:"name"`
 	CreatedAt string   `json:"createdAt"`
 	SeatCodes []string `json:"seatCodes,omitempty"`
+	// Summary adalah ringkasan diskusi terakhir (untuk kompaksi konteks);
+	// SummaryCount adalah jumlah pesan ruang saat ringkasan dibuat.
+	Summary      string `json:"summary,omitempty"`
+	SummaryCount int    `json:"summaryCount,omitempty"`
 }
 
 // presetSeat adalah salinan konfigurasi satu kursi di dalam preset.
@@ -305,6 +309,8 @@ type data struct {
 	Stats        map[string]*usageStat `json:"stats,omitempty"`
 	// Scheduled adalah pesan terjadwal (sekali kirim & berulang).
 	Scheduled []scheduledMessage `json:"scheduled,omitempty"`
+	// Templates adalah preset pipeline diskusi.
+	Templates []discussionTemplate `json:"templates,omitempty"`
 }
 
 const defaultRoomID = "room-utama"

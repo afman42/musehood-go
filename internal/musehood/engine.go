@@ -164,6 +164,7 @@ func (a *App) saveJobLocked() {
 }
 func (a *App) tickLocked() {
 	a.runSchedulesLocked()
+	a.autoCompactLocked()
 	for _, j := range a.data.Jobs {
 		a.advanceLocked(j)
 	}
@@ -177,6 +178,9 @@ func (a *App) messageLocked(j *job, s *step, member seat) *message {
 	m := &message{ID: uuid(), CreatedAt: now(), AuthorType: "seat", Seat: member.Code, JobID: j.ID, Status: "typing", StatusText: member.Name + " sedang mengetik...", RoomID: j.RoomID}
 	if s.Kind == "summary" {
 		m.Label = finalLabel
+	}
+	if s.Kind == "roomsum" {
+		m.Label = summaryLabel
 	}
 	if s.Kind == "vote" {
 		m.Label = voteLabel
@@ -212,6 +216,20 @@ func (a *App) finishStepLocked(j *job, s *step, m *message) {
 	m.Status = "completed"
 	if m.Error != "" && m.Text == "" && m.ImageURL == "" {
 		m.Status = "error"
+	}
+	if s.Kind == "roomsum" && m.Text != "" {
+		// Simpan ringkasan untuk kompaksi konteks dan sematkan pesannya.
+		m.Pinned = true
+		if r := a.data.findRoom(j.RoomID); r != nil {
+			r.Summary = m.Text
+			count := 0
+			for _, msg := range a.data.Messages {
+				if msg.RoomID == r.ID && msg.Status != "typing" && msg.Status != "waiting" {
+					count++
+				}
+			}
+			r.SummaryCount = count
+		}
 	}
 	m.StatusText = ""
 	j.Index++
