@@ -32,6 +32,16 @@ try {
   report.check('balasan kursi tampil di chat', true);
   report.check('pesan pemilik berlabel Arman', (await page.locator('.message-owner .author-name').first().textContent()) === 'Arman');
 
+  // 2b. Tekan mention di bubble -> modal info kursi; tombol Mention mengisi composer.
+  await page.locator('.message-owner .mention-link', { hasText: '@Plamo' }).first().click();
+  const seatInfo = page.locator('#seatInfoDialog');
+  await seatInfo.waitFor({ state: 'visible' });
+  const seatInfoText = await seatInfo.textContent();
+  report.check('modal info kursi tampil saat mention ditekan', seatInfoText.includes('Plamo') && seatInfoText.includes('Pelaksana'));
+  await seatInfo.getByRole('button', { name: 'Mention @Plamo' }).click();
+  report.check('tombol Mention di modal mengisi composer', (await composer.inputValue()) === '@Plamo ');
+  await composer.fill('');
+
   // 3. Pin pesan -> pinned bar muncul.
   await page.locator('.message').first().hover();
   await page.getByRole('button', { name: /pin|sematkan/i }).first().click().catch(() => {});

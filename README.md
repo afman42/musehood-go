@@ -101,7 +101,7 @@ API: `GET/POST /api/providers`, `POST/DELETE /api/providers/{id}`, `POST /api/pr
 ## Percakapan
 
 - Chat biasa mengikuti urutan tabel saat **Diskusi Bergilir** aktif, atau menuju kursi integrator saja saat toggle mati.
-- Sebut kursi dengan `@Opus` atau kode seperti `@M10`. Beberapa mention akan ditangani sesuai urutan kursi. Gunakan **@ Kursi** atau tekan avatar untuk menyisipkan mention.
+- Sebut kursi dengan `@Opus` atau kode seperti `@M10`. Beberapa mention akan ditangani sesuai urutan kursi. Gunakan **@ Kursi** atau tekan avatar untuk menyisipkan mention. Mention di dalam bubble pesan tampil sebagai tombol — tekan untuk membuka modal **Info kursi** (avatar, peran, provider/model, status hadir, skill aktif, memori) lengkap dengan tombol **Mention @Nama** untuk langsung menyebut kursi itu.
 - `Tugas: …` menjalankan M10 → M01 → M04 → M03 (gambar) → M02 → integrator dengan label **Hasil Akhir - Integrasi**. **Tanya Progres** mengirim judul, tahap terakhir, dan status tugas ke integrator.
 - `Gambar: …` memakai gateway gambar. Jika gagal, Argon menampilkan error asli dan menunggu gambar dari pekerja Muse.
 - **Status kirim & progres unggah**: selama pesan dikirim, tombol kirim menampilkan "Mengirim… N dtk" dengan penghitung detik berjalan. Unggahan gambar/file menampilkan bar progres + persen, dan lampiran yang selesai diunggah ditandai "✓ siap dikirim" sebelum pesan dikirim.

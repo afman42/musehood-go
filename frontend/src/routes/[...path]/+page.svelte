@@ -9,6 +9,7 @@
   import MessageBubble from '../../lib/MessageBubble.svelte';
   import Composer from '../../lib/Composer.svelte';
   import MentionDialog from '../../lib/MentionDialog.svelte';
+  import SeatInfoDialog from '../../lib/SeatInfoDialog.svelte';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
@@ -19,6 +20,7 @@
   let messages: HTMLElement;
   let settingsPanel = $state<ReturnType<typeof Settings>>();
   let mentionDialog = $state<ReturnType<typeof MentionDialog>>();
+  let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialog>>();
   let roomDialog = $state<ReturnType<typeof RoomDialog>>();
   let composer = $state<ReturnType<typeof Composer>>();
   let searchBar = $state<ReturnType<typeof SearchBar>>();
@@ -308,7 +310,7 @@
           <div class="date-divider"><span>{day.format(date) === day.format(new Date()) ? 'Hari ini' : fullDay.format(date)}</span></div>
         {/if}
         <MessageBubble
-          {message} {seat} {own}
+          {message} {seat} seats={chat.roomSeats} {own}
           name={author?.name ?? message.seat ?? ''}
           avatar={author?.avatar ?? '/avatars/group.svg'}
           {quoted}
@@ -328,6 +330,7 @@
           onDelete={() => removeMessage(message)}
           onJumpQuote={jumpToQuote}
           onImageLoad={scrollForImage}
+          onMentionClick={(mentioned) => seatInfoDialog?.open(mentioned)}
         />
       {/each}
     {/if}
@@ -346,6 +349,7 @@
 
 <Settings bind:this={settingsPanel} current={chat.current} refresh={chat.refresh} mutate={chat.mutate} notify={chat.notify} notice={chat.notice} />
 <MentionDialog bind:this={mentionDialog} seats={chat.roomSeats} notice={chat.notice} onPick={(seat) => composer?.insertMention(seat.name)} />
+<SeatInfoDialog bind:this={seatInfoDialog} onMention={(seat) => composer?.insertMention(seat.name)} />
 <RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
 <Toast notice={chat.notice} target={null} />
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>

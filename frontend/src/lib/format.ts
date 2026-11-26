@@ -1,4 +1,4 @@
-import type { Attachment, Message } from './types';
+import type { Attachment, Message, Seat } from './types';
 
 export function humanSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -15,4 +15,40 @@ export function attachmentLabel(message: Message): string {
   if (message.imageUrl) return '[gambar]';
   if (message.attachment) return `[lampiran: ${message.attachment.name}]`;
   return '';
+}
+
+export type MentionSegment = { text: string; seat?: Seat };
+
+// Pecah teks pesan menjadi segmen biasa dan segmen mention (@Nama/@KODE
+// kursi yang dikenal). "@" hanya dihitung bila tidak menempel pada kata
+// sebelumnya (mis. email) dan nama tidak diikuti karakter kata lain.
+export function splitMentions(text: string, seats: Seat[]): MentionSegment[] {
+  if (!text || seats.length === 0) return [{ text }];
+  const candidates: Array<{ label: string; seat: Seat }> = [];
+  for (const seat of seats) {
+    if (seat.name) candidates.push({ label: seat.name, seat });
+    if (seat.code && seat.code !== seat.name) candidates.push({ label: seat.code, seat });
+  }
+  candidates.sort((a, b) => b.label.length - a.label.length);
+  const isWord = (ch: string | undefined) => ch !== undefined && /[\p{L}\p{N}_-]/u.test(ch);
+  const segments: MentionSegment[] = [];
+  let plain = '';
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '@' && !isWord(text[i - 1])) {
+      const rest = text.slice(i + 1);
+      const lower = rest.toLowerCase();
+      const hit = candidates.find(c => lower.startsWith(c.label.toLowerCase()) && !isWord(rest[c.label.length]));
+      if (hit) {
+        if (plain) { segments.push({ text: plain }); plain = ''; }
+        segments.push({ text: text.slice(i, i + 1 + hit.label.length), seat: hit.seat });
+        i += 1 + hit.label.length;
+        continue;
+      }
+    }
+    plain += text[i];
+    i += 1;
+  }
+  if (plain) segments.push({ text: plain });
+  return segments.length ? segments : [{ text }];
 }

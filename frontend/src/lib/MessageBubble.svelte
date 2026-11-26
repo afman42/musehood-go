@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { attachmentLabel, humanSize, isImageAttachment } from './format';
+  import { attachmentLabel, humanSize, isImageAttachment, splitMentions } from './format';
   import type { Message, Seat } from './types';
 
   let {
-    message, seat, own, name, avatar, quoted, quotedAuthorName,
+    message, seat, seats, own, name, avatar, quoted, quotedAuthorName,
     editing, editText = $bindable(''), reactOpen, emojis, query,
-    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad,
+    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick,
   }: {
     message: Message;
     seat: Seat | undefined;
+    seats: Seat[];
     own: boolean;
     name: string;
     avatar: string;
@@ -29,16 +30,17 @@
     onDelete: () => void;
     onJumpQuote: (id: string) => void;
     onImageLoad: () => void;
+    onMentionClick: (seat: Seat) => void;
   } = $props();
 
   const clock = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
   const date = $derived(new Date(message.createdAt));
 
-  function highlight() {
+  function highlightText(value: string) {
     const q = query.trim().toLowerCase();
-    if (!q || !message.text.toLowerCase().includes(q)) return [message.text];
+    if (!q || !value.toLowerCase().includes(q)) return [value];
     const parts: Array<string | { hit: string }> = [];
-    let rest = message.text;
+    let rest = value;
     let lower = rest.toLowerCase();
     while (true) {
       const at = lower.indexOf(q);
@@ -74,7 +76,7 @@
       </form>
     {:else}
       {#if message.text}
-        <div class="message-text">{#each highlight() as part, partIndex (partIndex)}{#if typeof part === 'string'}{part}{:else}<mark class="search-mark">{part.hit}</mark>{/if}{/each}</div>
+        <div class="message-text">{#each splitMentions(message.text, seats) as segment, segmentIndex (segmentIndex)}{#if segment.seat}<button class="mention-link" type="button" title="Lihat info {segment.seat.name}" onclick={() => { const mentioned = segment.seat; if (mentioned) onMentionClick(mentioned); }}>{segment.text}</button>{:else}{#each highlightText(segment.text) as part, partIndex (partIndex)}{#if typeof part === 'string'}{part}{:else}<mark class="search-mark">{part.hit}</mark>{/if}{/each}{/if}{/each}</div>
       {/if}
     {/if}
     {#if message.imageUrl}
