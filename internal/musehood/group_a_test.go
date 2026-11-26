@@ -2,6 +2,9 @@ package musehood
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -73,5 +76,40 @@ func TestProviderPricesAndStatsCost(t *testing.T) {
 	entry := stats["model:TesHarga/model-x"].(object)
 	if entry["estimatedCostUsd"] != 7.5 {
 		t.Fatalf("estimasi biaya harus 7.5 USD, dapat: %v", entry["estimatedCostUsd"])
+	}
+}
+
+// Grup D2: aktivitas tool live + kartu hasil tool.
+
+func TestToolCallsRecordedAndActivity(t *testing.T) {
+	calls := 0
+	f := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			io.WriteString(w, `{"data":[]}`)
+			return
+		}
+		calls++
+		if calls == 1 {
+			io.WriteString(w, `{"choices":[{"message":{"content":"<<TOOL:current_time>>\n<</TOOL>>"}}]}`)
+			return
+		}
+		io.WriteString(w, `{"choices":[{"message":{"content":"Sudah saya cek waktunya."}}]}`)
+	})
+	f.api("POST", "/api/message", object{"text": "@Plamo jam berapa sekarang?"}, 202)
+	msgs := f.finish(2)
+	reply := msgs[1]
+	if reply["text"] != "Sudah saya cek waktunya." {
+		t.Fatalf("teks akhir salah: %v", reply)
+	}
+	toolCalls := asObjects(reply["toolCalls"])
+	if len(toolCalls) != 1 || toolCalls[0]["name"] != "current_time" || toolCalls[0]["ok"] != true {
+		t.Fatalf("toolCalls tidak tercatat benar: %v", reply["toolCalls"])
+	}
+	if result, _ := toolCalls[0]["result"].(string); !strings.Contains(result, "WIB") && !strings.Contains(result, "2026") {
+		t.Fatalf("pratinjau hasil tool kosong: %q", result)
+	}
+	raw, _ := json.Marshal(reply)
+	if !strings.Contains(string(raw), "current_time") {
+		t.Fatal("toolCalls harus ikut terkirim ke klien")
 	}
 }

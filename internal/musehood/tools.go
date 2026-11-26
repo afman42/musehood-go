@@ -126,7 +126,20 @@ func truncateToolResult(s string) string {
 // model memuat blok tool, tool dijalankan dan hasilnya dikirim kembali
 // sebagai pesan lanjutan (maksimal maxToolRounds putaran). Bila putaran
 // lanjutan gagal, teks terakhir yang berhasil dipakai.
-func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools, code bool) (workerReply, error) {
+func truncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) > max {
+		return string(runes[:max]) + "…"
+	}
+	return s
+}
+
+func toolResultOK(result string) bool {
+	return !strings.HasPrefix(result, "Error") && !strings.HasPrefix(result, "Gagal") &&
+		!strings.Contains(result, "dinonaktifkan untuk kursi ini")
+}
+
+func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools, code bool, onActivity func(toolName string)) (workerReply, error) {
 	text, err := a.chat(ctx, cfg, s, history)
 	if err != nil {
 		return workerReply{}, err
@@ -135,17 +148,27 @@ func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history [
 		return workerReply{Text: text}, nil
 	}
 	var used []string
+	var calls []toolCallRecord
 	var imageURL string
 	for round := 0; round < maxToolRounds; round++ {
 		name, arg, found := parseToolBlock(text)
 		if !found {
 			break
 		}
+		if onActivity != nil {
+			onActivity(name)
+		}
 		result, image := a.runTool(ctx, cfg, s, name, arg, code)
 		if image != "" {
 			imageURL = image
 		}
 		used = append(used, name)
+		calls = append(calls, toolCallRecord{
+			Name:   name,
+			Arg:    truncateRunes(arg, 300),
+			Result: truncateRunes(result, 600),
+			OK:     toolResultOK(result),
+		})
 		history = append(history,
 			gatewayMessage{"assistant", text},
 			gatewayMessage{"user", fmt.Sprintf("Hasil tool %s:\n%s\n\nLanjutkan jawabanmu untuk pengguna berdasarkan hasil di atas.", name, result)},
@@ -156,7 +179,7 @@ func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history [
 		}
 		text = next
 	}
-	return workerReply{Text: stripToolBlocks(text), ImageURL: imageURL, ToolsUsed: used}, nil
+	return workerReply{Text: stripToolBlocks(text), ImageURL: imageURL, ToolsUsed: used, ToolCalls: calls}, nil
 }
 
 func (a *App) sandboxDir() string {

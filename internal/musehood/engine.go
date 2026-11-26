@@ -524,12 +524,17 @@ func (a *App) advanceLocked(j *job) {
 			tools := a.data.Settings.toolsOn()
 			code := a.data.Settings.codeToolOn()
 			a.runLocked(j, s, member, m, false, func(ctx context.Context) (workerReply, error) {
-				reply, err := a.chatWithTools(ctx, cfg, member, history, tools, code)
+				onActivity := func(toolName string) {
+					a.mu.Lock()
+					m.StatusText = member.Name + " menjalankan " + toolName + "…"
+					a.mu.Unlock()
+				}
+				reply, err := a.chatWithTools(ctx, cfg, member, history, tools, code, onActivity)
 				for _, fb := range fallbacks {
 					if err == nil {
 						break
 					}
-					if fbReply, fbErr := a.chatWithTools(ctx, fb.cfg, fb.member, history, tools, code); fbErr == nil {
+					if fbReply, fbErr := a.chatWithTools(ctx, fb.cfg, fb.member, history, tools, code, onActivity); fbErr == nil {
 						return fbReply, nil
 					}
 				}
@@ -558,6 +563,11 @@ func (a *App) runLocked(j *job, s *step, member seat, m *message, worker bool, r
 				m.ImageURL = reply.ImageURL
 				m.Text = a.redactLocked(reply.Text)
 				m.ToolsUsed = reply.ToolsUsed
+				m.ToolCalls = reply.ToolCalls
+				for i := range m.ToolCalls {
+					m.ToolCalls[i].Arg = a.redactLocked(m.ToolCalls[i].Arg)
+					m.ToolCalls[i].Result = a.redactLocked(m.ToolCalls[i].Result)
+				}
 				if !worker && s.Kind == "image" {
 					m.Text = a.redactLocked("Gambar untuk " + a.data.Owner.Name + ": " + reply.Text)
 				}

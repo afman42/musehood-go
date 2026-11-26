@@ -18,7 +18,9 @@ export type Message = {
   text: string; status: string; label?: string; demo?: boolean; statusText?: string; error?: string; imageUrl?: string;
   attachment?: Attachment; replyTo?: string; editedAt?: string; reactions?: Reaction[] | null;
   roomId?: string; pinned?: boolean; votes?: number; bestAnswer?: boolean; toolsUsed?: string[];
+  toolCalls?: ToolCallRecord[];
 };
+export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
 export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[] };
 export type PresetSeat = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; fallbackModel?: string; fallbackModels?: string[]; disabledTools?: string[]; memory?: string; skills?: string[] };
 export type SeatPreset = { id: string; name: string; createdAt: string; seats: PresetSeat[] };

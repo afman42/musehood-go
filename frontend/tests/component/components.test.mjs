@@ -90,6 +90,21 @@ test('MessageBubble: blok kode ter-render sebagai pre (polos di SSR)', async () 
   assert.match(html, /<pre class="md-code"><code>const x = 1;<\/code><\/pre>/);
 });
 
+test('MessageBubble: kartu hasil tool ter-render', async () => {
+  const raw = await renderComponent('MessageBubble', {
+    ...bubbleProps,
+    message: {
+      ...baseMessage,
+      text: 'Hasil pencarian di atas.',
+      toolCalls: [{ name: 'web_search', arg: 'berita hari ini', result: '3 hasil ditemukan', ok: true }],
+    },
+  });
+  const html = raw.replace(/<!--[^>]*-->/g, '');
+  assert.match(html, /<details class="tool-card">/);
+  assert.match(html, /web_search/);
+  assert.match(html, /3 hasil ditemukan/);
+});
+
 test('SeatInfoDialog: dialog info kursi ter-render', async () => {
   const html = await renderComponent('SeatInfoDialog', { onMention: noop });
   assert.match(html, /<dialog/);

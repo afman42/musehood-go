@@ -174,8 +174,19 @@ type message struct {
 	// Votes dan BestAnswer diisi hasil voting jawaban terbaik.
 	Votes int `json:"votes,omitempty"`
 	// ToolsUsed mencatat tool yang dipakai kursi gateway untuk pesan ini.
-	ToolsUsed  []string `json:"toolsUsed,omitempty"`
-	BestAnswer bool     `json:"bestAnswer,omitempty"`
+	ToolsUsed []string `json:"toolsUsed,omitempty"`
+	// ToolCalls mencatat detail tiap pemanggilan tool (nama, argumen ringkas,
+	// pratinjau hasil) untuk kartu hasil tool di tampilan.
+	ToolCalls  []toolCallRecord `json:"toolCalls,omitempty"`
+	BestAnswer bool             `json:"bestAnswer,omitempty"`
+}
+
+// toolCallRecord adalah satu pemanggilan tool oleh kursi untuk satu pesan.
+type toolCallRecord struct {
+	Name   string `json:"name"`
+	Arg    string `json:"arg,omitempty"`
+	Result string `json:"result,omitempty"`
+	OK     bool   `json:"ok"`
 }
 type reaction struct {
 	Emoji   string `json:"emoji"`
