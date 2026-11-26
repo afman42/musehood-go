@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, apiDelete, dismissBackdrop, errorText, protocolLabels, type GatewayProvider, type State, type ReviewLevel, type GatewayProtocol } from './api';
+  import { api, apiDelete, dismissBackdrop, errorText, protocolLabels, type GatewayProvider, type State, type ReviewLevel, type GatewayProtocol, type Room } from './api';
   import { tick } from 'svelte';
 
   let { current, refresh, mutate, notify, notice }: {
@@ -30,7 +30,12 @@
   let fetchingProvider = $state<string | null>(null);
   let testingProvider = $state<string | null>(null);
   let savingProvider = $state(false);
-  let seats = $state<Array<{ code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string }>>([]);
+  let seats = $state<Array<{ code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string; fallbackModel: string; memory: string }>>([]);
+  let roomEdits = $state<Array<{ id: string; name: string; seatCodes: string[] }>>([]);
+  let newRoomName = $state('');
+  let presetName = $state('');
+  let restoring = $state(false);
+  let restoreInput: HTMLInputElement;
   let integratorSeat = $state('MUSE');
   let newSeatName = $state('');
   let newSeatRole = $state('');
@@ -53,8 +58,15 @@
       provider: seat.provider,
       ...(seat.model === undefined ? {} : { model: seat.model }),
       prompt: seat.prompt || seat.defaultPrompt || '',
+      fallbackModel: seat.fallbackModel ?? '',
+      memory: seat.memory ?? '',
     }));
     integratorSeat = current.settings.integratorSeat || 'MUSE';
+    roomEdits = (current.rooms ?? []).map((room) => ({
+      id: room.id,
+      name: room.name,
+      seatCodes: room.seatCodes && room.seatCodes.length ? [...room.seatCodes] : current!.seats.map((s) => s.code),
+    }));
   }
 
   function activeProvider(): GatewayProvider | undefined {
@@ -202,6 +214,101 @@
       syncSeats();
       notify('Kursi dihapus.');
     } catch (error) { notify(errorText(error), true); }
+  }
+
+  function toggleRoomSeatEdit(room: { seatCodes: string[] }, code: string, checked: boolean) {
+    room.seatCodes = checked ? [...room.seatCodes, code] : room.seatCodes.filter((c) => c !== code);
+  }
+
+  async function saveRoom(room: { id: string; name: string; seatCodes: string[] }) {
+    try {
+      await api(`/api/rooms/${room.id}`, { name: room.name, seatCodes: room.seatCodes });
+      await refresh();
+      syncSeats();
+      notify('Ruang diperbarui.');
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  async function addRoom() {
+    const name = newRoomName.trim();
+    if (!name) { notify('Nama ruang wajib diisi.', true); return; }
+    try {
+      await api('/api/rooms', { name, seatCodes: [] });
+      newRoomName = '';
+      await refresh();
+      syncSeats();
+      notify('Ruang ditambahkan.');
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  async function removeRoom(room: Room) {
+    if (!window.confirm(`Hapus ruang ${room.name} beserta semua pesannya?`)) return;
+    try {
+      await apiDelete(`/api/rooms/${room.id}`);
+      await refresh();
+      syncSeats();
+      notify('Ruang dihapus.');
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  async function savePreset() {
+    const name = presetName.trim();
+    if (!name) { notify('Nama preset wajib diisi.', true); return; }
+    try {
+      await save();
+      await api('/api/presets', { name });
+      presetName = '';
+      await refresh();
+      notify('Preset kursi tersimpan.');
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  async function applyPreset(id: string, name: string) {
+    if (!window.confirm(`Terapkan preset ${name}? Konfigurasi kursi saat ini diganti.`)) return;
+    try {
+      await api(`/api/presets/${id}/apply`, {});
+      await refresh();
+      syncSeats();
+      notify('Preset diterapkan.');
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  async function removePreset(id: string, name: string) {
+    if (!window.confirm(`Hapus preset ${name}?`)) return;
+    try {
+      await apiDelete(`/api/presets/${id}`);
+      await refresh();
+      notify('Preset dihapus.');
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  async function restoreBackup() {
+    const file = restoreInput.files?.[0];
+    restoreInput.value = '';
+    if (!file) return;
+    if (!window.confirm('Pulihkan cadangan ini? Semua data saat ini (ruang, pesan, kursi, provider) diganti. Kunci API yang tersimpan dipertahankan.')) return;
+    restoring = true;
+    try {
+      const text = await file.text();
+      const response = await fetch('/api/restore', { method: 'POST', body: text, headers: { 'Content-Type': 'application/json' } });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      await refresh();
+      syncSeats();
+      notify('Cadangan dipulihkan.');
+    } catch (error) { notify(errorText(error), true); }
+    finally { restoring = false; }
+  }
+
+  function statRows() {
+    const stats = current?.stats ?? {};
+    return Object.entries(stats).map(([key, st]) => {
+      const isSeat = key.startsWith('seat:');
+      const label = isSeat
+        ? (current?.seats.find((s) => s.code === key.slice(5))?.name ?? key.slice(5)) + ` (${key.slice(5)})`
+        : key.slice(6);
+      return { key, label, isSeat, ...st, avgMs: st.requests ? Math.round(st.totalLatencyMs / st.requests) : 0 };
+    }).sort((a, b) => Number(b.isSeat) - Number(a.isSeat) || b.requests - a.requests);
   }
 
   async function save() {
@@ -411,6 +518,16 @@
               <textarea aria-label={`Prompt kustom ${item.code}`} rows="3" maxlength="4000" placeholder="Instruksi peran untuk kursi ini…" data-prompt={item.code} bind:value={item.prompt}></textarea>
             </label>
             <span class="field-hint">Menggantikan instruksi peran bawaan. Kosongkan untuk kembali ke prompt bawaan peran.</span>
+            {#if item.provider === 'gateway'}
+              <label class="model-label">Model fallback (cadangan)
+                <input aria-label={`Model fallback ${item.code}`} maxlength="200" placeholder="Dicoba sekali bila model utama gagal" autocomplete="off" spellcheck="false" data-fallback={item.code} bind:value={item.fallbackModel}>
+              </label>
+              <span class="field-hint">Boleh berformat alias/model. Kosongkan untuk tanpa fallback.</span>
+            {/if}
+            <label class="prompt-label">Memori kursi
+              <textarea aria-label={`Memori ${item.code}`} rows="2" maxlength="4000" placeholder="Catatan persisten yang selalu diingat kursi ini…" data-memory={item.code} bind:value={item.memory}></textarea>
+            </label>
+            <span class="field-hint">Disisipkan ke instruksi kursi setiap kali menjawab; tetap ada setelah chat dibersihkan.</span>
             {#if item.code.startsWith('C')}
               <button class="text-button danger-text" type="button" onclick={() => removeSeat(item.code, item.name)}>Hapus kursi ini</button>
             {/if}
@@ -435,12 +552,75 @@
       <p class="field-hint">Kursi yang menutup pipeline "Tugas:" (Hasil Akhir - Integrasi) dan menjawab "Tanya Progres". Bawaan: Muse (MUSE).</p>
       <label class="toggle-row"><span><strong>Fallback demo</strong><small>Simulasi berlabel DEMO jika chat gateway gagal. Tidak berlaku untuk Muse atau gambar.</small></span><input id="demoFallback" type="checkbox" role="switch" bind:checked={demoFallback}></label>
     </section>
+    <section class="settings-section">
+      <h3>Ruang grup</h3><p class="section-hint">Setiap ruang punya riwayat pesan dan susunan kursi sendiri. Centang kursi peserta ruang; semua tercentang berarti semua kursi ikut.</p>
+      {#each roomEdits as room (room.id)}
+        <article class="room-settings">
+          <label>Nama ruang<input aria-label={`Nama ruang ${room.id}`} maxlength="80" bind:value={room.name}></label>
+          <div class="room-seat-list">
+            {#each current?.seats ?? [] as seat (seat.code)}
+              <label class="room-seat-option"><input type="checkbox" checked={room.seatCodes.includes(seat.code)} onchange={(e) => toggleRoomSeatEdit(room, seat.code, e.currentTarget.checked)}> {seat.name} <small>({seat.code})</small></label>
+            {/each}
+          </div>
+          <div class="provider-form-actions">
+            <button class="secondary-button" type="button" onclick={() => saveRoom(room)}>Simpan ruang</button>
+            {#if (current?.rooms.length ?? 0) > 1}<button class="text-button danger-text" type="button" onclick={() => { const target = current?.rooms.find((r) => r.id === room.id); if (target) removeRoom(target); }}>Hapus ruang</button>{/if}
+          </div>
+        </article>
+      {/each}
+      <div class="add-seat">
+        <h4>Tambah ruang</h4>
+        <label>Nama ruang<input aria-label="Nama ruang baru" maxlength="80" placeholder="Contoh: Riset" autocomplete="off" bind:value={newRoomName}></label>
+        <button class="secondary-button" type="button" onclick={addRoom}>Tambah ruang</button>
+      </div>
+    </section>
+    <section class="settings-section">
+      <h3>Preset kursi</h3><p class="section-hint">Simpan susunan kursi saat ini (nama, peran, model, prompt, fallback, memori) sebagai templat dan muat ulang kapan saja.</p>
+      {#each current?.presets ?? [] as preset (preset.id)}
+        <article class="provider-row">
+          <div class="provider-info"><p><strong>{preset.name}</strong></p><p class="field-hint">{preset.seats.length} kursi · {new Date(preset.createdAt).toLocaleString('id-ID')}</p></div>
+          <div class="provider-actions">
+            <button class="secondary-button" type="button" onclick={() => applyPreset(preset.id, preset.name)}>Terapkan</button>
+            <button class="text-button danger-text" type="button" onclick={() => removePreset(preset.id, preset.name)}>Hapus</button>
+          </div>
+        </article>
+      {/each}
+      <label>Nama preset<input aria-label="Nama preset baru" maxlength="80" placeholder="Contoh: Susunan riset" autocomplete="off" bind:value={presetName}></label>
+      <button class="secondary-button" type="button" onclick={savePreset} style="margin-top:10px">Simpan preset dari susunan saat ini</button>
+    </section>
+    <section class="settings-section">
+      <h3>Statistik pemakaian</h3><p class="section-hint">Jumlah panggilan gateway per kursi dan per model sejak statistik mulai dicatat.</p>
+      {#if statRows().length === 0}
+        <p class="field-hint">Belum ada panggilan gateway yang tercatat.</p>
+      {:else}
+        <div class="stats-table" role="table" aria-label="Statistik pemakaian">
+          <div class="stats-row stats-head" role="row"><span>Kursi / Model</span><span>Request</span><span>Berhasil</span><span>Gagal</span><span>Rata²</span><span>Token</span></div>
+          {#each statRows() as row (row.key)}
+            <div class="stats-row" role="row"><span>{row.label}</span><span>{row.requests}</span><span>{row.success}</span><span>{row.failed}</span><span>{row.avgMs} mdtk</span><span>{row.promptTokens + row.completionTokens}</span></div>
+          {/each}
+        </div>
+      {/if}
+    </section>
+    <section class="settings-section">
+      <h3>Cadangan & ekspor</h3><p class="section-hint">Cadangan memuat ruang, kursi, provider, pesan, preset, dan statistik — tanpa kunci API. Saat dipulihkan, kunci yang sudah tersimpan dipertahankan.</p>
+      <div class="provider-form-actions">
+        <a class="secondary-button" href="/api/backup" download="cadangan-musehood.json">Unduh cadangan</a>
+        <button class="secondary-button" type="button" onclick={() => restoreInput.click()} disabled={restoring}>{restoring ? 'Memulihkan…' : 'Pulihkan cadangan'}</button>
+      </div>
+      <p class="section-hint" style="margin-top:14px">Ekspor riwayat ruang aktif:</p>
+      <div class="provider-form-actions">
+        <a class="secondary-button" href={`/api/export?format=md&room=${current?.activeRoomId ?? ''}`} download="riwayat-musehood.md">Markdown</a>
+        <a class="secondary-button" href={`/api/export?format=json&room=${current?.activeRoomId ?? ''}`} download="riwayat-musehood.json">JSON</a>
+        <a class="secondary-button" href={`/api/export?format=html&room=${current?.activeRoomId ?? ''}`} download="riwayat-musehood.html">HTML (cetak/PDF)</a>
+      </div>
+    </section>
     <section class="settings-section danger-section">
-      <h3>Riwayat percakapan</h3><p class="section-hint">Hapus pesan dan batalkan antrean aktif. Pengaturan tetap tersimpan.</p>
-      <button id="clearChat" class="danger-button" type="button" onclick={clear}>Bersihkan chat</button>
+      <h3>Riwayat percakapan</h3><p class="section-hint">Hapus pesan dan batalkan antrean aktif di ruang yang sedang aktif saja. Pengaturan dan ruang lain tetap tersimpan.</p>
+      <button id="clearChat" class="danger-button" type="button" onclick={clear}>Bersihkan chat ruang ini</button>
     </section>
     <div class="settings-save"><span id="saveStatus" role="status">{saveStatus}</span><button id="saveSettings" class="primary-button" type="submit" disabled={saving || testing}>Simpan Pengaturan</button></div>
   </form>
   <div class="toast" role="status" class:error={notice?.error} hidden={notice?.target !== 'settingsDialog'}>{notice?.target === 'settingsDialog' ? notice.text : ''}</div>
 </dialog>
 <input id="avatarInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={fileInput} onchange={upload}>
+<input id="restoreInput" type="file" accept="application/json,.json" hidden bind:this={restoreInput} onchange={restoreBackup}>

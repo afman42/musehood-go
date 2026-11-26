@@ -119,6 +119,22 @@ func (a *App) validateWorker(ctx context.Context, kind string, reply workerReply
 	}
 	return reply, nil
 }
+// cancelQueueIDsLocked menghapus file antrean untuk ID tertentu saja,
+// dipakai saat membersihkan satu ruang agar antrean ruang lain tetap jalan.
+func (a *App) cancelQueueIDsLocked(ids map[string]bool) error {
+	for _, folder := range []string{"requests", "responses"} {
+		for id := range ids {
+			if !queueID.MatchString(id) {
+				continue
+			}
+			if err := os.Remove(a.queuePath(folder, id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (a *App) cancelQueueLocked() error {
 	for _, folder := range []string{"requests", "responses"} {
 		dir := filepath.Join(a.dir, "queue", folder)

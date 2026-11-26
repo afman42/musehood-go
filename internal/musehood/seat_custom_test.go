@@ -67,7 +67,7 @@ func TestIntegratorSeat(t *testing.T) {
 	lastStep := func() string {
 		f.app.mu.Lock()
 		defer f.app.mu.Unlock()
-		_, steps := f.app.routeLocked("Tugas: buat rencana")
+		_, steps := f.app.routeLocked("Tugas: buat rencana", f.app.data.activeRoom())
 		return steps[len(steps)-1].Seat
 	}
 	if got := lastStep(); got != "MUSE" {

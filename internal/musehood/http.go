@@ -211,6 +211,14 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.exportChat(w, r)
 		return
 	}
+	if r.URL.Path == "/api/backup" {
+		a.backup(w, r)
+		return
+	}
+	if r.URL.Path == "/api/restore" {
+		a.restore(w, r)
+		return
+	}
 	if isAPI {
 		status, value, err := a.api(w, r)
 		a.writeJSON(w, status, value, err)
@@ -279,21 +287,48 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	path := r.URL.Path
 	var want string
 	switch path {
-	case "/api/state", "/api/queue/muse":
+	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search":
 		want = http.MethodGet
-	case "/api/providers":
+	case "/api/providers", "/api/rooms", "/api/presets":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.Header().Set("Allow", "GET, POST")
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 		}
 		want = r.Method
-	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats":
+	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote":
 		want = http.MethodPost
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
 			want = http.MethodPost
 		} else if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			want = http.MethodDelete
+		} else if strings.HasPrefix(path, "/api/rooms/") {
+			rest := strings.TrimPrefix(path, "/api/rooms/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 1 && parts[0] != "" {
+				if r.Method == http.MethodDelete {
+					want = http.MethodDelete
+				} else if r.Method == http.MethodPost {
+					want = http.MethodPost
+				} else {
+					w.Header().Set("Allow", "POST, DELETE")
+					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
+				}
+			} else if len(parts) == 2 && parts[1] == "activate" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
+			}
+		} else if strings.HasPrefix(path, "/api/presets/") {
+			rest := strings.TrimPrefix(path, "/api/presets/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodDelete {
+				want = http.MethodDelete
+			} else if len(parts) == 2 && parts[1] == "apply" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
+			}
 		} else if strings.HasPrefix(path, "/api/providers/") {
 			rest := strings.TrimPrefix(path, "/api/providers/")
 			parts := strings.Split(rest, "/")
@@ -327,6 +362,48 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state":
 		return a.respondLocked(200, func() (any, error) { return a.stateLocked(), nil })
+	case "/api/rooms":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) {
+				return map[string]any{"rooms": a.roomViewsLocked(), "activeRoomId": a.data.ActiveRoomID}, nil
+			})
+		}
+		var input roomInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) { return a.createRoomLocked(input) })
+	case "/api/presets":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) { return map[string]any{"presets": a.data.Presets}, nil })
+		}
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) { return a.createPresetLocked(body.Name) })
+	case "/api/stats":
+		return a.respondLocked(200, func() (any, error) { return map[string]any{"stats": a.data.Stats}, nil })
+	case "/api/search":
+		return a.respondLocked(200, func() (any, error) { return a.searchLocked(r.URL.Query().Get("q")), nil })
+	case "/api/vote":
+		var body struct {
+			RoomID string `json:"roomId"`
+		}
+		if r.ContentLength > 0 {
+			if err := readObject(w, r, &body); err != nil {
+				return 0, nil, err
+			}
+		}
+		return a.respondLocked(202, func() (any, error) {
+			j, err := a.submitVoteLocked(body.RoomID)
+			if err != nil {
+				return nil, err
+			}
+			return a.jobResponseLocked(j), nil
+		})
 	case "/api/providers":
 		if r.Method == http.MethodGet {
 			return a.respondLocked(200, func() (any, error) { return map[string]any{"providers": a.data.providerViews()}, nil })
@@ -353,12 +430,13 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			ReplyTo    string      `json:"replyTo"`
 			ImageURL   string      `json:"imageUrl"`
 			Attachment *attachment `json:"attachment"`
+			RoomID     string      `json:"roomId"`
 		}
 		if err := readObject(w, r, &body); err != nil {
 			return 0, nil, err
 		}
 		return a.respondLocked(202, func() (any, error) {
-			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, body.Attachment, false)
+			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, body.Attachment, body.RoomID, false)
 			if err != nil {
 				return nil, err
 			}
@@ -373,7 +451,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return a.jobResponseLocked(j), nil
 		})
 	case "/api/clear":
-		return a.respondLocked(200, func() (any, error) { return map[string]bool{"ok": true}, a.clearLocked() })
+		var body struct {
+			RoomID string `json:"roomId"`
+		}
+		if r.ContentLength > 0 {
+			if err := readObject(w, r, &body); err != nil {
+				return 0, nil, err
+			}
+		}
+		return a.respondLocked(200, func() (any, error) { return map[string]bool{"ok": true}, a.clearLocked(body.RoomID) })
 	case "/api/queue/muse":
 		return a.respondLocked(200, func() (any, error) { return map[string]any{"requests": a.pendingLocked()}, nil })
 	case "/api/test-connection":
@@ -409,6 +495,33 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return created, nil
 		})
 	default:
+		if strings.HasPrefix(path, "/api/rooms/") {
+			rest := strings.TrimPrefix(path, "/api/rooms/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 2 && parts[1] == "activate" {
+				return a.respondLocked(200, func() (any, error) { return a.activateRoomLocked(parts[0]) })
+			}
+			if len(parts) == 1 {
+				if r.Method == http.MethodDelete {
+					return a.respondLocked(200, func() (any, error) { return a.deleteRoomLocked(parts[0]) })
+				}
+				var input roomInput
+				if err := readObject(w, r, &input); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.updateRoomLocked(parts[0], input) })
+			}
+		}
+		if strings.HasPrefix(path, "/api/presets/") {
+			rest := strings.TrimPrefix(path, "/api/presets/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 2 && parts[1] == "apply" {
+				return a.respondLocked(200, func() (any, error) { return a.applyPresetLocked(parts[0]) })
+			}
+			if len(parts) == 1 {
+				return a.respondLocked(200, func() (any, error) { return a.deletePresetLocked(parts[0]) })
+			}
+		}
 		if strings.HasPrefix(path, "/api/providers/") {
 			rest := strings.TrimPrefix(path, "/api/providers/")
 			parts := strings.Split(rest, "/")

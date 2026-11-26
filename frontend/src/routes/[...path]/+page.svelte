@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Settings from '../../lib/Settings.svelte';
-  import { api, dismissBackdrop, errorText, type Seat, type State, type Message, type Attachment } from '../../lib/api';
+  import { api, dismissBackdrop, errorText, type Seat, type State, type Message, type Attachment, type SearchResult } from '../../lib/api';
 
   let current = $state.raw<State>();
   let text = $state('');
@@ -38,6 +38,21 @@
   let query = $state('');
   let matchIndex = $state(0);
   let searchInput = $state<HTMLInputElement>();
+  let serverResults = $state<SearchResult[]>([]);
+  let searchTimer: ReturnType<typeof setTimeout>;
+  let roomDialog: HTMLDialogElement;
+  let newRoomName = $state('');
+  let newRoomSeats = $state<string[]>([]);
+  let voting = $state(false);
+
+  const activeRoom = $derived.by(() => current?.rooms?.find(r => r.id === current?.activeRoomId));
+  const roomSeats = $derived.by(() => {
+    if (!current) return [];
+    const codes = activeRoom?.seatCodes;
+    if (!codes || codes.length === 0) return current.seats;
+    return current.seats.filter(s => codes.includes(s.code));
+  });
+  const pinnedMessages = $derived((current?.messages ?? []).filter(m => m.pinned));
 
   function notify(text: string, error = false) {
     const target = document.querySelector<HTMLDialogElement>('dialog[open]')?.id ?? null;
@@ -137,7 +152,7 @@
     submitting = true;
     try {
       forceScroll = true;
-      await api('/api/message', { text: text.trim(), ...(replyTo ? { replyTo: replyTo.id } : {}), ...(pendingImage ? { imageUrl: pendingImage } : {}), ...(pendingFile ? { attachment: pendingFile } : {}) });
+      await api('/api/message', { text: text.trim(), ...(current?.activeRoomId ? { roomId: current.activeRoomId } : {}), ...(replyTo ? { replyTo: replyTo.id } : {}), ...(pendingImage ? { imageUrl: pendingImage } : {}), ...(pendingFile ? { attachment: pendingFile } : {}) });
       await put('');
       replyTo = undefined;
       pendingImage = '';
@@ -193,6 +208,77 @@
     reactFor = '';
     try { await mutate(`/api/message/${message.id}/react`, { emoji }); }
     catch (error) { notify(errorText(error), true); }
+  }
+
+  async function togglePin(message: Message) {
+    try { await mutate(`/api/message/${message.id}/pin`, {}); }
+    catch (error) { notify(errorText(error), true); }
+  }
+
+  async function switchRoom(id: string) {
+    if (!current || id === current.activeRoomId) return;
+    try {
+      forceScroll = true;
+      await api(`/api/rooms/${id}/activate`, {});
+      replyTo = undefined;
+      await refresh();
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  function openRoomDialog() {
+    newRoomName = '';
+    newRoomSeats = current?.seats.map(s => s.code) ?? [];
+    roomDialog.showModal();
+  }
+
+  function toggleRoomSeat(code: string, checked: boolean) {
+    newRoomSeats = checked ? [...newRoomSeats, code] : newRoomSeats.filter(c => c !== code);
+  }
+
+  async function createRoom(event: SubmitEvent) {
+    event.preventDefault();
+    const name = newRoomName.trim();
+    if (!name) { notify('Nama ruang wajib diisi.', true); return; }
+    try {
+      forceScroll = true;
+      await api('/api/rooms', { name, seatCodes: newRoomSeats });
+      roomDialog.close();
+      await refresh();
+      notify(`Ruang ${name} dibuat.`);
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  async function startVote() {
+    voting = true;
+    try {
+      forceScroll = true;
+      await api('/api/vote', { roomId: current?.activeRoomId ?? '' });
+      notify('Voting dimulai — kursi gateway sedang menilai jawaban terakhir.');
+      await refresh();
+    } catch (error) { notify(errorText(error), true); }
+    finally { voting = false; }
+  }
+
+  function scheduleSearch() {
+    clearTimeout(searchTimer);
+    const q = query.trim();
+    if (!q) { serverResults = []; return; }
+    searchTimer = setTimeout(async () => {
+      try {
+        const out = await api<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`);
+        if (query.trim() === q) serverResults = out.results;
+      } catch { /* pencarian lokal di ruang aktif tetap jalan */ }
+    }, 300);
+  }
+
+  async function jumpToResult(result: SearchResult) {
+    try {
+      if (current && result.roomId !== current.activeRoomId) {
+        await api(`/api/rooms/${result.roomId}/activate`, {});
+        await refresh();
+      }
+      await jumpToQuote(result.id);
+    } catch (error) { notify(errorText(error), true); }
   }
 
   async function chooseImage() {
@@ -302,17 +388,35 @@
       </button>
     </div>
   </header>
+  {#if current && current.rooms.length > 0}
+    <nav class="room-bar" aria-label="Ruang grup">
+      {#each current.rooms as room (room.id)}
+        <button class="room-chip" class:active={room.id === current.activeRoomId} type="button" title={`Ruang ${room.name}`} onclick={() => switchRoom(room.id)}>{room.name}</button>
+      {/each}
+      <button class="room-chip room-add" type="button" title="Buat ruang baru" aria-label="Buat ruang baru" onclick={openRoomDialog}>＋ Ruang</button>
+    </nav>
+  {/if}
   {#if searchOpen}
     <div class="search-bar" role="search">
-      <input bind:this={searchInput} bind:value={query} type="search" placeholder="Cari dalam percakapan…" aria-label="Cari pesan">
+      <input bind:this={searchInput} bind:value={query} type="search" placeholder="Cari dalam percakapan…" aria-label="Cari pesan" oninput={scheduleSearch}>
       <span class="search-count" aria-live="polite">{query.trim() ? `${matches.length ? matchIndex + 1 : 0}/${matches.length}` : ''}</span>
       <button class="icon-button" type="button" aria-label="Hasil sebelumnya" title="Sebelumnya" disabled={!matches.length} onclick={() => jumpTo(-1)}>↑</button>
       <button class="icon-button" type="button" aria-label="Hasil berikutnya" title="Berikutnya" disabled={!matches.length} onclick={() => jumpTo(1)}>↓</button>
       <button class="icon-button" type="button" aria-label="Tutup pencarian" title="Tutup" onclick={toggleSearch}>✕</button>
     </div>
+    {#if serverResults.length}
+      <div class="search-results" aria-label="Hasil pencarian semua ruang">
+        {#each serverResults as result (result.id)}
+          <button class="search-result" type="button" onclick={() => jumpToResult(result)}>
+            <span class="search-result-room">{result.roomName}</span>
+            <span class="search-result-text"><strong>{result.author}:</strong> {result.text.slice(0, 120)}{result.text.length > 120 ? '…' : ''}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
   {/if}
-  <nav id="seatStrip" class="seat-strip" aria-label="Tujuh kursi AI">
-    {#each current?.seats ?? [] as seat (seat.code)}
+  <nav id="seatStrip" class="seat-strip" aria-label="Kursi AI ruang ini">
+    {#each roomSeats as seat (seat.code)}
       <button class="seat-card" type="button" title={`@${seat.name} · ${seat.code} · ${seat.role}`} aria-label={`Sebut ${seat.name}, ${seat.role}`} onclick={() => insertMention(seat)}>
         <span class="seat-avatar-wrap"><img src={seat.avatar} alt={seat.name} width="40" height="40"><span class="presence-dot" class:offline={!seat.present} title={seat.present ? 'Hadir' : 'Tidak hadir'}></span></span>
         <span class="seat-name">{seat.name}</span><span class="seat-role">{seat.role}</span>
@@ -321,6 +425,14 @@
   </nav>
   {#if current && !connectionReady}
     <button id="connectionNotice" class="connection-notice" type="button" onclick={() => settingsPanel.open()}><span class="notice-dot"></span><span>Hubungkan gateway melalui Pengaturan untuk mengaktifkan enam kursi AI.</span><span aria-hidden="true">›</span></button>
+  {/if}
+  {#if pinnedMessages.length}
+    <div class="pinned-bar" aria-label="Pesan tersemat">
+      <span class="pinned-title">📌 Tersemat</span>
+      {#each pinnedMessages as pinned (pinned.id)}
+        <button class="pinned-item" type="button" title="Lompat ke pesan tersemat" onclick={() => jumpToQuote(pinned.id)}>{pinned.authorType === 'owner' ? current?.owner.name : current?.seats.find(s => s.code === pinned.seat)?.name ?? pinned.seat}: {attachmentLabel(pinned).slice(0, 60)}</button>
+      {/each}
+    </div>
   {/if}
   <section bind:this={messages} id="messages" class="messages" aria-label="Percakapan grup" aria-live="polite" aria-relevant="additions text">
     {#if !current}
@@ -351,8 +463,9 @@
         <article class="message" class:message-owner={own} class:message-final={message.label} data-message-id={message.id}>
           <img class="message-avatar" src={author?.avatar ?? '/avatars/group.svg'} alt={name}>
           <div class="bubble">
-            <div class="message-meta"><span class="author-name">{name}</span><span class="author-role">{own ? 'Pemilik' : seat?.role ?? ''}</span><time datetime={message.createdAt} title={date.toLocaleString('id-ID')}>{clock.format(date)}</time>{#if message.editedAt}<span class="edited-label" title="Diedit {new Date(message.editedAt).toLocaleString('id-ID')}">(diedit)</span>{/if}</div>
+            <div class="message-meta"><span class="author-name">{name}</span><span class="author-role">{own ? 'Pemilik' : seat?.role ?? ''}</span><time datetime={message.createdAt} title={date.toLocaleString('id-ID')}>{clock.format(date)}</time>{#if message.editedAt}<span class="edited-label" title="Diedit {new Date(message.editedAt).toLocaleString('id-ID')}">(diedit)</span>{/if}{#if message.pinned}<span class="pin-label" title="Pesan tersemat">📌</span>{/if}</div>
             {#if message.label}<div class="final-label">{message.label}</div>{/if}
+            {#if message.bestAnswer}<div class="best-label">★ Jawaban Terbaik{#if message.votes} · {message.votes} suara{/if}</div>{/if}
             {#if message.demo}<span class="demo-label">DEMO</span>{/if}
             {#if quoted}
               <button class="quote-block" type="button" onclick={() => jumpToQuote(quoted.id)}>
@@ -408,6 +521,7 @@
                     </div>
                   {/if}
                 </div>
+                <button class="msg-action" class:pin-active={message.pinned} type="button" aria-label={message.pinned ? 'Lepas sematan' : 'Sematkan pesan'} title={message.pinned ? 'Lepas sematan' : 'Sematkan'} onclick={() => togglePin(message)}>📌</button>
                 {#if own}<button class="msg-action" type="button" aria-label="Ubah pesan" title="Ubah" onclick={() => startEdit(message)}>✎</button>{/if}
                 <button class="msg-action" type="button" aria-label="Hapus pesan" title="Hapus" onclick={() => removeMessage(message)}>🗑</button>
               </div>
@@ -440,6 +554,7 @@
     <div class="action-chips" aria-label="Aksi cepat">
       <button id="mentionButton" class="action-chip" type="button" onclick={() => { if (current) mention.showModal(); }}>@ Kursi</button>
       <button id="progressButton" class="action-chip" type="button" onclick={progress} disabled={asking}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10a7 7 0 1 0 2-5M3 3v4h4M10 6v4l3 2"/></svg>Tanya Progres</button>
+      <button id="voteButton" class="action-chip" type="button" onclick={startVote} disabled={voting}>★ {voting ? 'Memulai voting…' : 'Voting Jawaban Terbaik'}</button>
       <button id="imageButton" class="action-chip" type="button" onclick={() => put(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3"/><circle cx="7" cy="7" r="1.4"/><path d="m3 15 4-4 3 3 3-5 4 6"/></svg>Buat Gambar</button>
       <button id="uploadImageButton" class="action-chip" type="button" onclick={() => imageInput.click()} disabled={uploadingImage}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V4m0 0L6.5 7.5M10 4l3.5 3.5M4 13v2.5h12V13"/></svg>{uploadingImage ? 'Mengunggah…' : 'Kirim Gambar'}</button>
       <button id="uploadFileButton" class="action-chip" type="button" onclick={() => fileInput.click()} disabled={uploadingFile}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v8m0 0-3-3m3 3 3-3M4 15v2.5h12V15"/></svg>{uploadingFile ? 'Mengunggah…' : 'Lampirkan File'}</button>
@@ -457,13 +572,30 @@
   <div class="mention-heading"><h2 id="mentionTitle">Pilih kursi</h2><button id="closeMention" class="icon-button" type="button" aria-label="Tutup daftar kursi" onclick={() => mention.close()}>✕</button></div>
   <p>Hanya kursi yang disebut akan membalas.</p>
   <div id="mentionList">
-    {#each current?.seats ?? [] as seat (seat.code)}
+    {#each roomSeats as seat (seat.code)}
       <button class="mention-option" type="button" data-seat={seat.code} onclick={() => { mention.close(); void insertMention(seat); }}>
         <img src={seat.avatar} alt={seat.name}><span><strong>{seat.name}</strong><small>{seat.role}</small></span><span>{seat.code}</span>
       </button>
     {/each}
   </div>
   <div class="toast" role="status" class:error={notice?.error} hidden={notice?.target !== 'mentionDialog'}>{notice?.target === 'mentionDialog' ? notice.text : ''}</div>
+</dialog>
+<dialog bind:this={roomDialog} id="roomDialog" class="mention-dialog" aria-labelledby="roomTitle" onclick={(event) => dismissBackdrop(event, roomDialog)}>
+  <div class="mention-heading"><h2 id="roomTitle">Ruang baru</h2><button class="icon-button" type="button" aria-label="Tutup" onclick={() => roomDialog.close()}>✕</button></div>
+  <p>Ruang punya riwayat pesan dan susunan kursi sendiri. Kosongkan semua kursi untuk memakai semua kursi.</p>
+  <form class="room-form" onsubmit={createRoom}>
+    <label>Nama ruang<input bind:value={newRoomName} maxlength="80" required placeholder="Contoh: Coding" aria-label="Nama ruang baru"></label>
+    <div class="room-seat-list">
+      {#each current?.seats ?? [] as seat (seat.code)}
+        <label class="room-seat-option"><input type="checkbox" checked={newRoomSeats.includes(seat.code)} onchange={(e) => toggleRoomSeat(seat.code, e.currentTarget.checked)}> {seat.name} <small>({seat.role})</small></label>
+      {/each}
+    </div>
+    <div class="edit-actions">
+      <button class="text-button" type="button" onclick={() => roomDialog.close()}>Batal</button>
+      <button class="primary-button" type="submit">Buat ruang</button>
+    </div>
+  </form>
+  <div class="toast" role="status" class:error={notice?.error} hidden={notice?.target !== 'roomDialog'}>{notice?.target === 'roomDialog' ? notice.text : ''}</div>
 </dialog>
 <div class="toast" role="status" class:error={notice?.error} hidden={!notice || notice.target !== null}>{notice?.target === null ? notice.text : ''}</div>
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var eventLine = regexp.MustCompile(`(?m)^data[ \t]*: ?(.*)$`)
@@ -199,6 +200,60 @@ func (a *App) gateway(ctx context.Context, cfg settings, route string, body any)
 func (a *App) models(ctx context.Context, cfg settings) ([]string, error) {
 	return a.protocolModels(ctx, cfg)
 }
+// recordStat mencatat satu panggilan gateway ke statistik pemakaian.
+// Dipanggil dari goroutine pekerjaan (tanpa mutex), jadi ia mengunci sendiri;
+// penyimpanan ke disk terjadi pada save berikutnya (finishStepLocked dll).
+func (a *App) recordStat(s seat, cfg settings, model string, ok bool, latency time.Duration, promptTokens, completionTokens int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.data.Stats == nil {
+		a.data.Stats = map[string]*usageStat{}
+	}
+	provider := cfg.ProviderName
+	if provider == "" {
+		provider = "gateway"
+	}
+	for _, key := range []string{"seat:" + s.Code, "model:" + provider + "/" + model} {
+		st := a.data.Stats[key]
+		if st == nil {
+			st = &usageStat{}
+			a.data.Stats[key] = st
+		}
+		st.Requests++
+		if ok {
+			st.Success++
+		} else {
+			st.Failed++
+		}
+		st.TotalLatencyMs += latency.Milliseconds()
+		st.PromptTokens += promptTokens
+		st.CompletionTokens += completionTokens
+		st.LastAt = now()
+	}
+}
+
+// extractUsage mengambil jumlah token dari respons gateway bila provider
+// menyertakannya (OpenAI usage, Anthropic usage, Gemini usageMetadata).
+func extractUsage(raw []byte) (int64, int64) {
+	var obj map[string]any
+	if json.Unmarshal(raw, &obj) != nil {
+		return 0, 0
+	}
+	num := func(v any) int64 {
+		if f, ok := v.(float64); ok {
+			return int64(f)
+		}
+		return 0
+	}
+	if usage, ok := obj["usage"].(map[string]any); ok {
+		return num(usage["prompt_tokens"]) + num(usage["input_tokens"]), num(usage["completion_tokens"]) + num(usage["output_tokens"])
+	}
+	if meta, ok := obj["usageMetadata"].(map[string]any); ok {
+		return num(meta["promptTokenCount"]), num(meta["candidatesTokenCount"])
+	}
+	return 0, 0
+}
+
 func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayMessage) (string, error) {
 	if s.Provider == "muse" {
 		return "", errors.New("Kursi ini memakai antrean file Muse.")
@@ -206,17 +261,33 @@ func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayM
 	if s.Model == nil || *s.Model == "" {
 		return "", problem(400, fmt.Sprintf("Nama model %s (%s) belum diisi di Pengaturan.", s.Name, s.Code))
 	}
+	start := time.Now()
 	raw, err := a.protocolChat(ctx, cfg, *s.Model, history)
 	if err != nil {
+		a.recordStat(s, cfg, *s.Model, false, time.Since(start), 0, 0)
 		return "", err
 	}
 	text, err := parseProtocolText(protocolOf(cfg), string(raw))
 	if err != nil {
+		a.recordStat(s, cfg, *s.Model, false, time.Since(start), 0, 0)
 		return "", problem(502, fmt.Sprintf("HTTP 200: %v\n%s", err, raw))
 	}
+	promptTokens, completionTokens := extractUsage(raw)
+	a.recordStat(s, cfg, *s.Model, true, time.Since(start), promptTokens, completionTokens)
 	return text, nil
 }
 func (a *App) generateImage(ctx context.Context, cfg settings, s seat, prompt string) (string, error) {
+	start := time.Now()
+	image, err := a.generateImageInner(ctx, cfg, s, prompt)
+	model := ""
+	if s.Model != nil {
+		model = *s.Model
+	}
+	a.recordStat(s, cfg, model, err == nil, time.Since(start), 0, 0)
+	return image, err
+}
+
+func (a *App) generateImageInner(ctx context.Context, cfg settings, s seat, prompt string) (string, error) {
 	if protocolOf(cfg) != protoOpenAI {
 		return "", problem(400, "Pembuatan gambar gateway hanya didukung protokol openai. Gunakan jalur gambar pekerja Muse.")
 	}
