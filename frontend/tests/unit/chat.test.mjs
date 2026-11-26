@@ -1,0 +1,184 @@
+// Unit test composable chat.svelte.ts: file dikompilasi dengan
+// svelte/compiler (setelah strip tipe TS) lalu dijalankan di Node
+// dengan fetch + document yang di-stub.
+import assert from 'node:assert/strict';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
+import { dirname, join } from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { compileModule } from 'svelte/compiler';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const libDir = join(here, '..', '..', 'src', 'lib');
+const tmpDir = join(here, '.tmp');
+mkdirSync(tmpDir, { recursive: true });
+const source = readFileSync(join(libDir, 'chat.svelte.ts'), 'utf8');
+const compiled = compileModule(stripTypeScriptTypes(source), { filename: 'chat.svelte.js' }).js.code
+  .replace(/from\s+['"]\.\/api['"]/g, "from '../../../src/lib/api.ts'")
+  .replace(/from\s+['"]\.\/types['"]/g, "from '../../../src/lib/types.ts'")
+  .replace(/from\s+['"]\.\/format['"]/g, "from '../../../src/lib/format.ts'");
+writeFileSync(join(tmpDir, 'chat.mjs'), compiled);
+const { createChat } = await import('./.tmp/chat.mjs');
+
+const darkToggles = [];
+globalThis.document = {
+  hidden: false,
+  querySelector: () => null,
+  documentElement: { classList: { toggle: (name, on) => darkToggles.push([name, on]) } },
+};
+
+const sampleState = () => ({
+  owner: { name: 'Arman' },
+  group: { name: 'Grup' },
+  seats: [
+    { code: 'M01', name: 'Plamo', avatar: '' },
+    { code: 'M02', name: 'GLM', avatar: '' },
+  ],
+  rooms: [
+    { id: 'r1', name: 'Utama', seatCodes: [] },
+    { id: 'r2', name: 'Riset', seatCodes: ['M02'] },
+  ],
+  activeRoomId: 'r2',
+  messages: [
+    { id: 'm1', text: 'satu', pinned: true },
+    { id: 'm2', text: 'dua' },
+  ],
+  settings: { baseUrl: 'http://gateway', gatewayProtocol: 'openai', hasApiKey: true, darkMode: true },
+});
+
+let calls;
+let stateBody;
+let failState;
+function stubFetch() {
+  calls = [];
+  stateBody = sampleState();
+  failState = false;
+  globalThis.fetch = async (url, init = {}) => {
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
+    calls.push({ url: String(url), method: init.method || 'GET', body });
+    if (String(url) === '/api/state') {
+      if (failState) throw new Error('jaringan putus');
+      return { ok: true, status: 200, json: async () => structuredClone(stateBody) };
+    }
+    if (String(url).startsWith('/api/search')) {
+      return { ok: true, status: 200, json: async () => ({ results: [{ id: 'm1', text: 'satu' }] }) };
+    }
+    if (String(url) === '/api/upload-image') {
+      return { ok: true, status: 200, json: async () => ({ imageUrl: '/images/x.png' }) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+test('keadaan awal kosong', () => {
+  stubFetch();
+  const chat = createChat({});
+  assert.equal(chat.current, undefined);
+  assert.deepEqual(chat.pinnedMessages, []);
+  assert.equal(chat.connectionReady, false);
+  assert.equal(chat.notice, undefined);
+});
+
+test('refresh menerapkan state + derived', async () => {
+  stubFetch();
+  let before = 0;
+  let after = 0;
+  const chat = createChat({ beforeApply: () => before++, afterApply: () => after++ });
+  await chat.refresh();
+  assert.equal(chat.current.seats.length, 2);
+  assert.equal(chat.activeRoom.name, 'Riset');
+  assert.deepEqual(chat.roomSeats.map(s => s.code), ['M02']); // seatCodes ruang aktif
+  assert.deepEqual(chat.pinnedMessages.map(m => m.id), ['m1']);
+  assert.equal(chat.connectionReady, true);
+  assert.deepEqual(darkToggles.at(-1), ['dark', true]);
+  assert.equal(before, 1);
+  assert.equal(after, 1);
+  // Refresh kedua tanpa perubahan pesan: afterApply tidak dipanggil lagi.
+  await chat.refresh();
+  assert.equal(before, 2);
+  assert.equal(after, 1);
+});
+
+test('notify mengisi notice', () => {
+  stubFetch();
+  const chat = createChat({});
+  chat.notify('Halo', true);
+  assert.equal(chat.notice.text, 'Halo');
+  assert.equal(chat.notice.error, true);
+  assert.equal(chat.notice.target, null);
+});
+
+test('sendMessage memposting payload lengkap lalu refresh', async () => {
+  stubFetch();
+  const chat = createChat({});
+  await chat.refresh();
+  calls = [];
+  await chat.sendMessage({ text: 'hai', replyTo: 'm1' });
+  assert.equal(calls[0].url, '/api/message');
+  assert.equal(calls[0].method, 'POST');
+  assert.deepEqual(calls[0].body, { text: 'hai', roomId: 'r2', replyTo: 'm1' });
+  assert.equal(calls[1].url, '/api/state');
+});
+
+test('aksi pesan memanggil route yang benar', async () => {
+  stubFetch();
+  const chat = createChat({});
+  await chat.togglePin({ id: 'm1' });
+  await chat.toggleReact({ id: 'm2' }, '👍');
+  await chat.removeMessage({ id: 'm3' });
+  await chat.saveEdit('m4', 'baru');
+  await chat.decideApproval('a1', true);
+  const posts = calls.filter(c => c.method === 'POST').map(c => [c.url, c.body]);
+  assert.deepEqual(posts, [
+    ['/api/message/m1/pin', {}],
+    ['/api/message/m2/react', { emoji: '👍' }],
+    ['/api/message/m3/delete', {}],
+    ['/api/message/m4/edit', { text: 'baru' }],
+    ['/api/approvals/a1', { approved: true }],
+  ]);
+});
+
+test('uploadImage mengembalikan imageUrl', async () => {
+  stubFetch();
+  const chat = createChat({});
+  const url = await chat.uploadImage(new File(['x'], 'x.png', { type: 'image/png' }));
+  assert.equal(url, '/images/x.png');
+  assert.ok(calls[0].body instanceof FormData);
+});
+
+test('scheduleSearch debounce + clearSearchResults', async () => {
+  stubFetch();
+  const chat = createChat({});
+  chat.scheduleSearch('satu');
+  await wait(450);
+  assert.deepEqual(chat.serverResults.map(r => r.id), ['m1']);
+  assert.ok(calls.some(c => c.url === '/api/search?q=satu'));
+  chat.clearSearchResults();
+  assert.deepEqual(chat.serverResults, []);
+});
+
+test('startPolling berulang lalu berhenti', async () => {
+  stubFetch();
+  const chat = createChat({});
+  const stop = chat.startPolling();
+  await wait(1600);
+  const during = calls.filter(c => c.url === '/api/state').length;
+  assert.ok(during >= 3, `polling hanya ${during}x`);
+  stop();
+  await wait(900);
+  const after = calls.filter(c => c.url === '/api/state').length;
+  assert.equal(after, during);
+});
+
+test('polling gagal memberi notifikasi koneksi terputus sekali', async () => {
+  stubFetch();
+  failState = true;
+  const chat = createChat({});
+  const stop = chat.startPolling();
+  await wait(1600);
+  stop();
+  assert.ok(chat.notice?.text.includes('Koneksi server terputus'), chat.notice?.text);
+  assert.equal(chat.notice.error, true);
+});

@@ -223,3 +223,8 @@ html.dark .approval-title{color:#e8c97a}
 /* Utilitas jarak (pengganti inline style agar lolos CSP style-src-attr) */
 .mt-10{margin-top:10px}
 .mt-14{margin-top:14px}
+
+/* Kontras mode gelap (WCAG >= 4.5) */
+html.dark .room-chip.active{color:#10231b}
+html.dark .message-meta{color:#9db8a8}
+html.dark .composer-hint{color:#9db8a8}

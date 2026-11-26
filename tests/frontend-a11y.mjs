@@ -4,7 +4,7 @@
 // Jalankan: node tests/frontend-a11y.mjs
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { configureMockProvider, launchBrowser, makeReporter, startApp, startGateway } from './frontend-harness.mjs';
+import { api, configureMockProvider, launchBrowser, makeReporter, startApp, startGateway } from './frontend-harness.mjs';
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 const axePath = join(repo, 'frontend', 'node_modules', 'axe-core', 'axe.min.js');
@@ -141,6 +141,48 @@ try {
   await axeAudit(page, 'dialog pengaturan');
   await page.keyboard.press('Escape');
   report.check('Escape menutup dialog', (await page.locator('dialog[open]').count()) === 0);
+
+  // Mode gelap: audit axe + kontras teks utama.
+  await api(app.url, 'POST', '/api/settings', { settings: { darkMode: true } }, 200);
+  await page.reload();
+  await page.getByText('Pemilik Arman - Admin Muse - Hadir 8/8').waitFor();
+  report.check('mode gelap aktif (html.dark)', await page.evaluate(() => document.documentElement.classList.contains('dark')));
+  await axeAudit(page, 'mode gelap');
+  const darkContrasts = await page.evaluate(() => {
+    function luminance([r, g, b]) {
+      const f = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    }
+    function parse(color) {
+      const m = color.match(/rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/);
+      return m ? [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])] : null;
+    }
+    function bgOf(el) {
+      let node = el;
+      while (node) {
+        const c = parse(getComputedStyle(node).backgroundColor);
+        if (c && c[3] > 0) return c;
+        node = node.parentElement;
+      }
+      return [0, 0, 0, 1];
+    }
+    function ratio(el) {
+      const [l1, l2] = [luminance(parse(getComputedStyle(el).color)), luminance(bgOf(el))].sort((a, b) => b - a);
+      return (l1 + 0.05) / (l2 + 0.05);
+    }
+    const targets = {
+      'teks pesan gelap': document.querySelector('.message-text'),
+      'judul grup gelap': document.querySelector('.group-name, h1'),
+      'subjudul gelap': document.querySelector('#groupSubtitle'),
+    };
+    const out = {};
+    for (const [name, el] of Object.entries(targets)) if (el) out[name] = Math.round(ratio(el) * 100) / 100;
+    return out;
+  });
+  for (const [name, ratio] of Object.entries(darkContrasts)) {
+    report.check(`kontras ${name} >= 4.5 (${ratio})`, ratio >= 4.5);
+  }
+  await api(app.url, 'POST', '/api/settings', { settings: { darkMode: false } }, 200);
 } finally {
   await browser.close();
   await gateway.stop();
