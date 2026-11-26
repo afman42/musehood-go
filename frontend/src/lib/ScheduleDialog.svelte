@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dismissBackdrop, errorText } from './api';
+  import { t } from './i18n.svelte';
   import type { ScheduledMessage } from './types';
 
   let { listScheduled, createScheduled, updateScheduled, deleteScheduled, notify, roomId }: {
@@ -89,9 +90,9 @@
   <label>Teks pesan<textarea aria-label="Teks pesan terjadwal" rows="2" maxlength="20000" placeholder="Tulis pesan, @kursi, atau Tugas: …" bind:value={text}></textarea></label>
   <label>Pengulangan
     <select aria-label="Jenis pengulangan" bind:value={mode}>
-      <option value="once">Sekali kirim</option>
-      <option value="daily">Harian</option>
-      <option value="weekly">Mingguan</option>
+      <option value="once">{t('scheduleOnce')}</option>
+      <option value="daily">{t('scheduleDaily')}</option>
+      <option value="weekly">{t('scheduleWeekly')}</option>
       <option value="interval">Tiap N jam</option>
     </select>
   </label>

@@ -3,6 +3,38 @@ import type { Attachment, Message, Notice, ScheduledMessage, SearchFilters, Sear
 
 export const NOTIFY_KEY = 'musehood-notify';
 
+const SEEN_KEY = 'musehood-seencount-';
+
+export function seenCount(roomId: string): number {
+  try {
+    return Number(localStorage.getItem(SEEN_KEY + roomId) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function markSeen(result: State) {
+  try {
+    const room = result.rooms.find((r) => r.id === result.activeRoomId);
+    if (room) localStorage.setItem(SEEN_KEY + room.id, String(room.messageCount ?? result.messages.length));
+  } catch {
+    // abaikan
+  }
+}
+
+export function unreadCount(room: { id: string; messageCount?: number }): number {
+  return Math.max(0, (room.messageCount ?? 0) - seenCount(room.id));
+}
+
+const FONT_SCALES: Record<string, string> = { S: '0.9', M: '1', L: '1.15' };
+
+function applyTheme(result: State) {
+  const theme = result.settings.theme ?? (result.settings.darkMode ? 'dark' : 'light');
+  const dark = theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.style.setProperty('--font-scale', FONT_SCALES[result.settings.fontSize ?? 'M'] ?? '1');
+}
+
 export function notificationsEnabled(): boolean {
   try {
     return localStorage.getItem(NOTIFY_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted';
@@ -80,7 +112,8 @@ export function createChat(hooks: ChatHooks = {}) {
     messageKey = nextKey;
     current = result;
     maybeNotify(result);
-    document.documentElement.classList.toggle('dark', result.settings.darkMode);
+    applyTheme(result);
+    markSeen(result);
     if (changed) await hooks.afterApply?.();
   }
 
@@ -90,6 +123,9 @@ export function createChat(hooks: ChatHooks = {}) {
   }
 
   function startPolling() {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (current?.settings.theme === 'auto') applyTheme(current);
+    });
     let stopped = false;
     let pollTimer: ReturnType<typeof setTimeout>;
     let pollError = false;

@@ -14,6 +14,7 @@ import (
 type roomInput struct {
 	Name      *string   `json:"name"`
 	SeatCodes *[]string `json:"seatCodes"`
+	Pinned    *bool     `json:"pinned"`
 }
 
 func (a *App) roomViewsLocked() []map[string]any {
@@ -29,7 +30,7 @@ func (a *App) roomViewsLocked() []map[string]any {
 		if codes == nil {
 			codes = []string{}
 		}
-		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "messageCount": count, "active": r.ID == a.data.ActiveRoomID})
+		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned})
 	}
 	return views
 }
@@ -101,6 +102,9 @@ func (a *App) updateRoomLocked(id string, input roomInput) (any, error) {
 			return nil, err
 		}
 		next.SeatCodes = codes
+	}
+	if input.Pinned != nil {
+		next.Pinned = *input.Pinned
 	}
 	*r = next
 	if err := a.saveLocked(); err != nil {

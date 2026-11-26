@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { attachmentLabel, humanSize } from './format';
+  import { t } from './i18n.svelte';
   import type { Attachment, DiscussionTemplate, Message } from './types';
 
   let {
@@ -108,12 +109,12 @@
   {/if}
   <div class="action-chips" aria-label="Aksi cepat">
     <button id="mentionButton" class="action-chip" type="button" onclick={onOpenMention}>@ Kursi</button>
-    <button id="progressButton" class="action-chip" type="button" onclick={onProgress} disabled={asking}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10a7 7 0 1 0 2-5M3 3v4h4M10 6v4l3 2"/></svg>Tanya Progres</button>
-    <button id="voteButton" class="action-chip" type="button" onclick={onVote} disabled={voting}>★ {voting ? 'Memulai voting…' : 'Voting Jawaban Terbaik'}</button>
-    <button id="scheduleButton" class="action-chip" type="button" onclick={onSchedule}>⏰ Jadwalkan</button>
+    <button id="progressButton" class="action-chip" type="button" onclick={onProgress} disabled={asking}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10a7 7 0 1 0 2-5M3 3v4h4M10 6v4l3 2"/></svg>{t('progress').replace('📊 ', '')}</button>
+    <button id="voteButton" class="action-chip" type="button" onclick={onVote} disabled={voting}>★ {voting ? 'Memulai voting…' : t('vote').replace('⭐ ', '')}</button>
+    <button id="scheduleButton" class="action-chip" type="button" onclick={onSchedule}>{t('schedule')}</button>
     {#if templates.length}
       <select id="templateSelect" class="template-select" aria-label="Template diskusi" bind:value={selectedTemplate}>
-        <option value="">Tanpa template</option>
+        <option value="">{t('noTemplate')}</option>
         {#each templates as template (template.id)}<option value={template.id}>{template.name}</option>{/each}
       </select>
     {/if}
@@ -122,8 +123,8 @@
     <button id="uploadFileButton" class="action-chip" type="button" onclick={onUploadFile} disabled={uploadingFile}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v8m0 0-3-3m3 3 3-3M4 15v2.5h12V15"/></svg>{uploadingFile ? `Mengunggah… ${uploadProgress ?? 0}%` : 'Lampirkan File'}</button>
   </div>
   <form bind:this={composer} id="composer" class="composer" onsubmit={onSend}>
-    <textarea bind:this={input} bind:value={text} id="messageInput" rows="1" maxlength="20000" placeholder="Tulis pesan, @kursi, atau Tugas: …" aria-label="Pesan untuk grup" required={!pendingImage && !pendingFile} onkeydown={handleEnter} oninput={resizeInput}></textarea>
-    <button id="sendButton" class="send-button" class:sending={submitting} type="submit" aria-label="Kirim pesan" title="Kirim pesan" disabled={submitting}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8Z"/><path d="M7 12h13"/></svg>{#if submitting}<span class="send-label">Mengirim… {sendSeconds} dtk</span>{/if}</button>
+    <textarea bind:this={input} bind:value={text} id="messageInput" rows="1" maxlength="20000" placeholder={t('composerPlaceholder')} aria-label="Pesan untuk grup" required={!pendingImage && !pendingFile} onkeydown={handleEnter} oninput={resizeInput}></textarea>
+    <button id="sendButton" class="send-button" class:sending={submitting} type="submit" aria-label={t('send')} title={t('send')} disabled={submitting}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8Z"/><path d="M7 12h13"/></svg>{#if submitting}<span class="send-label">{t('sending')} {sendSeconds} dtk</span>{/if}</button>
   </form>
   <p class="composer-hint">Enter untuk kirim <span>·</span> Shift + Enter untuk baris baru</p>
 </footer>

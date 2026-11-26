@@ -79,6 +79,32 @@
       : []
   );
 
+  // Draft otomatis per ruang.
+  const DRAFT_KEY = 'musehood-draft-';
+  let lastDraftRoom = '';
+  $effect(() => {
+    const roomId = current?.activeRoomId ?? '';
+    if (roomId && roomId !== lastDraftRoom) {
+      lastDraftRoom = roomId;
+      try { text = localStorage.getItem(DRAFT_KEY + roomId) ?? ''; } catch { text = ''; }
+    }
+  });
+  $effect(() => {
+    const roomId = current?.activeRoomId;
+    if (!roomId) return;
+    try {
+      if (text) localStorage.setItem(DRAFT_KEY + roomId, text);
+      else localStorage.removeItem(DRAFT_KEY + roomId);
+    } catch { /* abaikan */ }
+  });
+
+  // Pengumuman pembaca layar untuk balasan kursi terbaru.
+  const liveAnnouncement = $derived.by(() => {
+    const msgs = current?.messages ?? [];
+    const last = [...msgs].reverse().find((m) => m.authorType === 'seat' && m.status === 'completed' && m.text);
+    return last ? `${authorName(last)}: ${last.text.slice(0, 120)}` : '';
+  });
+
   onMount(() => chat.startPolling());
 
   function scrollForImage() {
@@ -281,12 +307,13 @@
     </div>
   </header>
   {#if current && current.rooms.length > 0}
-    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => roomDialog?.open()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} />
+    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => roomDialog?.open()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} onTogglePin={(room) => chat.mutate(`/api/rooms/${room.id}`, { pinned: !room.pinned }).catch((e) => chat.notify(errorText(e), true))} />
   {/if}
   {#if searchOpen}
     <SearchBar bind:this={searchBar} bind:query bind:filters={searchFilters} seats={current?.seats ?? []} rooms={current?.rooms ?? []} matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}
       onInput={() => chat.scheduleSearch(query.trim(), searchFilters)} onPrev={() => jumpTo(-1)} onNext={() => jumpTo(1)} onClose={toggleSearch} onJumpResult={jumpToResult} />
   {/if}
+  <div class="visually-hidden" aria-live="polite">{liveAnnouncement}</div>
   <SeatStrip seats={chat.roomSeats} onMention={(seat) => composer?.insertMention(seat.name)} />
   {#if current && !chat.connectionReady}
     <button id="connectionNotice" class="connection-notice" type="button" onclick={() => settingsPanel?.open()}><span class="notice-dot"></span><span>Hubungkan gateway melalui Pengaturan untuk mengaktifkan enam kursi AI.</span><span aria-hidden="true">›</span></button>

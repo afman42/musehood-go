@@ -38,6 +38,8 @@
   let codeToolEnabled = $state(true);
   let skillsEnabled = $state(true);
   let streamingEnabled = $state(true);
+  let theme = $state('light');
+  let fontSize = $state('M');
   let saveStatus = $state('');
   let saving = $state(false);
 
@@ -75,6 +77,8 @@
       codeToolEnabled = current.settings.codeToolEnabled ?? true;
       skillsEnabled = current.settings.skillsEnabled ?? true;
       streamingEnabled = current.settings.streamingEnabled ?? true;
+      theme = current.settings.theme ?? (current.settings.darkMode ? 'dark' : 'light');
+      fontSize = current.settings.fontSize ?? 'M';
       syncSeats();
       providersPanel?.resetForm();
       saveStatus = '';
@@ -89,7 +93,7 @@
       await mutate('/api/settings', {
         owner: { name: ownerName }, group: { name: groupName },
         seats: seats.map((s) => ({ ...s, skills: s.skills.split(',').map((x) => x.trim()).filter(Boolean), fallbackModels: s.fallbackModels.split(',').map((x) => x.trim()).filter(Boolean) })),
-        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled, skillsEnabled, streamingEnabled },
+        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled, skillsEnabled, streamingEnabled, theme, fontSize },
       });
       providersPanel?.clearConnectionError();
       saveStatus = 'Tersimpan';
@@ -155,7 +159,7 @@
     </section>
     <SettingsProviders bind:this={providersPanel} {current} {refresh} {mutate} {notify} onSave={save} {saving} />
     <SettingsSeats bind:seats {current} {refresh} {notify} onSync={syncSeats} onSave={save} {saving} onChooseAvatar={chooseAvatar} {skillsEnabled} />
-    <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled bind:codeToolEnabled bind:streamingEnabled {seats} />
+    <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled bind:codeToolEnabled bind:streamingEnabled bind:theme bind:fontSize {seats} />
     <SettingsRooms bind:roomEdits {current} {refresh} {notify} onSync={syncSeats} />
     <SettingsPresets {current} {refresh} {notify} onSave={save} onSync={syncSeats} />
     <SettingsTemplates {current} {refresh} {notify} />

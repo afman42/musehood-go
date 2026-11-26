@@ -109,6 +109,11 @@ type settings struct {
 	// StreamingEnabled mengizinkan balasan gateway ditampilkan bertahap
 	// (streaming SSE) selagi model menjawab. Nil berarti aktif.
 	StreamingEnabled *bool `json:"streamingEnabled,omitempty"`
+	// Theme adalah tema tampilan: "light", "dark", atau "auto" (ikuti
+	// sistem). Kosong = pakai DarkMode lama.
+	Theme string `json:"theme,omitempty"`
+	// FontSize adalah ukuran teks antarmuka: "S", "M", atau "L".
+	FontSize string `json:"fontSize,omitempty"`
 }
 
 func (s settings) streamingOn() bool {
@@ -250,6 +255,8 @@ type room struct {
 	// SummaryCount adalah jumlah pesan ruang saat ringkasan dibuat.
 	Summary      string `json:"summary,omitempty"`
 	SummaryCount int    `json:"summaryCount,omitempty"`
+	// Pinned menaruh ruang di urutan teratas daftar ruang.
+	Pinned bool `json:"pinned,omitempty"`
 }
 
 // presetSeat adalah salinan konfigurasi satu kursi di dalam preset.
@@ -1182,6 +1189,8 @@ type settingsUpdate struct {
 		RoundRobin      *bool   `json:"roundRobin"`
 		DemoFallback    *bool   `json:"demoFallback"`
 		DarkMode        *bool   `json:"darkMode"`
+		Theme           *string `json:"theme"`
+		FontSize        *string `json:"fontSize"`
 		IntegratorSeat  *string `json:"integratorSeat"`
 		ToolsEnabled     *bool   `json:"toolsEnabled"`
 		CodeToolEnabled  *bool   `json:"codeToolEnabled"`
@@ -1352,6 +1361,21 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		}
 		if patch.DarkMode != nil {
 			next.Settings.DarkMode = *patch.DarkMode
+		}
+		if patch.Theme != nil {
+			theme := strings.TrimSpace(*patch.Theme)
+			if theme != "light" && theme != "dark" && theme != "auto" {
+				return problem(400, "Tema harus light, dark, atau auto.")
+			}
+			next.Settings.Theme = theme
+			next.Settings.DarkMode = theme == "dark"
+		}
+		if patch.FontSize != nil {
+			size := strings.TrimSpace(*patch.FontSize)
+			if size != "S" && size != "M" && size != "L" {
+				return problem(400, "Ukuran font harus S, M, atau L.")
+			}
+			next.Settings.FontSize = size
 		}
 		if patch.ToolsEnabled != nil {
 			enabled := *patch.ToolsEnabled

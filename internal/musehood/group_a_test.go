@@ -448,3 +448,26 @@ func TestSummarizeRoomAndCompaction(t *testing.T) {
 		t.Fatalf("konteks kompak maksimal 41 entri, dapat %d", len(ctx.Messages))
 	}
 }
+
+// Grup B: sematan ruang, tema, ukuran font.
+
+func TestRoomPinnedAndTheme(t *testing.T) {
+	f := setup(t, nil)
+	roomID, _ := f.state()["activeRoomId"].(string)
+	f.api("POST", "/api/rooms/"+roomID, object{"pinned": true}, 200)
+	rooms := asObjects(f.state()["rooms"])
+	if len(rooms) != 1 || rooms[0]["pinned"] != true {
+		t.Fatalf("ruang harus tersemat: %v", rooms)
+	}
+	f.api("POST", "/api/settings", object{"settings": object{"theme": "auto", "fontSize": "L"}}, 200)
+	settings := f.state()["settings"].(map[string]any)
+	if settings["theme"] != "auto" || settings["fontSize"] != "L" {
+		t.Fatalf("tema/font harus tersimpan: %v", settings)
+	}
+	f.api("POST", "/api/settings", object{"settings": object{"theme": "neon"}}, 400)
+	f.api("POST", "/api/settings", object{"settings": object{"fontSize": "XL"}}, 400)
+	f.api("POST", "/api/settings", object{"settings": object{"theme": "dark"}}, 200)
+	if f.state()["settings"].(map[string]any)["darkMode"] != true {
+		t.Fatal("tema dark harus menyalakan darkMode lama")
+	}
+}

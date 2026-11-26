@@ -347,3 +347,15 @@ html.dark .search-filter-grid select,html.dark .search-filter-grid input[type=da
 html.dark .template-step{background:#2a3a31;border-color:#3c4f42;color:var(--ink)}
 .template-select{height:34px;border:1px solid #dfe6da;border-radius:8px;padding:5px 8px;font-size:12px;background:#fff;color:var(--ink);max-width:190px}
 html.dark .template-select{background:#2a3a31;border-color:#3c4f42}
+.room-chip-wrap{display:inline-flex;align-items:center;gap:2px}
+.room-badge{display:inline-block;min-width:18px;text-align:center;background:#9e3445;color:#fff;border-radius:999px;font-size:10px;font-weight:700;padding:1px 5px;margin-left:6px;vertical-align:middle}
+html.dark .room-badge{background:#e08a97;color:#1c1a1a}
+.room-pin{background:none;border:none;font-size:11px;opacity:.45;padding:4px;cursor:pointer;border-radius:6px}
+.room-pin:hover{opacity:1}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+.bubble p,.message-text{font-size:calc(13.5px * var(--font-scale,1))}
+.composer textarea{font-size:calc(13.5px * var(--font-scale,1))}
+.settings-section h3{font-size:calc(14px * var(--font-scale,1))}

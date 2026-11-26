@@ -5,6 +5,7 @@ export type GatewayProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gem
 export type Settings = {
   baseUrl: string; apiKey: string; hasApiKey: boolean; providerName: string; roundRobin: boolean;
   reviewLevel: ReviewLevel; demoFallback: boolean; gatewayProtocol: GatewayProtocol; darkMode: boolean;
+  theme?: string; fontSize?: string;
   integratorSeat?: string;
   toolsEnabled?: boolean;
   codeToolEnabled?: boolean;
@@ -22,7 +23,7 @@ export type Message = {
   toolCalls?: ToolCallRecord[];
 };
 export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
-export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[] };
+export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; messageCount?: number; pinned?: boolean };
 export type DiscussionTemplate = { id: string; name: string; seats: string[]; instruction?: string; createdAt: string };
 export type ScheduledMessage = {
   id: string; roomId: string; text: string; sendAt?: string;
