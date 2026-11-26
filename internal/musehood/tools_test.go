@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,17 +34,17 @@ func TestSandboxTools(t *testing.T) {
 		t.Fatal("subfolder harus ditolak")
 	}
 	ctx := context.Background()
-	out := app.runTool(ctx, seat{}, "write_file", "catatan.txt\nisi catatan", true)
+	out, _ := app.runTool(ctx, settings{}, seat{}, "write_file", "catatan.txt\nisi catatan", true)
 	if !strings.Contains(out, "tersimpan") {
 		t.Fatalf("write_file = %q", out)
 	}
-	if got := app.runTool(ctx, seat{}, "read_file", "catatan.txt", true); got != "isi catatan" {
+	if got, _ := app.runTool(ctx, settings{}, seat{}, "read_file", "catatan.txt", true); got != "isi catatan" {
 		t.Fatalf("read_file = %q", got)
 	}
-	if got := app.runTool(ctx, seat{}, "list_files", "", true); !strings.Contains(got, "catatan.txt") {
+	if got, _ := app.runTool(ctx, settings{}, seat{}, "list_files", "", true); !strings.Contains(got, "catatan.txt") {
 		t.Fatalf("list_files = %q", got)
 	}
-	if got := app.runTool(ctx, seat{}, "tidak_ada", "", true); !strings.Contains(got, "tidak dikenal") {
+	if got, _ := app.runTool(ctx, settings{}, seat{}, "tidak_ada", "", true); !strings.Contains(got, "tidak dikenal") {
 		t.Fatalf("tool asing = %q", got)
 	}
 }
@@ -226,7 +227,7 @@ func TestRunCodeApprovalApprove(t *testing.T) {
 	f.api("POST", "/api/message", object{"text": "@Plamo jalankan kode itu"}, 202)
 	s := f.wait(func(s object) bool { return len(asObjects(s["pendingApprovals"])) == 1 })
 	approval := asObjects(s["pendingApprovals"])[0]
-	if approval["seatCode"] != "M01" || !strings.Contains(approval["code"].(string), "os.system") {
+	if approval["kind"] != "code" || approval["seatCode"] != "M01" || !strings.Contains(approval["detail"].(string), "os.system") {
 		t.Fatalf("approval = %v", approval)
 	}
 	f.api("POST", "/api/approvals/"+approval["id"].(string), object{"approved": true}, 200)
@@ -252,5 +253,183 @@ func TestRunCodeApprovalReject(t *testing.T) {
 	reply := msgs[1]
 	if !strings.Contains(reply["text"].(string), "TIDAK dijalankan") {
 		t.Fatalf("kode ditolak harus dilaporkan ke model: %v", reply["text"])
+	}
+}
+
+func TestEditAppendFile(t *testing.T) {
+	app := &App{dir: t.TempDir()}
+	if out := app.toolWriteFile("catatan.txt\nbaris satu\nbaris dua"); !strings.Contains(out, "tersimpan") {
+		t.Fatalf("write_file = %q", out)
+	}
+	if out := app.toolAppendFile("catatan.txt\n\nbaris tiga"); !strings.Contains(out, "ditambahkan") {
+		t.Fatalf("append_file = %q", out)
+	}
+	if got := app.toolReadFile("catatan.txt"); got != "baris satu\nbaris dua\nbaris tiga" {
+		t.Fatalf("isi setelah append = %q", got)
+	}
+	if out := app.toolEditFile("catatan.txt\n<<<OLD>>>\nbaris dua\n<<<NEW>>>\nbaris DUA"); !strings.Contains(out, "diubah") {
+		t.Fatalf("edit_file = %q", out)
+	}
+	if got := app.toolReadFile("catatan.txt"); got != "baris satu\nbaris DUA\nbaris tiga" {
+		t.Fatalf("isi setelah edit = %q", got)
+	}
+	if out := app.toolEditFile("catatan.txt\n<<<OLD>>>\ntidak ada\n<<<NEW>>>\nx"); !strings.Contains(out, "tidak ditemukan") {
+		t.Fatalf("edit teks tidak ada harus error: %q", out)
+	}
+	if out := app.toolAppendFile("baru.txt\nhalo"); !strings.Contains(out, "ditambahkan") {
+		t.Fatalf("append file baru = %q", out)
+	}
+}
+
+func TestDownloadFile(t *testing.T) {
+	app := &App{dir: t.TempDir()}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "isi unduhan")
+	}))
+	defer server.Close()
+	if out := app.downloadToSandbox(context.Background(), server.URL+"/data.txt", "unduhan.txt"); !strings.Contains(out, "terunduh") {
+		t.Fatalf("downloadToSandbox = %q", out)
+	}
+	if got := app.toolReadFile("unduhan.txt"); got != "isi unduhan" {
+		t.Fatalf("isi unduhan = %q", got)
+	}
+	// URL localhost harus ditolak penjaga SSRF.
+	if out := app.toolDownloadFile(context.Background(), server.URL+"/data.txt\njahat.txt"); !strings.Contains(out, "Error") {
+		t.Fatalf("download localhost harus ditolak: %q", out)
+	}
+}
+
+func TestMemorySave(t *testing.T) {
+	app := &App{dir: t.TempDir(), data: data{Seats: []seat{{Code: "M01", Name: "Plamo"}}}}
+	s := seat{Code: "M01", Name: "Plamo"}
+	if out := app.toolMemorySave(s, "Arman suka kopi tubruk"); !strings.Contains(out, "tersimpan") {
+		t.Fatalf("memory_save = %q", out)
+	}
+	if got := app.data.Seats[0].Memory; got != "- Arman suka kopi tubruk" {
+		t.Fatalf("memori kursi = %q", got)
+	}
+	if out := app.toolMemorySave(s, "Rapat tiap Senin"); !strings.Contains(out, "tersimpan") {
+		t.Fatalf("memory_save kedua = %q", out)
+	}
+	if got := app.data.Seats[0].Memory; got != "- Arman suka kopi tubruk\n- Rapat tiap Senin" {
+		t.Fatalf("memori kursi = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(app.dir, "data.json")); err != nil {
+		t.Fatalf("data.json harus tertulis: %v", err)
+	}
+}
+
+// mockToolGateway membalas panggilan chat pertama dengan blok tool dan
+// panggilan kedua dengan teks akhir; endpoint gambar mengembalikan PNG 1x1.
+func mockToolGateway(t *testing.T, toolName, arg string) http.HandlerFunc {
+	t.Helper()
+	calls := 0
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /v1/models":
+			io.WriteString(w, `{"data":[{"id":"toolbot"}]}`)
+		case "POST /v1/images/generations":
+			io.WriteString(w, `{"data":[{"b64_json":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII="}]}`)
+		case "POST /v1/chat/completions":
+			var body struct {
+				Messages []struct {
+					Role    string
+					Content string
+				}
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			calls++
+			if calls == 1 {
+				payload, _ := json.Marshal(object{"choices": []object{{"message": object{"content": "<<TOOL:" + toolName + ">>\n" + arg + "\n<</TOOL>>"}}}})
+				w.Write(payload)
+				return
+			}
+			last := body.Messages[len(body.Messages)-1].Content
+			payload, _ := json.Marshal(object{"choices": []object{{"message": object{"content": "Selesai. " + last}}}})
+			w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}
+}
+
+func TestDeleteFileApproval(t *testing.T) {
+	makeFixture := func() (fixture, string) {
+		f := setup(t, mockToolGateway(t, "delete_file", "hapus-aku.txt"))
+		f.api("POST", "/api/settings", object{"seats": []object{{"code": "M01", "model": "toolbot"}}}, 200)
+		target := filepath.Join(f.app.sandboxDir(), "hapus-aku.txt")
+		if err := os.MkdirAll(f.app.sandboxDir(), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte("halo"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f.api("POST", "/api/message", object{"text": "@Plamo hapus file hapus-aku.txt"}, 202)
+		return f, target
+	}
+
+	// Ditolak: file tetap ada dan penolakan dilaporkan ke model.
+	f, target := makeFixture()
+	s := f.wait(func(s object) bool { return len(asObjects(s["pendingApprovals"])) == 1 })
+	approval := asObjects(s["pendingApprovals"])[0]
+	if approval["kind"] != "delete" || approval["detail"] != "hapus-aku.txt" {
+		t.Fatalf("approval = %v", approval)
+	}
+	f.api("POST", "/api/approvals/"+approval["id"].(string), object{"approved": false}, 200)
+	msgs := f.finish(2)
+	if !strings.Contains(msgs[1]["text"].(string), "TIDAK dihapus") {
+		t.Fatalf("penolakan harus dilaporkan: %v", msgs[1]["text"])
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("file harus tetap ada setelah ditolak: %v", err)
+	}
+
+	// Disetujui: file terhapus.
+	f2, target2 := makeFixture()
+	s2 := f2.wait(func(s object) bool { return len(asObjects(s["pendingApprovals"])) == 1 })
+	approval2 := asObjects(s2["pendingApprovals"])[0]
+	f2.api("POST", "/api/approvals/"+approval2["id"].(string), object{"approved": true}, 200)
+	msgs2 := f2.finish(2)
+	if !strings.Contains(msgs2[1]["text"].(string), "terhapus") {
+		t.Fatalf("penghapusan harus dilaporkan: %v", msgs2[1]["text"])
+	}
+	if _, err := os.Stat(target2); !os.IsNotExist(err) {
+		t.Fatalf("file harus terhapus setelah disetujui: %v", err)
+	}
+}
+
+func TestRunShellApproval(t *testing.T) {
+	f := setup(t, mockToolGateway(t, "run_shell", "echo halo-shell && pwd"))
+	f.api("POST", "/api/settings", object{"seats": []object{{"code": "M01", "model": "toolbot"}}}, 200)
+	f.api("POST", "/api/message", object{"text": "@Plamo jalankan perintah itu"}, 202)
+	s := f.wait(func(s object) bool { return len(asObjects(s["pendingApprovals"])) == 1 })
+	approval := asObjects(s["pendingApprovals"])[0]
+	if approval["kind"] != "shell" || !strings.Contains(approval["detail"].(string), "echo halo-shell") {
+		t.Fatalf("approval = %v", approval)
+	}
+	f.api("POST", "/api/approvals/"+approval["id"].(string), object{"approved": true}, 200)
+	msgs := f.finish(2)
+	reply := msgs[1]
+	if reply["status"] != "completed" || !strings.Contains(reply["text"].(string), "halo-shell") || !strings.Contains(reply["text"].(string), "/work") {
+		t.Fatalf("balasan shell = %v", reply)
+	}
+}
+
+func TestGenerateImageTool(t *testing.T) {
+	f := setup(t, mockToolGateway(t, "generate_image", "kucing oranye tidur di atas bantal"))
+	f.api("POST", "/api/settings", object{"seats": []object{{"code": "M01", "model": "toolbot"}}}, 200)
+	f.api("POST", "/api/message", object{"text": "@Plamo buatkan gambar kucing"}, 202)
+	msgs := f.finish(2)
+	reply := msgs[1]
+	if reply["status"] != "completed" {
+		t.Fatalf("status = %v err=%v", reply["status"], reply["error"])
+	}
+	imageURL, _ := reply["imageUrl"].(string)
+	if !strings.HasPrefix(imageURL, "/images/") || !strings.HasSuffix(imageURL, ".png") {
+		t.Fatalf("imageUrl = %q", imageURL)
+	}
+	tools, _ := reply["toolsUsed"].([]any)
+	if len(tools) != 1 || tools[0] != "generate_image" {
+		t.Fatalf("toolsUsed = %v", reply["toolsUsed"])
 	}
 }

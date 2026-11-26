@@ -1023,7 +1023,7 @@ func (a *App) stateLocked() any {
 			Present int `json:"present"`
 			Total   int `json:"total"`
 		} `json:"presence"`
-		PendingApprovals []codeApproval `json:"pendingApprovals"`
+		PendingApprovals []approval `json:"pendingApprovals"`
 	}{d, views, struct {
 		settings
 		HasAPIKey bool `json:"hasApiKey"`
