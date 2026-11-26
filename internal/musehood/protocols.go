@@ -82,6 +82,8 @@ func (a *App) gatewayDo(ctx context.Context, verb, target string, body any, head
 		return nil, problem(502, "Koneksi gateway gagal: "+err.Error())
 	}
 	req.Header.Set("Accept", "application/json, text/event-stream, text/plain")
+	// WAF sebagian provider memblokir User-Agent bawaan Go (HTTP 567).
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
