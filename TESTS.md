@@ -1,6 +1,6 @@
 # Pengujian Musehood Go
 
-Dijalankan 22 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
+Terakhir dijalankan 26 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
 
 ## E2E semua fitur + test live (26 Nov 2026)
 
@@ -10,7 +10,7 @@ Dua lapis pengujian end-to-end yang memetakan **semua** fitur aplikasi sebagai a
 | --- | --- |
 | `go test -run TestE2EAllFeatures -count=1 -v ./internal/musehood/` | **16/16 subtest LULUS** (`e2e_test.go`): halaman utama + fallback SPA, state awal, pengaturan (level review/mode gelap/demo/bergilir), kustomisasi kursi + integrator, CRUD provider + alias + Fetch/Test Models, Tes Koneksi + Tes Model, diskusi bergilir, mention, antrean Muse via API, pipeline `Tugas:` 6 tahap + progres, `Gambar:`, operasi pesan (edit/hapus/balas/reaksi), unggah avatar/gambar/file, kursi kustom, ekspor JSON/MD, keamanan (Host/metode/JSON rusak), bersihkan chat. |
 | `go test -race -run TestE2EAllFeatures -count=1 ./internal/musehood/` | Lulus, race detector bersih. |
-| `go test -count=1 -cover ./...` | Lulus. Cakupan pernyataan `internal/musehood` **85,4%**. |
+| `go test -count=1 -cover ./...` | Lulus. Cakupan pernyataan `internal/musehood` **84,4%** (140 fungsi tes). |
 | `node tests/live-e2e.mjs` | **49 PASS, 0 FAIL** (~1,2 dtk). Menjalankan binary asli pada port uji 3198 dengan direktori data sementara + mock gateway 3199, lalu menguji semua fitur lewat HTTP sungguhan (termasuk file gambar/unggahan diambil kembali, Host asing ditolak 403 via HTTP mentah, dan cek read-only terhadap server produksi lokal 127.0.0.1:3001 tanpa mengubah data). Keluar dengan kode 1 bila ada yang gagal; port uji dibersihkan setelah selesai. |
 
 Catatan perilaku yang terverifikasi e2e: dengan Diskusi Bergilir aktif, pesan biasa dijawab semua kursi berurutan (MUSE via antrean pekerja lebih dulu); error provider pada Tes Model diteruskan apa adanya (mis. 401 dari gateway); field file unggahan adalah `avatar` (avatar), `image` (gambar), dan `file` (file umum).
@@ -23,6 +23,14 @@ Catatan perilaku yang terverifikasi e2e: dengan Diskusi Bergilir aktif, pesan bi
 | `go test -race -count=1 ./...` | Lulus. Race detector tidak melaporkan masalah. |
 | `go vet ./...` | Lulus. |
 | `MUSEHOOD_BROWSER=1 node --test tests/binary.test.mjs` | 2 tes lulus dengan `frontend/build/` disisihkan. Keduanya menjalankan salinan binary dari direktori kosong. |
+| `(cd frontend && npm run test:unit)` | **45 lulus**: helper format/API, parser Markdown, lazy-load syntax highlighting, composable `chat.svelte.ts`. |
+| `(cd frontend && npm run test:component)` | **21 lulus**: render SSR komponen Svelte (termasuk Markdown, blok kode, modal info kursi). |
+| `node tests/frontend-e2e.mjs` | **21 PASS**: chat, mention + modal info kursi, render Markdown + syntax highlighting, pin, ruang, pencarian, voting, persetujuan tool. |
+| `node tests/frontend-e2e-settings.mjs` | **20 PASS**: CRUD provider, fetch/test models, toggle, kursi custom, ruang, preset, statistik, backup/restore, ekspor. |
+| `node tests/frontend-e2e-actions.mjs` | **10 PASS**: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file. |
+| `node tests/frontend-a11y.mjs` | **20 PASS**: audit axe-core terang + gelap, nama aksesibel, keyboard/fokus, kontras WCAG, target sentuh. |
+| `node tests/frontend-visual.mjs` | **5 PASS**: screenshot 5 skenario vs baseline piksel. |
+| `node tests/frontend-perf.mjs` | **14 PASS**: viewport 320–1920px, emulasi sentuh iPhone, anggaran bundle <350 KB (aktual 248 KB). |
 
 ## Backend dan API
 
