@@ -519,14 +519,15 @@ func (a *App) advanceLocked(j *job) {
 				fbMember.Model = &fb
 				hasFallback = true
 			}
+			tools := a.data.Settings.toolsOn()
 			a.runLocked(j, s, member, m, false, func(ctx context.Context) (workerReply, error) {
-				text, err := a.chat(ctx, cfg, member, history)
+				reply, err := a.chatWithTools(ctx, cfg, member, history, tools)
 				if err != nil && hasFallback {
-					if fbText, fbErr := a.chat(ctx, fbCfg, fbMember, history); fbErr == nil {
-						return workerReply{Text: fbText}, nil
+					if fbReply, fbErr := a.chatWithTools(ctx, fbCfg, fbMember, history, tools); fbErr == nil {
+						return fbReply, nil
 					}
 				}
-				return workerReply{Text: text}, err
+				return reply, err
 			})
 		}
 		return
@@ -550,6 +551,7 @@ func (a *App) runLocked(j *job, s *step, member seat, m *message, worker bool, r
 			} else {
 				m.ImageURL = reply.ImageURL
 				m.Text = a.redactLocked(reply.Text)
+				m.ToolsUsed = reply.ToolsUsed
 				if !worker && s.Kind == "image" {
 					m.Text = a.redactLocked("Gambar untuk " + a.data.Owner.Name + ": " + reply.Text)
 				}

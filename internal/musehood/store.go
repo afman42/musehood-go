@@ -54,6 +54,13 @@ type settings struct {
 	// IntegratorSeat adalah kode kursi yang menutup pipeline "Tugas:"
 	// (Hasil Akhir - Integrasi) dan menjawab "Tanya Progres". Kosong = "MUSE".
 	IntegratorSeat string `json:"integratorSeat,omitempty"`
+	// ToolsEnabled mengizinkan kursi gateway memakai tool (web_search,
+	// fetch_url, file sandbox, current_time). Nil berarti aktif.
+	ToolsEnabled *bool `json:"toolsEnabled,omitempty"`
+}
+
+func (s settings) toolsOn() bool {
+	return s.ToolsEnabled == nil || *s.ToolsEnabled
 }
 
 // gatewayProvider adalah satu konfigurasi gateway kustom yang tersimpan.
@@ -102,8 +109,10 @@ type message struct {
 	// Pinned menandai pesan tersemat pemilik.
 	Pinned bool `json:"pinned,omitempty"`
 	// Votes dan BestAnswer diisi hasil voting jawaban terbaik.
-	Votes      int  `json:"votes,omitempty"`
-	BestAnswer bool `json:"bestAnswer,omitempty"`
+	Votes int `json:"votes,omitempty"`
+	// ToolsUsed mencatat tool yang dipakai kursi gateway untuk pesan ini.
+	ToolsUsed  []string `json:"toolsUsed,omitempty"`
+	BestAnswer bool     `json:"bestAnswer,omitempty"`
 }
 type reaction struct {
 	Emoji   string `json:"emoji"`
@@ -1042,6 +1051,7 @@ type settingsUpdate struct {
 		DemoFallback    *bool   `json:"demoFallback"`
 		DarkMode        *bool   `json:"darkMode"`
 		IntegratorSeat  *string `json:"integratorSeat"`
+		ToolsEnabled    *bool   `json:"toolsEnabled"`
 		ClearAPIKey     bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
@@ -1156,6 +1166,10 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		}
 		if patch.DarkMode != nil {
 			next.Settings.DarkMode = *patch.DarkMode
+		}
+		if patch.ToolsEnabled != nil {
+			enabled := *patch.ToolsEnabled
+			next.Settings.ToolsEnabled = &enabled
 		}
 		if patch.IntegratorSeat != nil {
 			code := strings.TrimSpace(*patch.IntegratorSeat)

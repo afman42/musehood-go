@@ -101,7 +101,11 @@ type gatewayMessage struct {
 }
 
 func gatewayMessages(s seat, d data, j *job) []gatewayMessage {
-	history := []gatewayMessage{{"system", systemPrompt(s, d)}}
+	system := systemPrompt(s, d)
+	if d.Settings.toolsOn() {
+		system += toolInstructions
+	}
+	history := []gatewayMessage{{"system", system}}
 	for _, m := range contextFor(d, j).Messages {
 		role := "assistant"
 		if m.Role == "Pemilik" {

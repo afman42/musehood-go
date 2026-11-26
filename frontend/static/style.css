@@ -206,3 +206,8 @@ html.dark .messages::-webkit-scrollbar-thumb{background:#3a4a3f}
   .message{max-width:68%}
   .settings-dialog{width:min(100%,560px)}
 }
+
+/* Chip tool yang dipakai kursi gateway */
+.tools-used{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.tool-chip{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9.5px;background:#e9eee3;color:#4c6450;border:1px solid #d8e5ce;border-radius:20px;padding:3px 8px}
+html.dark .tool-chip{background:#243528;color:#9db8a2;border-color:#33473a}

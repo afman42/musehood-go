@@ -33,6 +33,7 @@
   let seats = $state<SeatEdit[]>([]);
   let roomEdits = $state<RoomEdit[]>([]);
   let integratorSeat = $state('MUSE');
+  let toolsEnabled = $state(true);
   let saveStatus = $state('');
   let saving = $state(false);
 
@@ -63,6 +64,7 @@
       ({ name: groupName } = current.group);
       ({ name: ownerName } = current.owner);
       ({ roundRobin, demoFallback, reviewLevel } = current.settings);
+      toolsEnabled = current.settings.toolsEnabled ?? true;
       syncSeats();
       providersPanel?.resetForm();
       saveStatus = '';
@@ -76,7 +78,7 @@
     try {
       await mutate('/api/settings', {
         owner: { name: ownerName }, group: { name: groupName }, seats,
-        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat },
+        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled },
       });
       providersPanel?.clearConnectionError();
       saveStatus = 'Tersimpan';
@@ -138,7 +140,7 @@
     </section>
     <SettingsProviders bind:this={providersPanel} {current} {refresh} {mutate} {notify} onSave={save} {saving} />
     <SettingsSeats bind:seats {current} {refresh} {notify} onSync={syncSeats} onSave={save} {saving} onChooseAvatar={chooseAvatar} />
-    <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback {seats} />
+    <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled {seats} />
     <SettingsRooms bind:roomEdits {current} {refresh} {notify} onSync={syncSeats} />
     <SettingsPresets {current} {refresh} {notify} onSave={save} onSync={syncSeats} />
     <SettingsStats {current} />
