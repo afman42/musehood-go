@@ -439,10 +439,10 @@ func TestSummarizeRoomAndCompaction(t *testing.T) {
 		d.Messages = append(d.Messages, &message{ID: uuid(), RoomID: roomID, AuthorType: "owner", Text: "pesan lama", Status: "completed"})
 	}
 	ctx := contextFor(d, &job{RoomID: roomID, Prompt: "lanjut"})
-	if len(ctx.History) == 0 || ctx.History[0].Text != "ringkasan lama" {
-		t.Fatalf("konteks kompak harus diawali ringkasan: %+v", ctx.History[:1])
+	if len(ctx.Messages) == 0 || ctx.Messages[0].Text != "ringkasan lama" {
+		t.Fatalf("konteks kompak harus diawali ringkasan: %+v", ctx.Messages[:1])
 	}
-	if len(ctx.History) > 41 {
-		t.Fatalf("konteks kompak maksimal 41 entri, dapat %d", len(ctx.History))
+	if len(ctx.Messages) > 41 {
+		t.Fatalf("konteks kompak maksimal 41 entri, dapat %d", len(ctx.Messages))
 	}
 }
