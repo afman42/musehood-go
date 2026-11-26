@@ -169,6 +169,9 @@ func (a *App) gateway(ctx context.Context, cfg settings, route string, body any)
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	req.Header.Set("Accept", "application/json, text/event-stream, text/plain")
+	// WAF sebagian provider (mis. EdgeOne di api.hcnsec.cn) memblokir
+	// User-Agent bawaan Go ("Go-http-client/1.1") dengan HTTP 567.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
