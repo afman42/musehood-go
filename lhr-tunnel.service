@@ -1,0 +1,15 @@
+[Unit]
+Description=localhost.run tunnel for Musehood Go (port 3001)
+After=network-online.target musehood-go.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/hatch/workspace/musehood-go
+ExecStart=/home/hatch/workspace/musehood-go/run-lhr-tunnel.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
