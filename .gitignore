@@ -19,3 +19,8 @@
 /tunnel*.log
 /tunnel.pid
 /run-tunnel.sh
+current-public-url.txt
+lhr-tunnel.log
+dist-build-*.log
+release-*.log
+/data.json.bak-*

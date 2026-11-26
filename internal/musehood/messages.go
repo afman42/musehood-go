@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"regexp"
 	"slices"
@@ -12,7 +13,7 @@ import (
 	"time"
 )
 
-var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react)$`)
+var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin)$`)
 
 var reactionEmojis = []string{"👍", "❤️", "😂", "😮", "😢", "🔥"}
 
@@ -59,8 +60,31 @@ func (a *App) messageAction(w http.ResponseWriter, r *http.Request, id, action s
 			}
 			return msg, nil
 		})
+	case "pin":
+		return a.respondLocked(200, func() (any, error) {
+			msg, err := a.pinMessageLocked(id)
+			if err != nil {
+				return nil, err
+			}
+			return msg, nil
+		})
 	}
 	return 0, nil, problem(404, "Rute tidak ditemukan.")
+}
+
+// pinMessageLocked menyematkan atau melepas sematan satu pesan.
+func (a *App) pinMessageLocked(id string) (*message, error) {
+	msg := a.findMessageLocked(id)
+	if msg == nil {
+		return nil, problem(404, "Pesan tidak ditemukan atau sudah dihapus.")
+	}
+	previous := msg.Pinned
+	msg.Pinned = !msg.Pinned
+	if err := a.saveLocked(); err != nil {
+		msg.Pinned = previous
+		return nil, err
+	}
+	return msg, nil
 }
 
 func (a *App) findMessageLocked(id string) *message {
@@ -219,14 +243,31 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "json"
 	}
-	if format != "json" && format != "md" {
-		a.writeJSON(w, 0, nil, problem(400, "Format ekspor harus json atau md."))
+	if format != "json" && format != "md" && format != "html" {
+		a.writeJSON(w, 0, nil, problem(400, "Format ekspor harus json, md, atau html."))
 		return
 	}
 	a.mu.Lock()
+	rm := a.data.activeRoom()
+	if roomID := r.URL.Query().Get("room"); roomID != "" {
+		rm = a.data.findRoom(roomID)
+	}
+	if rm == nil {
+		a.mu.Unlock()
+		a.writeJSON(w, 0, nil, problem(400, "Ruang tidak ditemukan."))
+		return
+	}
+	roomName := rm.Name
+	roomMessages := []*message{}
+	for _, m := range a.data.Messages {
+		if m.RoomID == rm.ID {
+			roomMessages = append(roomMessages, m)
+		}
+	}
 	rawState, err := json.Marshal(a.safeLocked(a.stateLocked()))
+	rawMessages, merr := json.Marshal(a.safeLocked(roomMessages))
 	a.mu.Unlock()
-	if err != nil {
+	if err != nil || merr != nil {
 		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
 		return
 	}
@@ -235,6 +276,12 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
 		return
 	}
+	var roomMessagesAny []any
+	if err := json.Unmarshal(rawMessages, &roomMessagesAny); err != nil {
+		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
+		return
+	}
+	stateMap["messages"] = roomMessagesAny
 	// Kunci API tidak ikut ter-export sama sekali (bukan hanya ter-mask).
 	if settings, ok := stateMap["settings"].(map[string]any); ok {
 		delete(settings, "apiKey")
@@ -243,6 +290,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 	if format == "json" {
 		payload := map[string]any{
 			"exportedAt": time.Now().Format(time.RFC3339),
+			"room":       roomName,
 			"group":      stateMap["group"],
 			"owner":      stateMap["owner"],
 			"seats":      stateMap["seats"],
@@ -260,15 +308,10 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Disposition", `attachment; filename="riwayat-musehood.md"`)
-	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-	var buf bytes.Buffer
 	group, _ := stateMap["group"].(map[string]any)
 	owner, _ := stateMap["owner"].(map[string]any)
 	groupName, _ := group["name"].(string)
 	ownerName, _ := owner["name"].(string)
-	fmt.Fprintf(&buf, "# Riwayat %s\n\n", groupName)
-	fmt.Fprintf(&buf, "Pemilik: %s\n\nDiekspor: %s\n\n---\n\n", ownerName, time.Now().Format("2006-01-02 15:04"))
 	names := map[string]string{ownerName: ownerName}
 	seats, _ := stateMap["seats"].([]any)
 	for _, s := range seats {
@@ -289,6 +332,51 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		return seat
 	}
 	messages, _ := stateMap["messages"].([]any)
+
+	if format == "html" {
+		w.Header().Set("Content-Disposition", `attachment; filename="riwayat-musehood.html"`)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		var buf bytes.Buffer
+		fmt.Fprintf(&buf, "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"utf-8\"><title>Riwayat %s — %s</title><style>body{font-family:system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;line-height:1.5}h2{border-bottom:1px solid #ccc;padding-bottom:.3rem}.msg{margin:1rem 0}.meta{color:#666;font-size:.85em}.err{color:#b00;white-space:pre-wrap}pre{white-space:pre-wrap;font:inherit}@media print{body{margin:0}}</style></head><body>", html.EscapeString(groupName), html.EscapeString(roomName))
+		fmt.Fprintf(&buf, "<h1>Riwayat %s — Ruang %s</h1><p>Pemilik: %s · Diekspor: %s</p>", html.EscapeString(groupName), html.EscapeString(roomName), html.EscapeString(ownerName), time.Now().Format("2006-01-02 15:04"))
+		currentDay := ""
+		for _, raw := range messages {
+			m, _ := raw.(map[string]any)
+			created, _ := m["createdAt"].(string)
+			stamp, err := time.Parse(time.RFC3339Nano, created)
+			if err != nil {
+				stamp = time.Time{}
+			}
+			if day := stamp.Format("2006-01-02"); day != currentDay {
+				currentDay = day
+				fmt.Fprintf(&buf, "<h2>%s</h2>", day)
+			}
+			fmt.Fprintf(&buf, "<div class=\"msg\"><div class=\"meta\"><strong>%s</strong> — %s", html.EscapeString(authorName(m)), stamp.Format("15:04"))
+			if label, ok := m["label"].(string); ok && label != "" {
+				fmt.Fprintf(&buf, " [%s]", html.EscapeString(label))
+			}
+			buf.WriteString("</div>")
+			if image, ok := m["imageUrl"].(string); ok && image != "" {
+				fmt.Fprintf(&buf, "<p>[gambar: %s]</p>", html.EscapeString(image))
+			}
+			if text, ok := m["text"].(string); ok && text != "" {
+				fmt.Fprintf(&buf, "<pre>%s</pre>", html.EscapeString(text))
+			}
+			if errorText, ok := m["error"].(string); ok && errorText != "" {
+				fmt.Fprintf(&buf, "<p class=\"err\">Error: %s</p>", html.EscapeString(errorText))
+			}
+			buf.WriteString("</div>")
+		}
+		buf.WriteString("</body></html>")
+		w.Write(buf.Bytes())
+		return
+	}
+
+	w.Header().Set("Content-Disposition", `attachment; filename="riwayat-musehood.md"`)
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "# Riwayat %s — Ruang %s\n\n", groupName, roomName)
+	fmt.Fprintf(&buf, "Pemilik: %s\n\nDiekspor: %s\n\n---\n\n", ownerName, time.Now().Format("2006-01-02 15:04"))
 	currentDay := ""
 	for _, raw := range messages {
 		m, _ := raw.(map[string]any)

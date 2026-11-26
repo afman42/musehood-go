@@ -112,7 +112,7 @@ func TestRoutingLoadedSeatCodeDoesNotPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &App{data: d}
-	_, steps := a.routeLocked("@Custom hello")
+	_, steps := a.routeLocked("@Custom hello", nil)
 	if len(steps) != 1 || steps[0].Seat != "C(" {
 		t.Fatalf("unexpected routing: %+v", steps)
 	}

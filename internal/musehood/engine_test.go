@@ -11,14 +11,14 @@ func TestRouteMentionPatternCacheRefreshesAfterSeatRename(t *testing.T) {
 		Settings: settings{RoundRobin: false},
 	}}
 
-	if _, steps := a.routeLocked("@Opus hello"); len(steps) != 1 || steps[0].Seat != "M10" {
+	if _, steps := a.routeLocked("@Opus hello", nil); len(steps) != 1 || steps[0].Seat != "M10" {
 		t.Fatalf("initial mention routed incorrectly: %+v", steps)
 	}
 	a.data.Seats[1].Name = "Maestro"
-	if _, steps := a.routeLocked("@Maestro hello"); len(steps) != 1 || steps[0].Seat != "M10" {
+	if _, steps := a.routeLocked("@Maestro hello", nil); len(steps) != 1 || steps[0].Seat != "M10" {
 		t.Fatalf("renamed mention routed incorrectly: %+v", steps)
 	}
-	if _, steps := a.routeLocked("@Opus hello"); len(steps) != 1 || steps[0].Seat != "MUSE" {
+	if _, steps := a.routeLocked("@Opus hello", nil); len(steps) != 1 || steps[0].Seat != "MUSE" {
 		t.Fatalf("stale mention pattern was retained: %+v", steps)
 	}
 }

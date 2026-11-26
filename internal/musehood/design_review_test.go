@@ -34,7 +34,7 @@ func TestExportRedactsStoredSecrets(t *testing.T) {
 	a.data.Settings.APIKey = secret
 	a.data.Group.Name = "group " + oldSecret
 	a.data.Messages = []*message{{
-		ID: uuid(), CreatedAt: now(), AuthorType: "owner", Status: "completed",
+		ID: uuid(), CreatedAt: now(), AuthorType: "owner", Status: "completed", RoomID: defaultRoomID,
 		Text:       "stored " + secret + " and " + oldSecret,
 		Attachment: &attachment{URL: "/uploads/example.txt", Name: "example.txt", Size: 1, Mime: secret},
 	}}
@@ -85,7 +85,7 @@ func TestExportConcurrentMessageUpdates(t *testing.T) {
 	a.mu.Lock()
 	for range 64 {
 		a.data.Messages = append(a.data.Messages, &message{
-			ID: uuid(), CreatedAt: now(), AuthorType: "owner", Status: "completed", Text: "initial",
+			ID: uuid(), CreatedAt: now(), AuthorType: "owner", Status: "completed", Text: "initial", RoomID: defaultRoomID,
 		})
 	}
 	a.data.Task = &activeTask{JobID: uuid(), Title: "concurrent export", Status: "processing"}

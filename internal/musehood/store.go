@@ -34,6 +34,12 @@ type seat struct {
 	Prompt        string  `json:"prompt,omitempty"`
 	DefaultPrompt string  `json:"defaultPrompt,omitempty"`
 	Present       bool    `json:"present"`
+	// FallbackModel adalah model cadangan (boleh berformat alias/model) yang
+	// dicoba sekali bila panggilan chat model utama gagal. Kosong = tanpa fallback.
+	FallbackModel string `json:"fallbackModel,omitempty"`
+	// Memory adalah catatan persisten kursi yang disisipkan ke system prompt
+	// setiap kali kursi menjawab, dan tetap ada setelah chat dibersihkan.
+	Memory string `json:"memory,omitempty"`
 }
 type settings struct {
 	BaseURL          string `json:"baseUrl"`
@@ -90,6 +96,14 @@ type message struct {
 	ReplyTo    string      `json:"replyTo,omitempty"`
 	Reactions  []reaction  `json:"reactions,omitempty"`
 	EditedAt   string      `json:"editedAt,omitempty"`
+	// RoomID adalah ruang tempat pesan ini berada. Kosong pada data lama
+	// berarti ruang bawaan (dimigrasi saat data dimuat).
+	RoomID string `json:"roomId,omitempty"`
+	// Pinned menandai pesan tersemat pemilik.
+	Pinned bool `json:"pinned,omitempty"`
+	// Votes dan BestAnswer diisi hasil voting jawaban terbaik.
+	Votes      int  `json:"votes,omitempty"`
+	BestAnswer bool `json:"bestAnswer,omitempty"`
 }
 type reaction struct {
 	Emoji   string `json:"emoji"`
@@ -119,6 +133,10 @@ type job struct {
 	Status      string `json:"status"`
 	Index       int    `json:"index"`
 	Steps       []step `json:"steps"`
+	// RoomID adalah ruang tempat pekerjaan ini berjalan.
+	RoomID string `json:"roomId,omitempty"`
+	// Candidates adalah ID pesan jawaban yang dinilai pada pekerjaan voting.
+	Candidates []string `json:"candidates,omitempty"`
 }
 type activeTask struct {
 	JobID         string  `json:"jobId"`
@@ -128,6 +146,48 @@ type activeTask struct {
 	Status        string  `json:"status"`
 	CreatedAt     string  `json:"createdAt"`
 	CompletedAt   string  `json:"completedAt,omitempty"`
+	RoomID        string  `json:"roomId,omitempty"`
+}
+
+// room adalah satu ruang grup terpisah dengan riwayat pesan dan susunan
+// kursi sendiri. SeatCodes kosong berarti semua kursi ikut di ruang ini.
+type room struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	CreatedAt string   `json:"createdAt"`
+	SeatCodes []string `json:"seatCodes,omitempty"`
+}
+
+// presetSeat adalah salinan konfigurasi satu kursi di dalam preset.
+type presetSeat struct {
+	Code          string  `json:"code"`
+	Name          string  `json:"name"`
+	Role          string  `json:"role"`
+	Provider      string  `json:"provider"`
+	Model         *string `json:"model,omitempty"`
+	Prompt        string  `json:"prompt,omitempty"`
+	FallbackModel string  `json:"fallbackModel,omitempty"`
+	Memory        string  `json:"memory,omitempty"`
+}
+
+// seatPreset adalah templat susunan kursi yang bisa disimpan dan dimuat ulang.
+type seatPreset struct {
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	CreatedAt string       `json:"createdAt"`
+	Seats     []presetSeat `json:"seats"`
+}
+
+// usageStat adalah agregat pemakaian gateway untuk satu kunci statistik
+// ("seat:<kode>" atau "model:<provider>/<model>").
+type usageStat struct {
+	Requests         int    `json:"requests"`
+	Success          int    `json:"success"`
+	Failed           int    `json:"failed"`
+	TotalLatencyMs   int64  `json:"totalLatencyMs"`
+	PromptTokens     int64  `json:"promptTokens"`
+	CompletionTokens int64  `json:"completionTokens"`
+	LastAt           string `json:"lastAt,omitempty"`
 }
 type connection struct {
 	Models   []string `json:"models"`
@@ -144,7 +204,15 @@ type data struct {
 	Jobs       []*job            `json:"jobs"`
 	Task       *activeTask       `json:"activeTask"`
 	Connection *connection       `json:"connection"`
+	// Rooms adalah daftar ruang grup; ActiveRoomID adalah ruang yang sedang
+	// ditampilkan. Data lama tanpa ruang dimigrasi ke satu ruang bawaan.
+	Rooms        []room                `json:"rooms"`
+	ActiveRoomID string                `json:"activeRoomId"`
+	Presets      []seatPreset          `json:"presets,omitempty"`
+	Stats        map[string]*usageStat `json:"stats,omitempty"`
 }
+
+const defaultRoomID = "room-utama"
 
 var defaultSeats = []struct{ code, name, role string }{
 	{"MUSE", "Muse", "Admin dan Integrasi"}, {"M10", "Opus", "Perencana"}, {"M01", "Plamo", "Pelaksana"},
@@ -168,7 +236,7 @@ func loadData(dir string) (data, error) {
 	var d data
 	raw, err := os.ReadFile(filepath.Join(dir, "data.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		d = data{Version: 1, Group: identity{"Musehood", "/avatars/group.svg"}, Owner: owner{identity{"Arman", "/avatars/owner.svg"}, true}, Settings: settings{RoundRobin: true, ReviewLevel: "Sedang"}, Messages: []*message{}, Jobs: []*job{}}
+		d = data{Version: 1, Group: identity{"Musehood", "/avatars/group.svg"}, Owner: owner{identity{"Arman", "/avatars/owner.svg"}, true}, Settings: settings{RoundRobin: true, ReviewLevel: "Sedang"}, Messages: []*message{}, Jobs: []*job{}, Rooms: []room{{ID: defaultRoomID, Name: "Utama", CreatedAt: now()}}, ActiveRoomID: defaultRoomID}
 		for _, def := range defaultSeats {
 			s := seat{identity: identity{def.name, "/avatars/" + strings.ToLower(def.code) + ".svg"}, Code: def.code, Role: def.role, Provider: "gateway", Model: ptr(""), Present: true}
 			if s.Code == "MUSE" {
@@ -266,8 +334,111 @@ func loadData(dir string) (data, error) {
 			return d, errors.New("provider data.json tidak valid")
 		}
 	}
+	d.migrateRooms()
 	d.migrateProviders()
 	return d, nil
+}
+
+// migrateRooms memastikan selalu ada minimal satu ruang dan semua pesan,
+// pekerjaan, serta tugas aktif punya RoomID yang valid. Data lama (sebelum
+// fitur multi-ruang) dipindah ke ruang bawaan "Utama". Dijalankan setiap
+// kali data dimuat; hasilnya menetap saat data berikutnya disimpan.
+func (d *data) migrateRooms() {
+	seen := map[string]bool{}
+	rooms := make([]room, 0, len(d.Rooms))
+	for _, r := range d.Rooms {
+		r.Name = strings.TrimSpace(r.Name)
+		if r.ID == "" || seen[r.ID] || r.Name == "" {
+			continue
+		}
+		seen[r.ID] = true
+		codes := make([]string, 0, len(r.SeatCodes))
+		for _, code := range r.SeatCodes {
+			if d.findSeat(code) != nil && !slices.Contains(codes, code) {
+				codes = append(codes, code)
+			}
+		}
+		r.SeatCodes = codes
+		rooms = append(rooms, r)
+	}
+	if len(rooms) == 0 {
+		rooms = []room{{ID: defaultRoomID, Name: "Utama", CreatedAt: now()}}
+	}
+	d.Rooms = rooms
+	if d.findRoom(d.ActiveRoomID) == nil {
+		d.ActiveRoomID = d.Rooms[0].ID
+	}
+	for _, m := range d.Messages {
+		if d.findRoom(m.RoomID) == nil {
+			m.RoomID = d.Rooms[0].ID
+		}
+	}
+	for _, j := range d.Jobs {
+		if d.findRoom(j.RoomID) == nil {
+			j.RoomID = d.Rooms[0].ID
+		}
+	}
+	if d.Task != nil && d.findRoom(d.Task.RoomID) == nil {
+		d.Task.RoomID = d.Rooms[0].ID
+	}
+	if d.Presets == nil {
+		d.Presets = []seatPreset{}
+	}
+	if d.Stats == nil {
+		d.Stats = map[string]*usageStat{}
+	}
+}
+
+func (d *data) findRoom(id string) *room {
+	for i := range d.Rooms {
+		if d.Rooms[i].ID == id {
+			return &d.Rooms[i]
+		}
+	}
+	return nil
+}
+
+// activeRoom mengembalikan ruang aktif; bila ID aktif tidak valid, ruang
+// pertama dipakai (migrateRooms menjaga invariant ini, ini pengaman saja).
+func (d *data) activeRoom() *room {
+	if r := d.findRoom(d.ActiveRoomID); r != nil {
+		return r
+	}
+	if len(d.Rooms) > 0 {
+		return &d.Rooms[0]
+	}
+	return nil
+}
+
+// roomSeatCodes mengembalikan kode kursi peserta ruang dalam urutan kursi
+// global. SeatCodes kosong berarti semua kursi ikut.
+func (d *data) roomSeatCodes(r *room) []string {
+	codes := []string{}
+	for _, s := range d.Seats {
+		if r == nil || len(r.SeatCodes) == 0 || slices.Contains(r.SeatCodes, s.Code) {
+			codes = append(codes, s.Code)
+		}
+	}
+	return codes
+}
+
+func (d *data) roomHasSeat(r *room, code string) bool {
+	if r == nil || len(r.SeatCodes) == 0 {
+		return d.findSeat(code) != nil
+	}
+	return slices.Contains(r.SeatCodes, code)
+}
+
+func newRoomID() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return "room-" + hex.EncodeToString(b[:])
+}
+
+func newPresetID() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return "preset-" + hex.EncodeToString(b[:])
 }
 
 // migrateProviders menaikkan konfigurasi gateway tunggal lama menjadi daftar
@@ -793,6 +964,20 @@ func (a *App) stateLocked() any {
 	for i := range d.Providers {
 		d.Providers[i].APIKey = ""
 	}
+	// Tampilan klien hanya memuat pesan ruang aktif; pesan ruang lain tetap
+	// tersimpan dan bisa dibuka lewat pengalih ruang.
+	if active := d.activeRoom(); active != nil {
+		filtered := make([]*message, 0, len(d.Messages))
+		for _, m := range d.Messages {
+			if m.RoomID == active.ID {
+				filtered = append(filtered, m)
+			}
+		}
+		d.Messages = filtered
+		if d.Task != nil && d.Task.RoomID != active.ID {
+			d.Task = nil
+		}
+	}
 	key := []rune(d.Settings.APIKey)
 	masked := ""
 	if len(key) > 0 {
@@ -839,11 +1024,13 @@ type settingsUpdate struct {
 	Group *nameUpdate `json:"group"`
 	Seats *[]struct {
 		nameUpdate
-		Code     string  `json:"code"`
-		Role     *string `json:"role"`
-		Provider *string `json:"provider"`
-		Model    *string `json:"model"`
-		Prompt   *string `json:"prompt"`
+		Code          string  `json:"code"`
+		Role          *string `json:"role"`
+		Provider      *string `json:"provider"`
+		Model         *string `json:"model"`
+		Prompt        *string `json:"prompt"`
+		FallbackModel *string `json:"fallbackModel"`
+		Memory        *string `json:"memory"`
 	} `json:"seats"`
 	Settings *struct {
 		BaseURL         *string `json:"baseUrl"`
@@ -922,6 +1109,19 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 					return problem(400, "Prompt kustom maksimal 4000 karakter, tanpa karakter kontrol.")
 				}
 				s.Prompt = prompt
+			}
+			if patch.FallbackModel != nil {
+				if jsLength(*patch.FallbackModel) > 200 || badSetting.MatchString(*patch.FallbackModel) {
+					return problem(400, "Nama model fallback tidak valid.")
+				}
+				s.FallbackModel = strings.TrimSpace(*patch.FallbackModel)
+			}
+			if patch.Memory != nil {
+				memory := strings.TrimSpace(*patch.Memory)
+				if jsLength(memory) > 4000 || strings.Contains(memory, "\x00") || strings.Contains(memory, "\r") {
+					return problem(400, "Memori kursi maksimal 4000 karakter, tanpa karakter kontrol.")
+				}
+				s.Memory = memory
 			}
 		}
 		seen := map[string]bool{}

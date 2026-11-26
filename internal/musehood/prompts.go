@@ -48,6 +48,9 @@ func systemPrompt(s seat, d data) string {
 	if s.Code == "M02" {
 		prompt += " Level Review " + d.Settings.ReviewLevel + ": " + review[d.Settings.ReviewLevel]
 	}
+	if memory := strings.TrimSpace(s.Memory); memory != "" {
+		prompt += " Memori kursi (catatan persisten yang harus kamu ingat dan pakai): " + memory
+	}
 	return prompt
 }
 
@@ -70,6 +73,9 @@ func contextFor(d data, j *job) chatContext {
 	history := []contextMessage{}
 	for i := len(d.Messages) - 1; i >= 0 && len(history) < 80; i-- {
 		m := d.Messages[i]
+		if j.RoomID != "" && m.RoomID != j.RoomID {
+			continue
+		}
 		if m.Status == "typing" || m.Status == "waiting" {
 			continue
 		}
