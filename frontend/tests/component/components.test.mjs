@@ -81,6 +81,15 @@ test('MessageBubble: teks Markdown dirender (bold, daftar, kutipan, kode)', asyn
   assert.match(html, /&lt;b>mentah&lt;\/b>/);
 });
 
+test('MessageBubble: blok kode ter-render sebagai pre (polos di SSR)', async () => {
+  const raw = await renderComponent('MessageBubble', {
+    ...bubbleProps,
+    message: { ...baseMessage, text: 'Contoh:\n\n```js\nconst x = 1;\n```' },
+  });
+  const html = raw.replace(/<!--[^>]*-->/g, '');
+  assert.match(html, /<pre class="md-code"><code>const x = 1;<\/code><\/pre>/);
+});
+
 test('SeatInfoDialog: dialog info kursi ter-render', async () => {
   const html = await renderComponent('SeatInfoDialog', { onMention: noop });
   assert.match(html, /<dialog/);

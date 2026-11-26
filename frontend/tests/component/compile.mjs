@@ -23,7 +23,7 @@ export async function loadComponent(name) {
   for (const child of nested) await loadComponent(child);
   code = code.replace(/from\s+['"]\.\/([A-Za-z]+)\.svelte['"]/g, "from './$1.mjs'");
   // Import helper .ts: './format' -> path relatif ke file asli dari .tmp.
-  code = code.replace(/from\s+['"]\.\/(format|api|types|markdown)['"]/g, "from '../../../src/lib/$1.ts'");
+  code = code.replace(/from\s+['"]\.\/(format|api|types|markdown|highlight)['"]/g, "from '../../../src/lib/$1.ts'");
   const out = join(tmpDir, `${name}.mjs`);
   await writeFile(out, code);
   const mod = await import(pathToFileURL(out).href);
