@@ -1,6 +1,6 @@
 # Musehood Go
 
-Grup chat lokal berbahasa Indonesia untuk Arman dan tujuh kursi AI. Backend Go memakai standard library. Frontend SvelteKit 3, Svelte 5, dan TypeScript dibangun sebagai SPA dan disertakan di binary Go. Rilis terakhir: **v1.4.0** (40 binary lintas platform di GitHub Releases).
+Grup chat lokal berbahasa Indonesia untuk Arman dan tujuh kursi AI. Backend Go memakai standard library. Frontend SvelteKit 3, Svelte 5, dan TypeScript dibangun sebagai SPA dan disertakan di binary Go. Rilis terakhir: **v1.5.1** (40 binary lintas platform di GitHub Releases).
 
 ## Mulai
 
@@ -77,7 +77,7 @@ Yang wajib berhasil: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64
 | M04 | Deepseek | Penasihat |
 | M05 | Fable | Analis Data |
 
-Semua kursi — termasuk MUSE — dapat diubah dari Pengaturan: nama, peran, provider ("muse" untuk antrean pekerja atau "gateway"), model, model fallback, memori per kursi, dan avatar. Pengaturan `integratorSeat` memilih kursi yang menutup pipeline "Tugas:" dan menjawab Tanya Progres (bawaan MUSE).
+Semua kursi — termasuk MUSE — dapat diubah dari Pengaturan: nama, peran, provider ("muse" untuk antrean pekerja atau "gateway"), model, model fallback, memori per kursi, skill aktif, dan avatar. Pengaturan `integratorSeat` memilih kursi yang menutup pipeline "Tugas:" dan menjawab Tanya Progres (bawaan MUSE).
 
 Selain tujuh kursi bawaan, pemilik dapat menambah kursi AI sendiri dari Pengaturan (bagian "Tambah kursi"): isi nama, peran, dan nama model gateway. Kursi custom mendapat kode otomatis `C01`, `C02`, … dan langsung muncul di daftar kursi, bisa di-mention (`@Nama`), ikut Diskusi Bergilir, serta bisa diganti avatar dan modelnya seperti kursi lain. Kursi custom dapat dihapus dari Pengaturan (kursi bawaan tidak dapat dihapus, dan kursi yang sedang dipakai tugas berjalan tidak dapat dihapus sampai tugas selesai).
 
@@ -104,6 +104,7 @@ API: `GET/POST /api/providers`, `POST/DELETE /api/providers/{id}`, `POST /api/pr
 - Sebut kursi dengan `@Opus` atau kode seperti `@M10`. Beberapa mention akan ditangani sesuai urutan kursi. Gunakan **@ Kursi** atau tekan avatar untuk menyisipkan mention.
 - `Tugas: …` menjalankan M10 → M01 → M04 → M03 (gambar) → M02 → integrator dengan label **Hasil Akhir - Integrasi**. **Tanya Progres** mengirim judul, tahap terakhir, dan status tugas ke integrator.
 - `Gambar: …` memakai gateway gambar. Jika gagal, Argon menampilkan error asli dan menunggu gambar dari pekerja Muse.
+- **Status kirim & progres unggah**: selama pesan dikirim, tombol kirim menampilkan "Mengirim… N dtk" dengan penghitung detik berjalan. Unggahan gambar/file menampilkan bar progres + persen, dan lampiran yang selesai diunggah ditandai "✓ siap dikirim" sebelum pesan dikirim.
 - **Voting jawaban terbaik**: tombol Vote meminta kursi gateway yang menjawab diskusi terakhir memilih jawaban terbaik; pemenang ditandai dan integrator menerbitkan ringkasan hasil voting.
 - **Bersihkan chat** menghapus riwayat, status tugas, dan antrean aktif setelah konfirmasi. Pengaturan tetap tersimpan.
 
@@ -235,7 +236,7 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | POST | `/api/vote` | Voting jawaban terbaik diskusi terakhir |
 | GET | `/api/stats` | Statistik pemakaian per kursi/model |
 | GET | `/api/search?q=…` | Pencarian lintas ruang |
-| GET | `/api/skills` | Daftar skill yang tersedia (nama + deskripsi) |
+| GET | `/api/skills` | Daftar skill yang tersedia (nama, deskripsi, sumber: lokal/skills.sh/claude) |
 | GET | `/api/tools` | Daftar tool kustom dari folder `tools/` |
 | GET | `/api/backup` | Unduh cadangan (API key dikosongkan) |
 | POST | `/api/restore` | Pulihkan cadangan (maks 32 MB, key lama dipertahankan) |
@@ -249,11 +250,11 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | POST | `/api/queue/muse/:id` | `{text,imageUrl?}` atau `{error}` |
 | POST | `/api/upload-avatar` | Multipart dengan `target` dan `avatar`, raster maksimal 2 MB |
 
-Browser mengambil hasil job dari `/api/state`. Semua error API memakai `{error}`. Pengaturan mendukung `owner.name`, `group.name`, `seats[].{code,name,role,provider,model,fallbackModel,memory}`, dan `settings.{baseUrl,apiKey,clearApiKey,roundRobin,reviewLevel,demoFallback,integratorSeat,toolsEnabled,codeToolEnabled}`. Avatar dapat diunggah untuk `group`, `owner`, atau kode kursi.
+Browser mengambil hasil job dari `/api/state`. Semua error API memakai `{error}`. Pengaturan mendukung `owner.name`, `group.name`, `seats[].{code,name,role,provider,model,fallbackModel,memory,skills}`, dan `settings.{baseUrl,apiKey,clearApiKey,roundRobin,reviewLevel,demoFallback,integratorSeat,toolsEnabled,codeToolEnabled,skillsEnabled}`. Avatar dapat diunggah untuk `group`, `owner`, atau kode kursi.
 
 ## Penyimpanan
 
-`DATA_DIR` memakai direktori kerja sebagai default. Isinya `data.json` dengan skema Musehood versi 1, folder `queue/`, `avatars/` untuk unggahan, `images/` untuk gambar, `uploads/` untuk lampiran file, dan `sandbox/` sebagai folder kerja tool kursi. `data.json` ditulis atomik dengan izin `0600` dan memuat key gateway konfigurasi. Untuk memindahkan data Node, salin `data.json`, `queue/`, isi unggahan dari `public/avatars/`, serta `public/images/` ke struktur runtime Go. Jalankan satu proses per `DATA_DIR`.
+`DATA_DIR` memakai direktori kerja sebagai default. Isinya `data.json` dengan skema Musehood versi 1, folder `queue/`, `avatars/` untuk unggahan, `images/` untuk gambar, `uploads/` untuk lampiran file, `sandbox/` sebagai folder kerja tool kursi, `skills/` untuk skill lokal per kursi, dan `tools/` untuk definisi tool kustom JSON. `data.json` ditulis atomik dengan izin `0600` dan memuat key gateway konfigurasi. Untuk memindahkan data Node, salin `data.json`, `queue/`, isi unggahan dari `public/avatars/`, serta `public/images/` ke struktur runtime Go. Jalankan satu proses per `DATA_DIR`.
 
 ## Performa
 
@@ -289,6 +290,6 @@ node tests/frontend-perf.mjs
 
 `tests/live-e2e.mjs` menjalankan binary asli terhadap gateway mock dan menguji 49 skenario end-to-end. Uji Chromium menggunakan instalasi Playwright lokal. Isi `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` bila menggunakan executable Chromium dari lokasi lain. Lihat hasil dan cakupan pengujian di [TESTS.md](TESTS.md).
 
-Suite backend (`internal/musehood/*_test.go`, 138 fungsi tes, cakupan ~84%) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model, persetujuan via API, tool kustom, voting, isolasi ruang), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom — resolver DNS di-stub ke IP publik dalam tes, penjaga SSRF produksi tidak dilemahkan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
+Suite backend (`internal/musehood/*_test.go`, 140 fungsi tes, cakupan 84,4%) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model, persetujuan via API, tool kustom, voting, isolasi ruang), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom — resolver DNS di-stub ke IP publik dalam tes, penjaga SSRF produksi tidak dilemahkan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
 
 Suite frontend mencakup: unit (`frontend/tests/unit/`, helper format/API + composable `chat.svelte.ts` yang dikompilasi dan dijalankan di Node dengan fetch/document stub, via `node --test`), komponen (`frontend/tests/component/`, render SSR komponen Svelte), E2E UI (`tests/frontend-e2e.mjs`: chat, mention, pengaturan, pin, ruang, pencarian, voting, persetujuan tool; `tests/frontend-e2e-settings.mjs`: CRUD provider + fetch/test models, toggle, kursi custom, kelola ruang, preset, statistik, backup/restore, ekspor; `tests/frontend-e2e-actions.mjs`: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file), aksesibilitas (`tests/frontend-a11y.mjs`: audit axe-core mode terang + gelap, nama aksesibel, alt, keyboard/fokus, kontras WCAG, target sentuh), visual regression (`tests/frontend-visual.mjs`: screenshot 5 skenario vs baseline piksel di `tests/visual-baselines/`), dan cross-browser/performance (`tests/frontend-perf.mjs`: viewport 320–1920px, emulasi sentuh iPhone, anggaran timing/bundle/polling — Chromium saja karena unduhan browser lain diblokir di VM pengembangan).
