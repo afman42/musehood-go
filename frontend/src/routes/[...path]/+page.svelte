@@ -59,6 +59,7 @@
   let uploadingImage = $state(false);
   let pendingFile = $state<Attachment | null>(null);
   let uploadingFile = $state(false);
+  let uploadProgress = $state<number | null>(null);
   let searchOpen = $state(false);
   let query = $state('');
   let matchIndex = $state(0);
@@ -180,11 +181,12 @@
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) { chat.notify('Ukuran gambar maksimal 2 MB.', true); return; }
     uploadingImage = true;
+    uploadProgress = 0;
     try {
-      pendingImage = await chat.uploadImage(file);
+      pendingImage = await chat.uploadImage(file, pct => { uploadProgress = pct; });
       composer?.focus();
     } catch (error) { chat.notify(errorText(error), true); }
-    finally { uploadingImage = false; }
+    finally { uploadingImage = false; uploadProgress = null; }
   }
 
   async function chooseFile() {
@@ -193,11 +195,12 @@
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { chat.notify('Ukuran file maksimal 10 MB.', true); return; }
     uploadingFile = true;
+    uploadProgress = 0;
     try {
-      pendingFile = await chat.uploadFile(file);
+      pendingFile = await chat.uploadFile(file, pct => { uploadProgress = pct; });
       composer?.focus();
     } catch (error) { chat.notify(errorText(error), true); }
-    finally { uploadingFile = false; }
+    finally { uploadingFile = false; uploadProgress = null; }
   }
 
   async function toggleSearch() {
@@ -332,7 +335,7 @@
   {#if current?.pendingApprovals?.length}
     <ApprovalBanner approvals={current.pendingApprovals} onDecide={(id, approved) => chat.decideApproval(id, approved).catch(e => chat.notify(errorText(e), true))} />
   {/if}
-  <Composer bind:this={composer} bind:text {submitting} {asking} {voting} {uploadingImage} {uploadingFile}
+  <Composer bind:this={composer} bind:text {submitting} {asking} {voting} {uploadingImage} {uploadingFile} {uploadProgress}
     {replyTo} replyAuthorName={replyTo ? authorName(replyTo) : ''} {pendingImage} {pendingFile}
     onSend={send} onProgress={progress} onVote={startVote}
     onOpenMention={() => { if (current) mentionDialog?.open(); }}
