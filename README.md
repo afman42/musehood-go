@@ -278,8 +278,15 @@ go test -bench . ./internal/musehood/
 node tests/live-e2e.mjs
 node --test tests/binary.test.mjs
 MUSEHOOD_BROWSER=1 node --test tests/binary.test.mjs
+(cd frontend && npm run test:unit && npm run test:component)
+node tests/frontend-e2e.mjs
+node tests/frontend-a11y.mjs
+node tests/frontend-visual.mjs        # --update untuk memperbarui baseline
+node tests/frontend-perf.mjs
 ```
 
 `tests/live-e2e.mjs` menjalankan binary asli terhadap gateway mock dan menguji 49 skenario end-to-end. Uji Chromium menggunakan instalasi Playwright lokal. Isi `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` bila menggunakan executable Chromium dari lokasi lain. Lihat hasil dan cakupan pengujian di [TESTS.md](TESTS.md).
 
 Suite backend (`internal/musehood/*_test.go`, 130 fungsi tes, cakupan ~83%) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model, persetujuan via API, tool kustom, voting, isolasi ruang), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
+
+Suite frontend mencakup: unit (`frontend/tests/unit/`, helper format/API via `node --test`), komponen (`frontend/tests/component/`, render SSR komponen Svelte), E2E UI (`tests/frontend-e2e.mjs`: chat, mention, pengaturan, pin, ruang, pencarian, voting, persetujuan tool), aksesibilitas (`tests/frontend-a11y.mjs`: audit axe-core + nama aksesibel, alt, keyboard/fokus, kontras WCAG, target sentuh), visual regression (`tests/frontend-visual.mjs`: screenshot 5 skenario vs baseline piksel di `tests/visual-baselines/`), dan cross-browser/performance (`tests/frontend-perf.mjs`: viewport 320–1920px, emulasi sentuh iPhone, anggaran timing/bundle/polling — Chromium saja karena unduhan browser lain diblokir di VM pengembangan).

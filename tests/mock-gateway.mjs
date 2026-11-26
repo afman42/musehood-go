@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 export const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQyQ75DwADPQHTHNReowAAAABJRU5ErkJggg==', 'base64');
 export const fixtureKey = 'browser-fixture-only-9876';
 export const original401 = 'auth asli';
-const models = ['sse', 'array', 'plain', 'delta', 'image', 'denied', 'key-echo'];
+const models = ['sse', 'array', 'plain', 'delta', 'image', 'denied', 'key-echo', 'toolcode'];
 const anthropicModels = ['sse-anthropic', 'json-anthropic'];
 const geminiModels = ['gemini-mock'];
 const ollamaModels = ['ndjson-ollama', 'json-ollama'];
@@ -123,6 +123,12 @@ export async function mockGateway(port = 0) {
       return json(200, { data: [{ b64_json: pixel.toString('base64') }] });
     }
     if (req.url !== '/v1/chat/completions') return json(404, { error: 'Endpoint mock tidak ditemukan' });
+    // Panggilan voting: balas kode kursi lain (saling memilih M01<->M02).
+    const allText = (body.messages || []).map(m => typeof m.content === 'string' ? m.content : '').join('\n');
+    if (allText.includes('menilai jawaban')) {
+      const pick = allText.includes('Kursimu adalah M01') ? 'M02' : 'M01';
+      return json(200, { choices: [{ message: { content: `${pick} karena paling jelas.` } }] });
+    }
     switch (body.model) {
       case 'array': return json(200, { choices: [{ message: { content: [{ text: 'Balasan ' }, { text: 'array' }] } }] });
       case 'delta': return json(200, { delta: { content: 'Balasan delta' } });
@@ -131,6 +137,13 @@ export async function mockGateway(port = 0) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.write('data: {"choices":[{"delta":{"content":"Balasan "}}]}\n\n');
         return res.end('data: {"choices":[{"delta":{"content":"SSE"}}]}\n\ndata: [DONE]\n\n');
+      case 'toolcode': {
+        // Model yang meminta run_code berbahaya (memicu persetujuan pemilik),
+        // lalu menjawab final setelah menerima hasil tool.
+        const joined = (body.messages || []).map(m => typeof m.content === 'string' ? m.content : '').join('\n');
+        if (joined.includes('Hasil tool')) return json(200, { choices: [{ message: { content: 'Kode selesai diproses.' } }] });
+        return json(200, { choices: [{ message: { content: '<<TOOL:run_code>>python\nimport os; os.system("echo halo-dari-mock")<</TOOL>>' } }] });
+      }
       default: return json(400, { error: 'Gunakan model chat mock' });
     }
   }).listen(port, '127.0.0.1');

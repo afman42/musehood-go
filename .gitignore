@@ -1,4 +1,6 @@
 /musehood-go
+/frontend/tests/component/.tmp/
+/tests/visual-diffs/
 /dist/
 /data.json
 /queue/
