@@ -307,3 +307,55 @@ html.dark .shj-syn-var{color:#e6f0e4}
 html.dark .shj-syn-oper{color:#ff8fa3}
 html.dark .shj-syn-insert{color:#8fe3a0}
 html.dark .shj-syn-deleted,html.dark .shj-syn-err{color:#ffa198}
+.tools-details{margin:6px 0}
+.tools-details summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.tools-checks{display:flex;flex-wrap:wrap;gap:4px 14px;margin:8px 0}
+.tools-checks .check-label{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.tool-cards{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.tool-card{border:1px solid var(--line);border-radius:9px;padding:6px 10px;background:#f3f6ee}
+html.dark .tool-card{background:#223128}
+.tool-card summary{cursor:pointer;font-size:12.5px;font-weight:650}
+.tool-card.tool-fail summary{color:var(--red)}
+.tool-arg{font-size:12px;margin:6px 0;overflow-wrap:anywhere}
+.tool-result{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11.5px;white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0;max-height:220px;overflow:auto}
+.schedule-dialog{width:min(440px,calc(100% - 32px))}
+.schedule-dialog label{display:block;font-size:11px;font-weight:650;margin-top:12px}
+.schedule-dialog textarea,.schedule-dialog input,.schedule-dialog select{display:block;width:100%;background:#fff;border:1px solid #dfe6da;border-radius:8px;padding:9px 11px;margin-top:6px;color:var(--ink);font-size:13px}
+html.dark .schedule-dialog textarea,html.dark .schedule-dialog input,html.dark .schedule-dialog select{background:#2a3a31;border-color:#3c4f42}
+.schedule-dialog .primary-button{margin-top:14px;width:100%}
+.schedule-list-title{font-size:13px;margin:18px 0 8px}
+.schedule-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.schedule-item{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.schedule-item>div{flex:1;min-width:0}
+.schedule-item strong{display:block;font-size:12.5px;overflow-wrap:anywhere}
+.schedule-item small{display:block;color:var(--muted);font-size:10.5px;margin-top:3px}
+.schedule-item.disabled{opacity:.55}
+.search-filters{padding:0 14px 10px}
+.search-filters summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
+.search-filter-grid{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:end;margin-top:8px}
+.search-filter-grid label{font-size:11px;font-weight:650;display:flex;flex-direction:column;gap:4px}
+.search-filter-grid select,.search-filter-grid input[type=date]{height:34px;border:1px solid #dfe6da;border-radius:7px;padding:5px 8px;font-size:12px;background:#fff;color:var(--ink)}
+html.dark .search-filter-grid select,html.dark .search-filter-grid input[type=date]{background:#2a3a31;border-color:#3c4f42}
+.search-filter-grid .check-label{flex-direction:row;align-items:center;gap:6px}
+.template-list{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:8px}
+.template-item{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.template-item>div{flex:1;min-width:0}
+.template-item strong{display:block;font-size:12.5px}
+.template-item small{display:block;color:var(--muted);font-size:10.5px;margin-top:3px;overflow-wrap:anywhere}
+.template-seat-picker{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.template-step{background:#edf3e7;border:1px solid #d8e5ce;border-radius:7px;padding:3px 8px;font-size:11px;margin:2px}
+html.dark .template-step{background:#2a3a31;border-color:#3c4f42;color:var(--ink)}
+.template-select{height:34px;border:1px solid #dfe6da;border-radius:8px;padding:5px 8px;font-size:12px;background:#fff;color:var(--ink);max-width:190px}
+html.dark .template-select{background:#2a3a31;border-color:#3c4f42}
+.room-chip-wrap{display:inline-flex;align-items:center;gap:2px}
+.room-badge{display:inline-block;min-width:18px;text-align:center;background:#9e3445;color:#fff;border-radius:999px;font-size:10px;font-weight:700;padding:1px 5px;margin-left:6px;vertical-align:middle}
+html.dark .room-badge{background:#e08a97;color:#1c1a1a}
+.room-pin{background:none;border:none;font-size:11px;opacity:.45;padding:4px;cursor:pointer;border-radius:6px}
+.room-pin:hover{opacity:1}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+.bubble p,.message-text{font-size:calc(13.5px * var(--font-scale,1))}
+.composer textarea{font-size:calc(13.5px * var(--font-scale,1))}
+.settings-section h3{font-size:calc(14px * var(--font-scale,1))}

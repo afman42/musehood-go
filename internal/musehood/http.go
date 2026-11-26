@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -123,7 +124,7 @@ func New(opts Options) (*App, error) {
 	}
 	// Permit only SvelteKit 3.4's static accessibility-announcer style attribute.
 	const announcerStyle = "style-src-attr 'unsafe-hashes' 'sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo='"
-	a.csp = "default-src 'self'; " + scripts + "; style-src 'self'; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+	a.csp = "default-src 'self'; " + scripts + "; style-src 'self'; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 	a.rememberKeyLocked(d.Settings.APIKey)
 	for _, p := range d.Providers {
 		a.rememberKeyLocked(p.APIKey)
@@ -294,7 +295,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools":
 		want = http.MethodGet
-	case "/api/providers", "/api/rooms", "/api/presets":
+	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled", "/api/templates":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.Header().Set("Allow", "GET, POST")
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
@@ -319,7 +320,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					w.Header().Set("Allow", "POST, DELETE")
 					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 				}
-			} else if len(parts) == 2 && parts[1] == "activate" && r.Method == http.MethodPost {
+			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize") && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
@@ -357,6 +358,24 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			}
 		} else if strings.HasPrefix(path, "/api/approvals/") && !strings.Contains(strings.TrimPrefix(path, "/api/approvals/"), "/") {
 			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/templates/") && !strings.Contains(strings.TrimPrefix(path, "/api/templates/"), "/") {
+			if r.Method == http.MethodDelete {
+				want = http.MethodDelete
+			} else if r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				w.Header().Set("Allow", "POST, DELETE")
+				return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
+			}
+		} else if strings.HasPrefix(path, "/api/scheduled/") && !strings.Contains(strings.TrimPrefix(path, "/api/scheduled/"), "/") {
+			if r.Method == http.MethodDelete {
+				want = http.MethodDelete
+			} else if r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				w.Header().Set("Allow", "POST, DELETE")
+				return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
+			}
 		} else if _, _, ok := messageAction(path); ok {
 			want = http.MethodPost
 		} else {
@@ -391,14 +410,59 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return 0, nil, err
 		}
 		return a.respondLocked(201, func() (any, error) { return a.createPresetLocked(body.Name) })
+	case "/api/templates":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) {
+				items := a.data.Templates
+				if items == nil {
+					items = []discussionTemplate{}
+				}
+				return map[string]any{"templates": items}, nil
+			})
+		}
+		var input templateInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) { return a.createTemplateLocked(input) })
+	case "/api/scheduled":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) {
+				items := a.data.Scheduled
+				if items == nil {
+					items = []scheduledMessage{}
+				}
+				return map[string]any{"scheduled": items}, nil
+			})
+		}
+		var input scheduledInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) { return a.createScheduledLocked(input) })
 	case "/api/skills":
 		return a.respondLocked(200, func() (any, error) { return map[string]any{"skills": a.loadSkills()}, nil })
 	case "/api/tools":
-		return a.respondLocked(200, func() (any, error) { return map[string]any{"tools": a.loadCustomTools()}, nil })
+		return a.respondLocked(200, func() (any, error) {
+			builtin := make([]string, 0, len(builtinToolNames))
+			for name := range builtinToolNames {
+				builtin = append(builtin, name)
+			}
+			sort.Strings(builtin)
+			return map[string]any{"tools": a.loadCustomTools(), "builtin": builtin}, nil
+		})
 	case "/api/stats":
-		return a.respondLocked(200, func() (any, error) { return map[string]any{"stats": a.data.Stats}, nil })
+		return a.respondLocked(200, func() (any, error) { return map[string]any{"stats": a.statsWithCostLocked()}, nil })
 	case "/api/search":
-		return a.respondLocked(200, func() (any, error) { return a.searchLocked(r.URL.Query().Get("q")), nil })
+		query := r.URL.Query()
+		filters := searchFilters{
+			Seat:     query.Get("seat"),
+			Room:     query.Get("room"),
+			From:     query.Get("from"),
+			To:       query.Get("to"),
+			HasImage: query.Get("hasImage") == "1",
+		}
+		return a.respondLocked(200, func() (any, error) { return a.searchLocked(query.Get("q"), filters), nil })
 	case "/api/vote":
 		var body struct {
 			RoomID string `json:"roomId"`
@@ -442,11 +506,19 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			ImageURL   string      `json:"imageUrl"`
 			Attachment *attachment `json:"attachment"`
 			RoomID     string      `json:"roomId"`
+			TemplateID string      `json:"templateId"`
 		}
 		if err := readObject(w, r, &body); err != nil {
 			return 0, nil, err
 		}
 		return a.respondLocked(202, func() (any, error) {
+			if body.TemplateID != "" {
+				j, err := a.submitTemplateLocked(body.Text, body.RoomID, body.TemplateID)
+				if err != nil {
+					return nil, err
+				}
+				return a.jobResponseLocked(j), nil
+			}
 			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, body.Attachment, body.RoomID, false)
 			if err != nil {
 				return nil, err
@@ -506,6 +578,28 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return created, nil
 		})
 	default:
+		if strings.HasPrefix(path, "/api/templates/") {
+			id := strings.TrimPrefix(path, "/api/templates/")
+			if r.Method == http.MethodDelete {
+				return a.respondLocked(200, func() (any, error) { return map[string]bool{"ok": true}, a.deleteTemplateLocked(id) })
+			}
+			var input templateInput
+			if err := readObject(w, r, &input); err != nil {
+				return 0, nil, err
+			}
+			return a.respondLocked(200, func() (any, error) { return a.updateTemplateLocked(id, input) })
+		}
+		if strings.HasPrefix(path, "/api/scheduled/") {
+			id := strings.TrimPrefix(path, "/api/scheduled/")
+			if r.Method == http.MethodDelete {
+				return a.respondLocked(200, func() (any, error) { return map[string]bool{"ok": true}, a.deleteScheduledLocked(id) })
+			}
+			var input scheduledInput
+			if err := readObject(w, r, &input); err != nil {
+				return 0, nil, err
+			}
+			return a.respondLocked(200, func() (any, error) { return a.updateScheduledLocked(id, input) })
+		}
 		if strings.HasPrefix(path, "/api/approvals/") {
 			id := strings.TrimPrefix(path, "/api/approvals/")
 			var body struct {
@@ -524,6 +618,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			parts := strings.Split(rest, "/")
 			if len(parts) == 2 && parts[1] == "activate" {
 				return a.respondLocked(200, func() (any, error) { return a.activateRoomLocked(parts[0]) })
+			}
+			if len(parts) == 2 && parts[1] == "summarize" {
+				return a.respondLocked(202, func() (any, error) {
+					j, err := a.summarizeRoomLocked(parts[0])
+					if err != nil {
+						return nil, err
+					}
+					return a.jobResponseLocked(j), nil
+				})
 			}
 			if len(parts) == 1 {
 				if r.Method == http.MethodDelete {
@@ -908,6 +1011,14 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 			if raw, err := fs.ReadFile(a.frontend, path); err == nil {
 				if strings.HasPrefix(path, "_app/immutable/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				}
+				if path == "manifest.webmanifest" {
+					w.Header().Set("Content-Type", "application/manifest+json")
+				}
+				if path == "sw.js" {
+					w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+					w.Header().Set("Cache-Control", "no-cache")
+					w.Header().Set("Service-Worker-Allowed", "/")
 				}
 				http.ServeContent(w, r, path, time.Time{}, bytes.NewReader(raw))
 				return

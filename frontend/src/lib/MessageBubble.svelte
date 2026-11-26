@@ -6,7 +6,7 @@
   let {
     message, seat, seats, own, name, avatar, quoted, quotedAuthorName,
     editing, editText = $bindable(''), reactOpen, emojis, query,
-    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick,
+    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick, onRegenerate,
   }: {
     message: Message;
     seat: Seat | undefined;
@@ -32,6 +32,7 @@
     onJumpQuote: (id: string) => void;
     onImageLoad: () => void;
     onMentionClick: (seat: Seat) => void;
+    onRegenerate: () => void;
   } = $props();
 
   const clock = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -79,7 +80,17 @@
     {/if}
     {#if message.status === 'typing' || message.status === 'waiting'}<p class="typing-status" class:waiting={message.status === 'waiting'}><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>{message.statusText || `${name} sedang mengetik...`}</p>{/if}
     {#if message.error}<pre class="provider-error" aria-label="Error asli provider">{message.error}</pre>{/if}
-    {#if message.toolsUsed?.length}
+    {#if message.toolCalls?.length}
+      <div class="tool-cards" aria-label="Hasil tool">
+        {#each message.toolCalls as call, callIndex (callIndex)}
+          <details class="tool-card" class:tool-fail={!call.ok}>
+            <summary>🔧 {call.name}{call.ok ? '' : ' · gagal'}</summary>
+            {#if call.arg}<p class="tool-arg"><strong>Argumen:</strong> {call.arg}</p>{/if}
+            {#if call.result}<pre class="tool-result">{call.result}</pre>{/if}
+          </details>
+        {/each}
+      </div>
+    {:else if message.toolsUsed?.length}
       <div class="tools-used" aria-label="Tool yang dipakai">{#each message.toolsUsed as tool, toolIndex (toolIndex)}<span class="tool-chip">🔧 {tool}</span>{/each}</div>
     {/if}
     {#if message.reactions?.length}
@@ -104,6 +115,7 @@
         </div>
         <button class="msg-action" class:pin-active={message.pinned} type="button" aria-label={message.pinned ? 'Lepas sematan' : 'Sematkan pesan'} title={message.pinned ? 'Lepas sematan' : 'Sematkan'} onclick={onPin}>📌</button>
         {#if own}<button class="msg-action" type="button" aria-label="Ubah pesan" title="Ubah" onclick={onEditStart}>✎</button>{/if}
+        {#if !own}<button class="msg-action" type="button" aria-label="Buat ulang balasan" title="Buat ulang balasan" onclick={onRegenerate}>↻</button>{/if}
         <button class="msg-action" type="button" aria-label="Hapus pesan" title="Hapus" onclick={onDelete}>🗑</button>
       </div>
     {/if}

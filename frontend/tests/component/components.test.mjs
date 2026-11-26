@@ -17,7 +17,7 @@ const bubbleProps = {
   emojis: ['👍'], query: '',
   onReply: noop, onToggleReactPicker: noop, onReact: noop, onPin: noop,
   onEditStart: noop, onEditSave: noop, onEditCancel: noop, onDelete: noop,
-  onJumpQuote: noop, onImageLoad: noop, onMentionClick: noop,
+  onJumpQuote: noop, onImageLoad: noop, onMentionClick: noop, onRegenerate: noop,
 };
 
 test('MessageBubble: teks, nama penulis, dan waktu tampil', async () => {
@@ -88,6 +88,21 @@ test('MessageBubble: blok kode ter-render sebagai pre (polos di SSR)', async () 
   });
   const html = raw.replace(/<!--[^>]*-->/g, '');
   assert.match(html, /<pre class="md-code"><code>const x = 1;<\/code><\/pre>/);
+});
+
+test('MessageBubble: kartu hasil tool ter-render', async () => {
+  const raw = await renderComponent('MessageBubble', {
+    ...bubbleProps,
+    message: {
+      ...baseMessage,
+      text: 'Hasil pencarian di atas.',
+      toolCalls: [{ name: 'web_search', arg: 'berita hari ini', result: '3 hasil ditemukan', ok: true }],
+    },
+  });
+  const html = raw.replace(/<!--[^>]*-->/g, '');
+  assert.match(html, /<details class="tool-card">/);
+  assert.match(html, /web_search/);
+  assert.match(html, /3 hasil ditemukan/);
 });
 
 test('SeatInfoDialog: dialog info kursi ter-render', async () => {
@@ -169,7 +184,7 @@ const composerProps = {
   replyTo: undefined, replyAuthorName: '', pendingImage: '', pendingFile: null,
   onSend: noop, onProgress: noop, onVote: noop, onOpenMention: noop,
   onImagePrompt: noop, onUploadImage: noop, onUploadFile: noop,
-  onCancelReply: noop, onCancelImage: noop, onCancelFile: noop,
+  onCancelReply: noop, onCancelImage: noop, onCancelFile: noop, onSchedule: noop,
 };
 
 test('Composer: textarea pesan dan tombol aksi berlabel', async () => {

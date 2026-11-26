@@ -50,7 +50,8 @@ var builtinToolNames = map[string]bool{
 	"download_file": true, "zip_files": true, "unzip_file": true, "file_hash": true,
 	"image_info": true, "resize_image": true, "convert_image": true, "pdf_text": true,
 	"csv_json": true, "generate_image": true, "memory_save": true, "current_time": true,
-	"run_code": true, "run_shell": true,
+	"run_code": true, "run_shell": true, "git": true, "screenshot_url": true,
+	"pdf_from_markdown": true, "summarize_url": true,
 }
 
 func (a *App) toolsDir() string {

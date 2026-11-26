@@ -21,10 +21,11 @@ type queueRequest struct {
 	CreatedAt string      `json:"createdAt"`
 }
 type workerReply struct {
-	Text      string   `json:"text"`
-	ImageURL  string   `json:"imageUrl,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	ToolsUsed []string `json:"toolsUsed,omitempty"`
+	Text      string           `json:"text"`
+	ImageURL  string           `json:"imageUrl,omitempty"`
+	Error     string           `json:"error,omitempty"`
+	ToolsUsed []string         `json:"toolsUsed,omitempty"`
+	ToolCalls []toolCallRecord `json:"toolCalls,omitempty"`
 }
 
 func (a *App) queuePath(folder, id string) string {

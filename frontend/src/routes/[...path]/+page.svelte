@@ -10,17 +10,19 @@
   import Composer from '../../lib/Composer.svelte';
   import MentionDialog from '../../lib/MentionDialog.svelte';
   import SeatInfoDialog from '../../lib/SeatInfoDialog.svelte';
+  import ScheduleDialog from '../../lib/ScheduleDialog.svelte';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
   import { errorText } from '../../lib/api';
-  import type { Attachment, Message, SearchResult } from '../../lib/types';
+  import { emptySearchFilters, type Attachment, type Message, type SearchFilters, type SearchResult } from '../../lib/types';
 
   // Referensi DOM.
   let messages: HTMLElement;
   let settingsPanel = $state<ReturnType<typeof Settings>>();
   let mentionDialog = $state<ReturnType<typeof MentionDialog>>();
   let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialog>>();
+  let scheduleDialog = $state<ReturnType<typeof ScheduleDialog>>();
   let roomDialog = $state<ReturnType<typeof RoomDialog>>();
   let composer = $state<ReturnType<typeof Composer>>();
   let searchBar = $state<ReturnType<typeof SearchBar>>();
@@ -63,6 +65,8 @@
   let uploadingFile = $state(false);
   let uploadProgress = $state<number | null>(null);
   let searchOpen = $state(false);
+  let searchFilters = $state<SearchFilters>(emptySearchFilters());
+  let selectedTemplate = $state('');
   let query = $state('');
   let matchIndex = $state(0);
 
@@ -75,7 +79,38 @@
       : []
   );
 
-  onMount(() => chat.startPolling());
+  // Draft otomatis per ruang.
+  const DRAFT_KEY = 'musehood-draft-';
+  let lastDraftRoom = '';
+  $effect(() => {
+    const roomId = current?.activeRoomId ?? '';
+    if (roomId && roomId !== lastDraftRoom) {
+      lastDraftRoom = roomId;
+      try { text = localStorage.getItem(DRAFT_KEY + roomId) ?? ''; } catch { text = ''; }
+    }
+  });
+  $effect(() => {
+    const roomId = current?.activeRoomId;
+    if (!roomId) return;
+    try {
+      if (text) localStorage.setItem(DRAFT_KEY + roomId, text);
+      else localStorage.removeItem(DRAFT_KEY + roomId);
+    } catch { /* abaikan */ }
+  });
+
+  // Pengumuman pembaca layar untuk balasan kursi terbaru.
+  const liveAnnouncement = $derived.by(() => {
+    const msgs = current?.messages ?? [];
+    const last = [...msgs].reverse().find((m) => m.authorType === 'seat' && m.status === 'completed' && m.text);
+    return last ? `${authorName(last)}: ${last.text.slice(0, 120)}` : '';
+  });
+
+  onMount(() => {
+    chat.startPolling();
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => { /* PWA opsional */ });
+    }
+  });
 
   function scrollForImage() {
     if (messages.scrollHeight - messages.scrollTop - messages.clientHeight < 450) messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
@@ -92,6 +127,7 @@
         ...(replyTo ? { replyTo: replyTo.id } : {}),
         ...(pendingImage ? { imageUrl: pendingImage } : {}),
         ...(pendingFile ? { attachment: pendingFile } : {}),
+        ...(selectedTemplate ? { templateId: selectedTemplate } : {}),
       });
       await composer?.setText('');
       replyTo = undefined;
@@ -163,6 +199,11 @@
     if (!window.confirm('Hapus pesan ini secara permanen?')) return;
     if (editingId === message.id) { editingId = ''; editText = ''; }
     try { await chat.removeMessage(message); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  async function regenerateMessage(message: Message) {
+    try { await chat.regenerateMessage(message); }
     catch (error) { chat.notify(errorText(error), true); }
   }
 
@@ -271,12 +312,13 @@
     </div>
   </header>
   {#if current && current.rooms.length > 0}
-    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => roomDialog?.open()} />
+    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => roomDialog?.open()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} onTogglePin={(room) => chat.mutate(`/api/rooms/${room.id}`, { pinned: !room.pinned }).catch((e) => chat.notify(errorText(e), true))} />
   {/if}
   {#if searchOpen}
-    <SearchBar bind:this={searchBar} bind:query matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}
-      onInput={() => chat.scheduleSearch(query.trim())} onPrev={() => jumpTo(-1)} onNext={() => jumpTo(1)} onClose={toggleSearch} onJumpResult={jumpToResult} />
+    <SearchBar bind:this={searchBar} bind:query bind:filters={searchFilters} seats={current?.seats ?? []} rooms={current?.rooms ?? []} matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}
+      onInput={() => chat.scheduleSearch(query.trim(), searchFilters)} onPrev={() => jumpTo(-1)} onNext={() => jumpTo(1)} onClose={toggleSearch} onJumpResult={jumpToResult} />
   {/if}
+  <div class="visually-hidden" aria-live="polite">{liveAnnouncement}</div>
   <SeatStrip seats={chat.roomSeats} onMention={(seat) => composer?.insertMention(seat.name)} />
   {#if current && !chat.connectionReady}
     <button id="connectionNotice" class="connection-notice" type="button" onclick={() => settingsPanel?.open()}><span class="notice-dot"></span><span>Hubungkan gateway melalui Pengaturan untuk mengaktifkan enam kursi AI.</span><span aria-hidden="true">›</span></button>
@@ -331,6 +373,7 @@
           onJumpQuote={jumpToQuote}
           onImageLoad={scrollForImage}
           onMentionClick={(mentioned) => seatInfoDialog?.open(mentioned)}
+          onRegenerate={() => regenerateMessage(message)}
         />
       {/each}
     {/if}
@@ -340,16 +383,19 @@
   {/if}
   <Composer bind:this={composer} bind:text {submitting} {asking} {voting} {uploadingImage} {uploadingFile} {uploadProgress}
     {replyTo} replyAuthorName={replyTo ? authorName(replyTo) : ''} {pendingImage} {pendingFile}
+    templates={current?.templates ?? []} bind:selectedTemplate
     onSend={send} onProgress={progress} onVote={startVote}
     onOpenMention={() => { if (current) mentionDialog?.open(); }}
     onImagePrompt={() => composer?.setText(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}
     onUploadImage={() => imageInput.click()} onUploadFile={() => fileInput.click()}
-    onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null} />
+    onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null}
+    onSchedule={() => scheduleDialog?.open(text)} />
 </main>
 
 <Settings bind:this={settingsPanel} current={chat.current} refresh={chat.refresh} mutate={chat.mutate} notify={chat.notify} notice={chat.notice} />
 <MentionDialog bind:this={mentionDialog} seats={chat.roomSeats} notice={chat.notice} onPick={(seat) => composer?.insertMention(seat.name)} />
 <SeatInfoDialog bind:this={seatInfoDialog} onMention={(seat) => composer?.insertMention(seat.name)} />
+<ScheduleDialog bind:this={scheduleDialog} listScheduled={chat.listScheduled} createScheduled={chat.createScheduled} updateScheduled={chat.updateScheduled} deleteScheduled={chat.deleteScheduled} notify={chat.notify} roomId={current?.activeRoomId ?? ''} />
 <RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
 <Toast notice={chat.notice} target={null} />
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>

@@ -332,6 +332,7 @@ func mockToolGateway(t *testing.T, toolName, arg string) http.HandlerFunc {
 			io.WriteString(w, `{"data":[{"b64_json":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII="}]}`)
 		case "POST /v1/chat/completions":
 			var body struct {
+				Stream   *bool
 				Messages []struct {
 					Role    string
 					Content string
@@ -339,13 +340,19 @@ func mockToolGateway(t *testing.T, toolName, arg string) http.HandlerFunc {
 			}
 			json.NewDecoder(r.Body).Decode(&body)
 			calls++
+			text := ""
 			if calls == 1 {
-				payload, _ := json.Marshal(object{"choices": []object{{"message": object{"content": "<<TOOL:" + toolName + ">>\n" + arg + "\n<</TOOL>>"}}}})
-				w.Write(payload)
+				text = "<<TOOL:" + toolName + ">>\n" + arg + "\n<</TOOL>>"
+			} else {
+				text = "Selesai. " + body.Messages[len(body.Messages)-1].Content
+			}
+			if body.Stream != nil && *body.Stream {
+				w.Header().Set("Content-Type", "text/event-stream")
+				payload, _ := json.Marshal(object{"choices": []object{{"delta": object{"content": text}}}})
+				io.WriteString(w, "data: "+string(payload)+"\n\ndata: [DONE]\n\n")
 				return
 			}
-			last := body.Messages[len(body.Messages)-1].Content
-			payload, _ := json.Marshal(object{"choices": []object{{"message": object{"content": "Selesai. " + last}}}})
+			payload, _ := json.Marshal(object{"choices": []object{{"message": object{"content": text}}}})
 			w.Write(payload)
 		default:
 			http.NotFound(w, r)

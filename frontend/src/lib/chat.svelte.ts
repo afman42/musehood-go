@@ -1,5 +1,47 @@
-import { api, errorText } from './api';
-import type { Attachment, Message, Notice, SearchResult, State } from './types';
+import { api, apiDelete, errorText } from './api';
+import type { Attachment, Message, Notice, ScheduledMessage, SearchFilters, SearchResult, State } from './types';
+
+export const NOTIFY_KEY = 'musehood-notify';
+
+const SEEN_KEY = 'musehood-seencount-';
+
+export function seenCount(roomId: string): number {
+  try {
+    return Number(localStorage.getItem(SEEN_KEY + roomId) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function markSeen(result: State) {
+  try {
+    const room = result.rooms.find((r) => r.id === result.activeRoomId);
+    if (room) localStorage.setItem(SEEN_KEY + room.id, String(room.messageCount ?? result.messages.length));
+  } catch {
+    // abaikan
+  }
+}
+
+export function unreadCount(room: { id: string; messageCount?: number }): number {
+  return Math.max(0, (room.messageCount ?? 0) - seenCount(room.id));
+}
+
+const FONT_SCALES: Record<string, string> = { S: '0.9', M: '1', L: '1.15' };
+
+function applyTheme(result: State) {
+  const theme = result.settings.theme ?? (result.settings.darkMode ? 'dark' : 'light');
+  const dark = theme === 'dark' || (theme === 'auto' && typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.style?.setProperty('--font-scale', FONT_SCALES[result.settings.fontSize ?? 'M'] ?? '1');
+}
+
+export function notificationsEnabled(): boolean {
+  try {
+    return localStorage.getItem(NOTIFY_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted';
+  } catch {
+    return false;
+  }
+}
 
 export type ChatHooks = {
   // Dipanggil tepat sebelum state baru diterapkan (mis. untuk mengukur
@@ -19,6 +61,28 @@ export function createChat(hooks: ChatHooks = {}) {
   let requested = 0;
   let applied = 0;
   let messageKey = '';
+  const notifiedIds = new Set<string>();
+  let notificationsPrimed = false;
+
+  // Notifikasi browser: balasan kursi yang selesai saat tab tersembunyi.
+  function maybeNotify(result: State) {
+    const completed = result.messages.filter(m => m.authorType === 'seat' && m.status === 'completed');
+    if (!notificationsPrimed) {
+      for (const m of completed) notifiedIds.add(m.id);
+      notificationsPrimed = true;
+      return;
+    }
+    for (const m of completed) {
+      if (notifiedIds.has(m.id)) continue;
+      notifiedIds.add(m.id);
+      if (!document.hidden || !notificationsEnabled()) continue;
+      const seat = result.seats.find(s => s.code === m.seat);
+      const body = (m.text || 'Balasan baru').slice(0, 120);
+      try {
+        new Notification(`${seat?.name ?? m.seat ?? 'Kursi'} membalas`, { body, tag: m.id });
+      } catch { /* notifikasi tidak tersedia */ }
+    }
+  }
 
   const activeRoom = $derived.by(() => current?.rooms?.find(r => r.id === current?.activeRoomId));
   const roomSeats = $derived.by(() => {
@@ -47,7 +111,9 @@ export function createChat(hooks: ChatHooks = {}) {
     hooks.beforeApply?.();
     messageKey = nextKey;
     current = result;
-    document.documentElement.classList.toggle('dark', result.settings.darkMode);
+    maybeNotify(result);
+    applyTheme(result);
+    markSeen(result);
     if (changed) await hooks.afterApply?.();
   }
 
@@ -57,6 +123,11 @@ export function createChat(hooks: ChatHooks = {}) {
   }
 
   function startPolling() {
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if (current?.settings.theme === 'auto') applyTheme(current);
+      });
+    }
     let stopped = false;
     let pollTimer: ReturnType<typeof setTimeout>;
     let pollError = false;
@@ -72,14 +143,22 @@ export function createChat(hooks: ChatHooks = {}) {
     return () => { stopped = true; clearTimeout(pollTimer); clearTimeout(timer); };
   }
 
-  async function sendMessage(payload: { text: string; replyTo?: string; imageUrl?: string; attachment?: Attachment }) {
+  async function sendMessage(payload: { text: string; replyTo?: string; imageUrl?: string; attachment?: Attachment; templateId?: string }) {
     await api('/api/message', {
       text: payload.text,
       ...(current?.activeRoomId ? { roomId: current.activeRoomId } : {}),
       ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
       ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
       ...(payload.attachment ? { attachment: payload.attachment } : {}),
+      ...(payload.templateId ? { templateId: payload.templateId } : {}),
     });
+    await refresh();
+  }
+
+  async function summarizeRoom() {
+    if (!current?.activeRoomId) return;
+    await api(`/api/rooms/${current.activeRoomId}/summarize`, {});
+    notify('Ringkasan diskusi sedang dibuat oleh kursi integrator.');
     await refresh();
   }
 
@@ -119,6 +198,27 @@ export function createChat(hooks: ChatHooks = {}) {
     await mutate(`/api/message/${id}/edit`, { text });
   }
 
+  async function regenerateMessage(message: Message) {
+    await mutate(`/api/message/${message.id}/regenerate`, {});
+  }
+
+  async function listScheduled(): Promise<ScheduledMessage[]> {
+    const out = await api<{ scheduled: ScheduledMessage[] }>('/api/scheduled');
+    return out.scheduled ?? [];
+  }
+
+  async function createScheduled(body: object): Promise<ScheduledMessage> {
+    return api<ScheduledMessage>('/api/scheduled', body);
+  }
+
+  async function updateScheduled(id: string, body: object): Promise<ScheduledMessage> {
+    return api<ScheduledMessage>(`/api/scheduled/${id}`, body);
+  }
+
+  async function deleteScheduled(id: string) {
+    await apiDelete(`/api/scheduled/${id}`);
+  }
+
   // Unggah FormData dengan laporan kemajuan (0-100) lewat XHR; di
   // lingkungan tanpa XHR (tes Node) kembali ke fetch biasa.
   function uploadForm<T>(route: string, body: FormData, onProgress?: (pct: number) => void): Promise<T> {
@@ -154,12 +254,19 @@ export function createChat(hooks: ChatHooks = {}) {
     return uploadForm<Attachment>('/api/upload-file', body, onProgress);
   }
 
-  function scheduleSearch(q: string) {
+  function scheduleSearch(q: string, filters?: SearchFilters) {
     clearTimeout(searchTimer);
-    if (!q) { serverResults = []; return; }
+    const hasFilters = Boolean(filters && (filters.seat || filters.room || filters.from || filters.to || filters.hasImage));
+    if (!q && !hasFilters) { serverResults = []; return; }
     searchTimer = setTimeout(async () => {
       try {
-        const out = await api<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`);
+        const params = new URLSearchParams({ q });
+        if (filters?.seat) params.set('seat', filters.seat);
+        if (filters?.room) params.set('room', filters.room);
+        if (filters?.from) params.set('from', filters.from);
+        if (filters?.to) params.set('to', filters.to);
+        if (filters?.hasImage) params.set('hasImage', '1');
+        const out = await api<{ results: SearchResult[] }>(`/api/search?${params.toString()}`);
         serverResults = out.results;
       } catch { /* pencarian lokal di ruang aktif tetap jalan */ }
     }, 300);
@@ -188,6 +295,7 @@ export function createChat(hooks: ChatHooks = {}) {
     mutate,
     startPolling,
     sendMessage,
+    summarizeRoom,
     progress,
     startVote,
     activateRoom,
@@ -196,6 +304,11 @@ export function createChat(hooks: ChatHooks = {}) {
     toggleReact,
     removeMessage,
     saveEdit,
+    regenerateMessage,
+    listScheduled,
+    createScheduled,
+    updateScheduled,
+    deleteScheduled,
     uploadImage,
     uploadFile,
     scheduleSearch,

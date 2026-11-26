@@ -129,6 +129,19 @@ export async function mockGateway(port = 0) {
       const pick = allText.includes('Kursimu adalah M01') ? 'M02' : 'M01';
       return json(200, { choices: [{ message: { content: `${pick} karena paling jelas.` } }] });
     }
+    // Permintaan streaming: bungkus konten yang sama sebagai delta SSE.
+    if (body.stream === true && body.model !== 'sse') {
+      let content = null;
+      if (body.model === 'array') content = 'Balasan array';
+      else if (body.model === 'delta') content = 'Balasan delta';
+      else if (body.model === 'plain') content = 'Balasan polos';
+      else if (body.model === 'toolcode') content = allText.includes('Hasil tool') ? 'Kode selesai diproses.' : '<<TOOL:run_code>>python\nimport os; os.system("echo halo-dari-mock")<</TOOL>>';
+      if (content !== null) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+        return res.end('data: [DONE]\n\n');
+      }
+    }
     switch (body.model) {
       case 'array': return json(200, { choices: [{ message: { content: [{ text: 'Balasan ' }, { text: 'array' }] } }] });
       case 'delta': return json(200, { delta: { content: 'Balasan delta' } });

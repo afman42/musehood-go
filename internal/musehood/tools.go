@@ -58,6 +58,10 @@ Tool yang tersedia:
 - generate_image: buat gambar dari deskripsi teks; gambar terlampir pada balasanmu. Argumen: deskripsi gambar.
 - memory_save: simpan catatan penting ke memori kursimu (akan kamu ingat di percakapan berikutnya). Argumen: catatan singkat.
 - current_time: tanggal dan waktu sekarang. Argumen: kosongkan.
+- git: perintah git baca-saja di folder kerja. Argumen: subperintah, mis. "status", "diff", "log --oneline -5", "show HEAD".
+- screenshot_url: ambil screenshot halaman web; gambar terlampir pada balasanmu. Argumen: URL lengkap (http/https).
+- summarize_url: ambil isi halaman web untuk kamu ringkas. Argumen: URL lengkap (http/https).
+- pdf_from_markdown: buat file PDF dari teks Markdown di folder kerja. Baris pertama argumen (opsional): nama file .pdf; baris berikutnya: isi Markdown.
 
 Gunakan tool hanya bila benar-benar perlu (mis. butuh info terkini dari web atau isi file). Bila tidak perlu, jawab langsung tanpa blok tool.`
 
@@ -65,13 +69,33 @@ const codeToolInstruction = `
 - run_code: jalankan kode di sandbox terisolasi (tanpa jaringan, maks 10 detik). Baris pertama argumen: bahasa (python atau javascript); baris berikutnya: kode. Hasil stdout/stderr dikembalikan kepadamu. Kode yang terdeteksi berbahaya memerlukan persetujuan pemilik sebelum dijalankan.
 - run_shell: jalankan perintah shell sederhana di sandbox yang sama (mis. ls, cat, grep). Argumen: perintah shell. Selalu memerlukan persetujuan pemilik.`
 
-func (a *App) buildToolInstructions(code bool) string {
+func (a *App) buildToolInstructions(code bool, s seat) string {
 	text := toolInstructions
 	if code {
 		text += codeToolInstruction
 	}
+	if len(s.DisabledTools) > 0 {
+		lines := strings.Split(text, "\n")
+		kept := lines[:0]
+		for _, line := range lines {
+			disabled := false
+			for _, name := range s.DisabledTools {
+				if strings.HasPrefix(line, "- "+name+":") {
+					disabled = true
+					break
+				}
+			}
+			if !disabled {
+				kept = append(kept, line)
+			}
+		}
+		text = strings.Join(kept, "\n")
+	}
 	for _, tool := range a.loadCustomTools() {
 		if tool.Type == "shell" && !code {
+			continue
+		}
+		if s.toolDisabled(tool.Name) {
 			continue
 		}
 		hint := tool.ArgHint
@@ -106,8 +130,27 @@ func truncateToolResult(s string) string {
 // model memuat blok tool, tool dijalankan dan hasilnya dikirim kembali
 // sebagai pesan lanjutan (maksimal maxToolRounds putaran). Bila putaran
 // lanjutan gagal, teks terakhir yang berhasil dipakai.
-func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools, code bool) (workerReply, error) {
-	text, err := a.chat(ctx, cfg, s, history)
+func truncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) > max {
+		return string(runes[:max]) + "…"
+	}
+	return s
+}
+
+func toolResultOK(result string) bool {
+	return !strings.HasPrefix(result, "Error") && !strings.HasPrefix(result, "Gagal") &&
+		!strings.Contains(result, "dinonaktifkan untuk kursi ini")
+}
+
+func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools, code, stream bool, onActivity func(toolName string), onDelta func(partial string)) (workerReply, error) {
+	chatFn := a.chat
+	if stream {
+		chatFn = func(ctx context.Context, cfg settings, s seat, history []gatewayMessage) (string, error) {
+			return a.chatStream(ctx, cfg, s, history, onDelta)
+		}
+	}
+	text, err := chatFn(ctx, cfg, s, history)
 	if err != nil {
 		return workerReply{}, err
 	}
@@ -115,28 +158,38 @@ func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history [
 		return workerReply{Text: text}, nil
 	}
 	var used []string
+	var calls []toolCallRecord
 	var imageURL string
 	for round := 0; round < maxToolRounds; round++ {
 		name, arg, found := parseToolBlock(text)
 		if !found {
 			break
 		}
+		if onActivity != nil {
+			onActivity(name)
+		}
 		result, image := a.runTool(ctx, cfg, s, name, arg, code)
 		if image != "" {
 			imageURL = image
 		}
 		used = append(used, name)
+		calls = append(calls, toolCallRecord{
+			Name:   name,
+			Arg:    truncateRunes(arg, 300),
+			Result: truncateRunes(result, 600),
+			OK:     toolResultOK(result),
+		})
 		history = append(history,
 			gatewayMessage{"assistant", text},
 			gatewayMessage{"user", fmt.Sprintf("Hasil tool %s:\n%s\n\nLanjutkan jawabanmu untuk pengguna berdasarkan hasil di atas.", name, result)},
 		)
-		next, err := a.chat(ctx, cfg, s, history)
+		next, err := chatFn(ctx, cfg, s, history)
 		if err != nil {
 			break
 		}
 		text = next
 	}
-	return workerReply{Text: stripToolBlocks(text), ImageURL: imageURL, ToolsUsed: used}, nil
+	return workerReply{Text: stripToolBlocks(text), ImageURL: imageURL, ToolsUsed: used, ToolCalls: calls}, nil
 }
 
 func (a *App) sandboxDir() string {
@@ -160,6 +213,9 @@ func (a *App) sandboxPath(name string) (string, error) {
 // runTool menjalankan satu tool; nilai kedua adalah URL gambar bila tool
 // menghasilkan gambar (generate_image), selain itu kosong.
 func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg string, code bool) (string, string) {
+	if s.toolDisabled(name) {
+		return fmt.Sprintf("Tool %s dinonaktifkan untuk kursi ini oleh pemilik.", name), ""
+	}
 	switch name {
 	case "web_search":
 		return a.toolWebSearch(ctx, arg), ""
@@ -201,6 +257,14 @@ func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg strin
 		return a.toolMemorySave(s, arg), ""
 	case "current_time":
 		return toolCurrentTime(), ""
+	case "git":
+		return a.toolGit(ctx, arg), ""
+	case "screenshot_url":
+		return a.toolScreenshotURL(ctx, arg)
+	case "summarize_url":
+		return a.toolSummarizeURL(ctx, arg), ""
+	case "pdf_from_markdown":
+		return a.toolPDFFromMarkdown(arg), ""
 	case "run_code":
 		if !code {
 			return "Error: tool coding dimatikan di Pengaturan.", ""

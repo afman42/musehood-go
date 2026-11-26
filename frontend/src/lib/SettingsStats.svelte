@@ -21,9 +21,9 @@
     <p class="field-hint">Belum ada panggilan gateway yang tercatat.</p>
   {:else}
     <div class="stats-table" role="table" aria-label="Statistik pemakaian">
-      <div class="stats-row stats-head" role="row"><span role="columnheader">Kursi / Model</span><span role="columnheader">Request</span><span role="columnheader">Berhasil</span><span role="columnheader">Gagal</span><span role="columnheader">Rata²</span><span role="columnheader">Token</span></div>
+      <div class="stats-row stats-head" role="row"><span role="columnheader">Kursi / Model</span><span role="columnheader">Request</span><span role="columnheader">Berhasil</span><span role="columnheader">Gagal</span><span role="columnheader">Rata²</span><span role="columnheader">Token</span><span role="columnheader">Est. biaya</span></div>
       {#each rows as row (row.key)}
-        <div class="stats-row" role="row"><span role="cell">{row.label}</span><span role="cell">{row.requests}</span><span role="cell">{row.success}</span><span role="cell">{row.failed}</span><span role="cell">{row.avgMs} mdtk</span><span role="cell">{row.promptTokens + row.completionTokens}</span></div>
+        <div class="stats-row" role="row"><span role="cell">{row.label}</span><span role="cell">{row.requests}</span><span role="cell">{row.success}</span><span role="cell">{row.failed}</span><span role="cell">{row.avgMs} mdtk</span><span role="cell">{row.promptTokens + row.completionTokens}</span><span role="cell">{row.estimatedCostUsd !== undefined ? `$${row.estimatedCostUsd.toFixed(4)}` : '—'}</span></div>
       {/each}
     </div>
   {/if}

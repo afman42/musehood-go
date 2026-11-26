@@ -35,7 +35,7 @@
     <dl class="seat-info-list">
       <div><dt>Provider</dt><dd>{providerLabel(seat)}</dd></div>
       {#if seat.provider === 'gateway'}<div><dt>Model</dt><dd>{seat.model || '—'}</dd></div>{/if}
-      {#if seat.fallbackModel}<div><dt>Model fallback</dt><dd>{seat.fallbackModel}</dd></div>{/if}
+      {#if seat.fallbackModel || seat.fallbackModels?.length}<div><dt>Rantai fallback</dt><dd>{[seat.fallbackModel, ...(seat.fallbackModels ?? [])].filter(Boolean).join(' → ')}</dd></div>{/if}
       <div><dt>Status</dt><dd>{seat.present ? 'Hadir' : 'Tidak hadir'}</dd></div>
     </dl>
     {#if seat.skills?.length}

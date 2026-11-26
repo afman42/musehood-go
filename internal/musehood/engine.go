@@ -163,6 +163,8 @@ func (a *App) saveJobLocked() {
 	}
 }
 func (a *App) tickLocked() {
+	a.runSchedulesLocked()
+	a.autoCompactLocked()
 	for _, j := range a.data.Jobs {
 		a.advanceLocked(j)
 	}
@@ -176,6 +178,9 @@ func (a *App) messageLocked(j *job, s *step, member seat) *message {
 	m := &message{ID: uuid(), CreatedAt: now(), AuthorType: "seat", Seat: member.Code, JobID: j.ID, Status: "typing", StatusText: member.Name + " sedang mengetik...", RoomID: j.RoomID}
 	if s.Kind == "summary" {
 		m.Label = finalLabel
+	}
+	if s.Kind == "roomsum" {
+		m.Label = summaryLabel
 	}
 	if s.Kind == "vote" {
 		m.Label = voteLabel
@@ -211,6 +216,20 @@ func (a *App) finishStepLocked(j *job, s *step, m *message) {
 	m.Status = "completed"
 	if m.Error != "" && m.Text == "" && m.ImageURL == "" {
 		m.Status = "error"
+	}
+	if s.Kind == "roomsum" && m.Text != "" {
+		// Simpan ringkasan untuk kompaksi konteks dan sematkan pesannya.
+		m.Pinned = true
+		if r := a.data.findRoom(j.RoomID); r != nil {
+			r.Summary = m.Text
+			count := 0
+			for _, msg := range a.data.Messages {
+				if msg.RoomID == r.ID && msg.Status != "typing" && msg.Status != "waiting" {
+					count++
+				}
+			}
+			r.SummaryCount = count
+		}
 	}
 	m.StatusText = ""
 	j.Index++
@@ -507,24 +526,43 @@ func (a *App) advanceLocked(j *job) {
 			for i := range history {
 				history[i].Content = a.redactLocked(history[i].Content)
 			}
-			// Fallback per kursi: konfigurasi model cadangan diselesaikan
-			// sekarang (resolusi alias butuh daftar provider) sebelum
-			// goroutine berjalan tanpa mutex.
-			var fbCfg settings
-			var fbMember seat
-			hasFallback := false
-			if fb := strings.TrimSpace(member.FallbackModel); fb != "" {
-				fbCfg, fb = a.data.resolveModelProviderLocked(a.data.Settings, fb)
-				fbMember = member
-				fbMember.Model = &fb
-				hasFallback = true
+			// Rantai fallback per kursi: konfigurasi tiap model cadangan
+			// diselesaikan sekarang (resolusi alias butuh daftar provider)
+			// sebelum goroutine berjalan tanpa mutex.
+			type fallbackAttempt struct {
+				cfg    settings
+				member seat
+			}
+			var fallbacks []fallbackAttempt
+			for _, fb := range member.fallbackChain() {
+				fbCfg, resolved := a.data.resolveModelProviderLocked(a.data.Settings, fb)
+				fbMember := member
+				fbMember.Model = &resolved
+				fallbacks = append(fallbacks, fallbackAttempt{fbCfg, fbMember})
 			}
 			tools := a.data.Settings.toolsOn()
 			code := a.data.Settings.codeToolOn()
+			stream := a.data.Settings.streamingOn()
 			a.runLocked(j, s, member, m, false, func(ctx context.Context) (workerReply, error) {
-				reply, err := a.chatWithTools(ctx, cfg, member, history, tools, code)
-				if err != nil && hasFallback {
-					if fbReply, fbErr := a.chatWithTools(ctx, fbCfg, fbMember, history, tools, code); fbErr == nil {
+				onActivity := func(toolName string) {
+					a.mu.Lock()
+					m.StatusText = member.Name + " menjalankan " + toolName + "…"
+					a.mu.Unlock()
+				}
+				onDelta := func(partial string) {
+					if idx := strings.Index(partial, "<<TOOL:"); idx >= 0 {
+						partial = partial[:idx]
+					}
+					a.mu.Lock()
+					m.Text = a.redactLocked(partial)
+					a.mu.Unlock()
+				}
+				reply, err := a.chatWithTools(ctx, cfg, member, history, tools, code, stream, onActivity, onDelta)
+				for _, fb := range fallbacks {
+					if err == nil {
+						break
+					}
+					if fbReply, fbErr := a.chatWithTools(ctx, fb.cfg, fb.member, history, tools, code, stream, onActivity, onDelta); fbErr == nil {
 						return fbReply, nil
 					}
 				}
@@ -553,6 +591,11 @@ func (a *App) runLocked(j *job, s *step, member seat, m *message, worker bool, r
 				m.ImageURL = reply.ImageURL
 				m.Text = a.redactLocked(reply.Text)
 				m.ToolsUsed = reply.ToolsUsed
+				m.ToolCalls = reply.ToolCalls
+				for i := range m.ToolCalls {
+					m.ToolCalls[i].Arg = a.redactLocked(m.ToolCalls[i].Arg)
+					m.ToolCalls[i].Result = a.redactLocked(m.ToolCalls[i].Result)
+				}
 				if !worker && s.Kind == "image" {
 					m.Text = a.redactLocked("Gambar untuk " + a.data.Owner.Name + ": " + reply.Text)
 				}

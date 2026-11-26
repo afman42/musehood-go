@@ -201,6 +201,36 @@ func (a *App) models(ctx context.Context, cfg settings) ([]string, error) {
 	return a.protocolModels(ctx, cfg)
 }
 
+// statsWithCostLocked menyalin statistik dan menambahkan estimasi biaya
+// (USD) per kunci model berdasarkan harga token provider yang cocok.
+// Kunci seat tidak diberi biaya karena harga melekat pada provider/model.
+func (a *App) statsWithCostLocked() map[string]any {
+	out := make(map[string]any, len(a.data.Stats))
+	for key, st := range a.data.Stats {
+		entry := map[string]any{
+			"requests": st.Requests, "success": st.Success, "failed": st.Failed,
+			"totalLatencyMs": st.TotalLatencyMs, "promptTokens": st.PromptTokens,
+			"completionTokens": st.CompletionTokens, "lastAt": st.LastAt,
+		}
+		if strings.HasPrefix(key, "model:") {
+			rest := strings.TrimPrefix(key, "model:")
+			providerName, _, _ := strings.Cut(rest, "/")
+			for _, p := range a.data.Providers {
+				if p.Name == providerName || (p.Alias != "" && p.Alias == providerName) {
+					if p.PriceInputPer1M > 0 || p.PriceOutputPer1M > 0 {
+						cost := float64(st.PromptTokens)/1e6*p.PriceInputPer1M +
+							float64(st.CompletionTokens)/1e6*p.PriceOutputPer1M
+						entry["estimatedCostUsd"] = cost
+					}
+					break
+				}
+			}
+		}
+		out[key] = entry
+	}
+	return out
+}
+
 // recordStat mencatat satu panggilan gateway ke statistik pemakaian.
 // Dipanggil dari goroutine pekerjaan (tanpa mutex), jadi ia mengunci sendiri;
 // penyimpanan ke disk terjadi pada save berikutnya (finishStepLocked dll).
@@ -276,6 +306,28 @@ func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayM
 	promptTokens, completionTokens := extractUsage(raw)
 	a.recordStat(s, cfg, *s.Model, true, time.Since(start), promptTokens, completionTokens)
 	return text, nil
+}
+
+// chatStream seperti chat, tetapi mencoba streaming lebih dulu: onDelta
+// menerima teks parsial selama model menjawab. Bila streaming gagal atau
+// kosong, jatuh kembali ke chat biasa (yang mencatat statistiknya sendiri).
+func (a *App) chatStream(ctx context.Context, cfg settings, s seat, history []gatewayMessage, onDelta func(partial string)) (string, error) {
+	if s.Provider == "muse" {
+		return "", errors.New("Kursi ini memakai antrean file Muse.")
+	}
+	if s.Model == nil || *s.Model == "" {
+		return "", problem(400, fmt.Sprintf("Nama model %s (%s) belum diisi di Pengaturan.", s.Name, s.Code))
+	}
+	start := time.Now()
+	text, err := a.protocolChatStream(ctx, cfg, *s.Model, history, onDelta)
+	if err == nil {
+		a.recordStat(s, cfg, *s.Model, true, time.Since(start), 0, 0)
+		return text, nil
+	}
+	if ctx.Err() != nil {
+		return "", err
+	}
+	return a.chat(ctx, cfg, s, history)
 }
 func (a *App) generateImage(ctx context.Context, cfg settings, s seat, prompt string) (string, error) {
 	start := time.Now()

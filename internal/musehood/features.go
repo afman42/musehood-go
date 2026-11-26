@@ -14,6 +14,7 @@ import (
 type roomInput struct {
 	Name      *string   `json:"name"`
 	SeatCodes *[]string `json:"seatCodes"`
+	Pinned    *bool     `json:"pinned"`
 }
 
 func (a *App) roomViewsLocked() []map[string]any {
@@ -29,7 +30,7 @@ func (a *App) roomViewsLocked() []map[string]any {
 		if codes == nil {
 			codes = []string{}
 		}
-		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "messageCount": count, "active": r.ID == a.data.ActiveRoomID})
+		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned})
 	}
 	return views
 }
@@ -101,6 +102,9 @@ func (a *App) updateRoomLocked(id string, input roomInput) (any, error) {
 			return nil, err
 		}
 		next.SeatCodes = codes
+	}
+	if input.Pinned != nil {
+		next.Pinned = *input.Pinned
 	}
 	*r = next
 	if err := a.saveLocked(); err != nil {
@@ -192,7 +196,7 @@ func (a *App) createPresetLocked(name string) (any, error) {
 	}
 	p := seatPreset{ID: newPresetID(), Name: name, CreatedAt: now()}
 	for _, s := range a.data.Seats {
-		ps := presetSeat{Code: s.Code, Name: s.Name, Role: s.Role, Provider: s.Provider, Prompt: s.Prompt, FallbackModel: s.FallbackModel, Memory: s.Memory, Skills: s.Skills}
+		ps := presetSeat{Code: s.Code, Name: s.Name, Role: s.Role, Provider: s.Provider, Prompt: s.Prompt, FallbackModel: s.FallbackModel, FallbackModels: s.FallbackModels, DisabledTools: s.DisabledTools, Memory: s.Memory, Skills: s.Skills}
 		if s.Model != nil {
 			model := *s.Model
 			ps.Model = &model
@@ -240,6 +244,8 @@ func (a *App) applyPresetLocked(id string) (any, error) {
 		}
 		s.Prompt = ps.Prompt
 		s.FallbackModel = ps.FallbackModel
+		s.FallbackModels = ps.FallbackModels
+		s.DisabledTools = ps.DisabledTools
 		s.Memory = ps.Memory
 		s.Skills = ps.Skills
 		applied++
@@ -283,14 +289,48 @@ func (a *App) deletePresetLocked(id string) (any, error) {
 
 // --- Pencarian lintas ruang ---
 
-func (a *App) searchLocked(q string) any {
+type searchFilters struct {
+	Seat     string // "" semua, "owner", atau kode kursi
+	Room     string // "" semua ruang
+	From     string // YYYY-MM-DD inklusif
+	To       string // YYYY-MM-DD inklusif
+	HasImage bool
+}
+
+func (f searchFilters) active() bool {
+	return f.Seat != "" || f.Room != "" || f.From != "" || f.To != "" || f.HasImage
+}
+
+func (a *App) searchLocked(q string, f searchFilters) any {
 	q = strings.ToLower(strings.TrimSpace(q))
 	results := []map[string]any{}
-	if q == "" {
+	if q == "" && !f.active() {
 		return map[string]any{"results": results}
 	}
 	for _, m := range a.data.Messages {
-		if !strings.Contains(strings.ToLower(m.Text), q) {
+		if q != "" && !strings.Contains(strings.ToLower(m.Text), q) {
+			continue
+		}
+		if f.Seat == "owner" && m.AuthorType != "owner" {
+			continue
+		}
+		if f.Seat != "" && f.Seat != "owner" && m.Seat != f.Seat {
+			continue
+		}
+		if f.Room != "" && m.RoomID != f.Room {
+			continue
+		}
+		date := m.CreatedAt
+		if len(date) > 10 {
+			date = date[:10]
+		}
+		if f.From != "" && date < f.From {
+			continue
+		}
+		if f.To != "" && date > f.To {
+			continue
+		}
+		if f.HasImage && m.ImageURL == "" && (m.Attachment == nil || !strings.HasPrefix(m.Attachment.Mime, "image/")) {
 			continue
 		}
 		roomName := ""

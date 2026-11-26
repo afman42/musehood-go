@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin)$`)
+var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin|regenerate)$`)
 
 var reactionEmojis = []string{"👍", "❤️", "😂", "😮", "😢", "🔥"}
 
@@ -68,8 +68,65 @@ func (a *App) messageAction(w http.ResponseWriter, r *http.Request, id, action s
 			}
 			return msg, nil
 		})
+	case "regenerate":
+		return a.respondLocked(202, func() (any, error) {
+			j, err := a.regenerateMessageLocked(id)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"jobId": j.ID}, nil
+		})
 	}
 	return 0, nil, problem(404, "Rute tidak ditemukan.")
+}
+
+// regenerateMessageLocked menghapus balasan kursi dan menjalankannya ulang
+// untuk prompt pemilik yang sama (pekerjaan baru satu langkah).
+func (a *App) regenerateMessageLocked(id string) (*job, error) {
+	msg := a.findMessageLocked(id)
+	if msg == nil {
+		return nil, problem(404, "Pesan tidak ditemukan atau sudah dihapus.")
+	}
+	if msg.AuthorType != "seat" {
+		return nil, problem(403, "Hanya balasan kursi yang bisa dibuat ulang.")
+	}
+	if msg.Status == "typing" || msg.Status == "waiting" {
+		return nil, problem(409, "Pesan sedang diproses dan belum bisa dibuat ulang.")
+	}
+	prompt := ""
+	stepKind := "chat"
+	for _, j := range a.data.Jobs {
+		if j.ID != msg.JobID {
+			continue
+		}
+		prompt = j.Prompt
+		for _, s := range j.Steps {
+			if s.MessageID == id {
+				stepKind = s.Kind
+			}
+		}
+		break
+	}
+	if prompt == "" {
+		return nil, problem(404, "Pekerjaan asal pesan tidak ditemukan.")
+	}
+	previousMessages, previousJobs := a.data.Messages, a.data.Jobs
+	kept := make([]*message, 0, len(a.data.Messages))
+	for _, m := range a.data.Messages {
+		if m.ID != id {
+			kept = append(kept, m)
+		}
+	}
+	a.data.Messages = kept
+	j := &job{ID: uuid(), Prompt: prompt, Kind: "chat", CreatedAt: now(), Status: "processing",
+		Steps: []step{{Seat: msg.Seat, Kind: stepKind, Status: "pending"}}, RoomID: msg.RoomID}
+	a.data.Jobs = append(a.data.Jobs, j)
+	if err := a.saveLocked(); err != nil {
+		a.data.Messages, a.data.Jobs = previousMessages, previousJobs
+		return nil, err
+	}
+	a.advanceLocked(j)
+	return j, nil
 }
 
 // pinMessageLocked menyematkan atau melepas sematan satu pesan.

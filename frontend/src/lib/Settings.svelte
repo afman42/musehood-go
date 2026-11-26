@@ -8,6 +8,7 @@
   import SettingsDiscussion from './SettingsDiscussion.svelte';
   import SettingsRooms from './SettingsRooms.svelte';
   import SettingsPresets from './SettingsPresets.svelte';
+  import SettingsTemplates from './SettingsTemplates.svelte';
   import SettingsStats from './SettingsStats.svelte';
   import SettingsBackup from './SettingsBackup.svelte';
   import type { Notice, ReviewLevel, RoomEdit, SeatEdit, State } from './types';
@@ -36,6 +37,9 @@
   let toolsEnabled = $state(true);
   let codeToolEnabled = $state(true);
   let skillsEnabled = $state(true);
+  let streamingEnabled = $state(true);
+  let theme = $state('light');
+  let fontSize = $state('M');
   let saveStatus = $state('');
   let saving = $state(false);
 
@@ -48,7 +52,9 @@
       provider: seat.provider,
       ...(seat.model === undefined ? {} : { model: seat.model }),
       prompt: seat.prompt || seat.defaultPrompt || '',
-      fallbackModel: seat.fallbackModel ?? '',
+      fallbackModel: '',
+      fallbackModels: [seat.fallbackModel, ...(seat.fallbackModels ?? [])].filter(Boolean).join(', '),
+      disabledTools: [...(seat.disabledTools ?? [])],
       memory: seat.memory ?? '',
       skills: (seat.skills ?? []).join(', '),
     }));
@@ -70,6 +76,9 @@
       toolsEnabled = current.settings.toolsEnabled ?? true;
       codeToolEnabled = current.settings.codeToolEnabled ?? true;
       skillsEnabled = current.settings.skillsEnabled ?? true;
+      streamingEnabled = current.settings.streamingEnabled ?? true;
+      theme = current.settings.theme ?? (current.settings.darkMode ? 'dark' : 'light');
+      fontSize = current.settings.fontSize ?? 'M';
       syncSeats();
       providersPanel?.resetForm();
       saveStatus = '';
@@ -83,8 +92,8 @@
     try {
       await mutate('/api/settings', {
         owner: { name: ownerName }, group: { name: groupName },
-        seats: seats.map((s) => ({ ...s, skills: s.skills.split(',').map((x) => x.trim()).filter(Boolean) })),
-        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled, skillsEnabled },
+        seats: seats.map((s) => ({ ...s, skills: s.skills.split(',').map((x) => x.trim()).filter(Boolean), fallbackModels: s.fallbackModels.split(',').map((x) => x.trim()).filter(Boolean) })),
+        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled, skillsEnabled, streamingEnabled, theme, fontSize },
       });
       providersPanel?.clearConnectionError();
       saveStatus = 'Tersimpan';
@@ -150,9 +159,10 @@
     </section>
     <SettingsProviders bind:this={providersPanel} {current} {refresh} {mutate} {notify} onSave={save} {saving} />
     <SettingsSeats bind:seats {current} {refresh} {notify} onSync={syncSeats} onSave={save} {saving} onChooseAvatar={chooseAvatar} {skillsEnabled} />
-    <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled bind:codeToolEnabled {seats} />
+    <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled bind:codeToolEnabled bind:streamingEnabled bind:theme bind:fontSize {seats} />
     <SettingsRooms bind:roomEdits {current} {refresh} {notify} onSync={syncSeats} />
     <SettingsPresets {current} {refresh} {notify} onSave={save} onSync={syncSeats} />
+    <SettingsTemplates {current} {refresh} {notify} />
     <SettingsStats {current} />
     <SettingsBackup {current} {refresh} {notify} onSync={syncSeats} />
     <section class="settings-section danger-section">

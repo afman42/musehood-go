@@ -73,8 +73,26 @@ type chatContext struct {
 }
 
 func contextFor(d data, j *job) chatContext {
+	// Kompaksi konteks: bila ruang punya ringkasan dan riwayatnya panjang,
+	// kirim ringkasan + 40 pesan terakhir saja.
+	limit := 80
+	var roomSummary string
+	if j.RoomID != "" {
+		if r := d.findRoom(j.RoomID); r != nil && r.Summary != "" {
+			count := 0
+			for _, m := range d.Messages {
+				if m.RoomID == j.RoomID && m.Status != "typing" && m.Status != "waiting" {
+					count++
+				}
+			}
+			if count > 40 {
+				limit = 40
+				roomSummary = r.Summary
+			}
+		}
+	}
 	history := []contextMessage{}
-	for i := len(d.Messages) - 1; i >= 0 && len(history) < 80; i-- {
+	for i := len(d.Messages) - 1; i >= 0 && len(history) < limit; i-- {
 		m := d.Messages[i]
 		if j.RoomID != "" && m.RoomID != j.RoomID {
 			continue
@@ -95,6 +113,9 @@ func contextFor(d data, j *job) chatContext {
 	for i, k := 0, len(history)-1; i < k; i, k = i+1, k-1 {
 		history[i], history[k] = history[k], history[i]
 	}
+	if roomSummary != "" {
+		history = append([]contextMessage{{Name: "Ringkasan", Role: "Ringkasan diskusi sebelumnya", Text: roomSummary}}, history...)
+	}
 	return chatContext{d.Group.Name, d.Owner.Name, d.Task, history, j.Prompt}
 }
 
@@ -106,7 +127,7 @@ type gatewayMessage struct {
 func (a *App) gatewayMessages(s seat, d data, j *job) []gatewayMessage {
 	system := a.systemPrompt(s, d)
 	if d.Settings.toolsOn() {
-		system += a.buildToolInstructions(d.Settings.codeToolOn())
+		system += a.buildToolInstructions(d.Settings.codeToolOn(), s)
 	}
 	history := []gatewayMessage{{"system", system}}
 	for _, m := range contextFor(d, j).Messages {

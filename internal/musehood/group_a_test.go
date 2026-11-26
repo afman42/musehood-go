@@ -1,0 +1,473 @@
+package musehood
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// Grup A: rantai fallback, allowlist tool per kursi, harga provider + estimasi biaya.
+
+func TestFallbackChain(t *testing.T) {
+	f := setup(t, nil)
+	f.api("POST", "/api/settings", object{"seats": []object{
+		{"code": "M01", "model": "denied", "fallbackModels": []string{"denied", "plain"}},
+	}}, 200)
+	f.api("POST", "/api/message", object{"text": "@Plamo halo"}, 202)
+	msgs := f.finish(2)
+	reply := msgs[1]
+	if reply["text"] != "teks polos" {
+		t.Fatalf("rantai fallback harus sampai ke model plain, dapat: %v", reply)
+	}
+	if reply["error"] != nil && reply["error"] != "" {
+		t.Fatalf("balasan fallback tidak boleh error: %v", reply)
+	}
+}
+
+func TestDisabledToolsPerSeat(t *testing.T) {
+	f := setup(t, nil)
+	f.api("POST", "/api/settings", object{"seats": []object{
+		{"code": "M01", "disabledTools": []string{"web_search", "run_code"}},
+	}}, 200)
+	s := f.app.data.Seats[2] // M01
+	instructions := f.app.buildToolInstructions(true, s)
+	if strings.Contains(instructions, "- web_search:") || strings.Contains(instructions, "- run_code:") {
+		t.Fatal("instruksi tool harus menyembunyikan tool yang dinonaktifkan")
+	}
+	if !strings.Contains(instructions, "- fetch_url:") {
+		t.Fatal("tool lain harus tetap ditawarkan")
+	}
+	result, _ := f.app.runTool(context.Background(), f.app.data.Settings, s, "web_search", "uji", true)
+	if !strings.Contains(result, "dinonaktifkan") {
+		t.Fatalf("runTool harus menolak tool nonaktif, dapat: %q", result)
+	}
+	f.api("POST", "/api/settings", object{"seats": []object{
+		{"code": "M01", "disabledTools": []string{"Nama Buruk!"}},
+	}}, 400)
+}
+
+func TestProviderPricesAndStatsCost(t *testing.T) {
+	f := setup(t, nil)
+	out := f.api("POST", "/api/providers", object{
+		"name": "TesHarga", "baseUrl": "http://127.0.0.1:9/v1", "apiKey": "kunci-uji-1234",
+		"protocol": "openai", "priceInputPer1M": 2.5, "priceOutputPer1M": 10,
+	}, 201)
+	providers := asObjects(out["providers"])
+	_ = providers
+	list := f.api("GET", "/api/providers", nil, 200)
+	found := false
+	for _, p := range asObjects(list["providers"]) {
+		if p["name"] == "TesHarga" {
+			found = true
+			if p["priceInputPer1M"] != 2.5 || p["priceOutputPer1M"] != float64(10) {
+				t.Fatalf("harga provider tidak tersimpan: %v", p)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("provider TesHarga tidak ditemukan")
+	}
+	f.app.recordStat(seat{Code: "M01"}, settings{ProviderName: "TesHarga"}, "model-x", true, time.Second, 1_000_000, 500_000)
+	stats := f.api("GET", "/api/stats", nil, 200)["stats"].(object)
+	entry := stats["model:TesHarga/model-x"].(object)
+	if entry["estimatedCostUsd"] != 7.5 {
+		t.Fatalf("estimasi biaya harus 7.5 USD, dapat: %v", entry["estimatedCostUsd"])
+	}
+}
+
+// Grup D2: aktivitas tool live + kartu hasil tool.
+
+func TestToolCallsRecordedAndActivity(t *testing.T) {
+	calls := 0
+	f := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			io.WriteString(w, `{"data":[]}`)
+			return
+		}
+		var body struct{ Stream *bool }
+		json.NewDecoder(r.Body).Decode(&body)
+		calls++
+		text := "Sudah saya cek waktunya."
+		if calls == 1 {
+			text = "<<TOOL:current_time>>\n<</TOOL>>"
+		}
+		if body.Stream != nil && *body.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": text}}}})
+			io.WriteString(w, "data: "+string(raw)+"\n\ndata: [DONE]\n\n")
+			return
+		}
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": text}}}})
+		w.Write(raw)
+	})
+	f.api("POST", "/api/message", object{"text": "@Plamo jam berapa sekarang?"}, 202)
+	msgs := f.finish(2)
+	reply := msgs[1]
+	if reply["text"] != "Sudah saya cek waktunya." {
+		t.Fatalf("teks akhir salah: %v", reply)
+	}
+	toolCalls := asObjects(reply["toolCalls"])
+	if len(toolCalls) != 1 || toolCalls[0]["name"] != "current_time" || toolCalls[0]["ok"] != true {
+		t.Fatalf("toolCalls tidak tercatat benar: %v", reply["toolCalls"])
+	}
+	if result, _ := toolCalls[0]["result"].(string); !strings.Contains(result, "WIB") && !strings.Contains(result, "2026") {
+		t.Fatalf("pratinjau hasil tool kosong: %q", result)
+	}
+	raw, _ := json.Marshal(reply)
+	if !strings.Contains(string(raw), "current_time") {
+		t.Fatal("toolCalls harus ikut terkirim ke klien")
+	}
+}
+
+// Grup D1: streaming.
+
+func TestStreamDeltaParsers(t *testing.T) {
+	cases := []struct {
+		proto   protocol
+		payload string
+		want    string
+	}{
+		{protoOpenAI, `{"choices":[{"delta":{"content":"Halo "}}]}`, "Halo "},
+		{protoOpenAI, `{"choices":[{"delta":{"content":[{"text":"dunia"}]}}]}`, "dunia"},
+		{protoResponses, `{"type":"response.output_text.delta","delta":"potongan"}`, "potongan"},
+		{protoResponses, `{"type":"response.created"}`, ""},
+		{protoAnthropic, `{"type":"content_block_delta","delta":{"type":"text_delta","text":"teks"}}`, "teks"},
+		{protoGemini, `{"candidates":[{"content":{"parts":[{"text":"gemini "},{"text":"teks"}]}}]}`, "gemini teks"},
+		{protoOllama, `{"message":{"role":"assistant","content":"ollama"}}`, "ollama"},
+		{protoOpenAI, `[DONE]`, ""},
+	}
+	for _, c := range cases {
+		if got := streamDeltaText(c.proto, c.payload); got != c.want {
+			t.Errorf("streamDeltaText(%s, %s) = %q, ingin %q", c.proto, c.payload, got, c.want)
+		}
+	}
+}
+
+func TestStreamingEndToEndAndFallback(t *testing.T) {
+	f := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			io.WriteString(w, `{"data":[]}`)
+			return
+		}
+		var body struct {
+			Model  string
+			Stream *bool
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Model == "nostream" {
+			if body.Stream != nil && *body.Stream {
+				http.Error(w, "stream tidak didukung", 400)
+				return
+			}
+			io.WriteString(w, `{"choices":[{"message":{"content":"jawaban non-stream"}}]}`)
+			return
+		}
+		if body.Stream != nil && *body.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Halo \"}}]}\n\n")
+			io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"streaming\"}}]}\n\n")
+			io.WriteString(w, "data: [DONE]\n\n")
+			return
+		}
+		io.WriteString(w, `{"choices":[{"message":{"content":"jawaban biasa"}}]}`)
+	})
+	f.api("POST", "/api/settings", object{"settings": object{"streamingEnabled": true}, "seats": []object{{"code": "M01", "model": "streammodel"}, {"code": "M02", "model": "nostream"}}}, 200)
+	f.api("POST", "/api/message", object{"text": "@Plamo halo"}, 202)
+	msgs := f.finish(2)
+	if msgs[1]["text"] != "Halo streaming" {
+		t.Fatalf("hasil streaming salah: %v", msgs[1])
+	}
+	f.api("POST", "/api/message", object{"text": "@GLM halo"}, 202)
+	msgs = f.finish(4)
+	if msgs[3]["text"] != "jawaban non-stream" {
+		t.Fatalf("fallback non-stream salah: %v", msgs[3])
+	}
+}
+
+// Grup C: regenerate, pesan terjadwal, jadwal berulang.
+
+func TestRegenerateMessage(t *testing.T) {
+	f := setup(t, nil)
+	f.api("POST", "/api/message", object{"text": "@Plamo halo"}, 202)
+	msgs := f.finish(2)
+	oldID := msgs[1]["id"].(string)
+	f.api("POST", "/api/message/"+oldID+"/regenerate", object{}, 202)
+	msgs = f.finish(2)
+	if msgs[1]["id"] == oldID {
+		t.Fatal("regenerate harus membuat pesan baru")
+	}
+	if msgs[1]["status"] != "completed" {
+		t.Fatalf("balasan regenerate tidak selesai: %v", msgs[1])
+	}
+	// Pesan pemilik tidak bisa di-regenerate.
+	ownerID := msgs[0]["id"].(string)
+	f.api("POST", "/api/message/"+ownerID+"/regenerate", object{}, 403)
+}
+
+func TestScheduledMessagesCRUDAndFire(t *testing.T) {
+	f := setup(t, nil)
+	// Sekali kirim yang sudah jatuh tempo (1 menit lalu) → terkirim pada tick.
+	past := time.Now().Add(-time.Minute).UTC().Format("2006-01-02T15:04:05.000Z")
+	created := f.api("POST", "/api/scheduled", object{"text": "@Plamo pesan terjadwal", "sendAt": past}, 201)
+	if created["id"] == nil || created["nextAt"] == nil {
+		t.Fatalf("jadwal tidak dibuat: %v", created)
+	}
+	msgs := f.finish(2)
+	if msgs[0]["text"] != "@Plamo pesan terjadwal" {
+		t.Fatalf("pesan terjadwal tidak terkirim: %v", msgs[0])
+	}
+	list := f.api("GET", "/api/scheduled", nil, 200)
+	if len(asObjects(list["scheduled"])) != 0 {
+		t.Fatal("jadwal sekali kirim harus hilang setelah terkirim")
+	}
+	// Jadwal berulang harian: dibuat, dinonaktifkan, dihapus.
+	rec := f.api("POST", "/api/scheduled", object{"text": "ringkasan pagi", "recur": "daily", "timeOfDay": "07:00", "tzOffsetMinutes": 420}, 201)
+	recID := rec["id"].(string)
+	nextAt, _ := rec["nextAt"].(string)
+	parsed, err := time.Parse(time.RFC3339Nano, nextAt)
+	if err != nil {
+		t.Fatalf("nextAt tidak valid: %q", nextAt)
+	}
+	// 07:00 WIB = 00:00 UTC.
+	if parsed.Hour() != 0 || parsed.Minute() != 0 {
+		t.Fatalf("nextAt harian harus 00:00 UTC (07:00 WIB), dapat %v", parsed)
+	}
+	updated := f.api("POST", "/api/scheduled/"+recID, object{"enabled": false}, 200)
+	if updated["enabled"] != false {
+		t.Fatalf("toggle jadwal gagal: %v", updated)
+	}
+	f.api("DELETE", "/api/scheduled/"+recID, nil, 200)
+	f.api("GET", "/api/scheduled", nil, 200)
+	f.api("DELETE", "/api/scheduled/"+recID, nil, 404)
+	// Validasi.
+	f.api("POST", "/api/scheduled", object{"text": "", "sendAt": past}, 400)
+	f.api("POST", "/api/scheduled", object{"text": "x", "recur": "daily", "timeOfDay": "25:99"}, 400)
+}
+
+func TestComputeNextAtWeekly(t *testing.T) {
+	// Rabu 2026-11-25 10:00 WIB (UTC+7) → jadwal Senin 07:00 WIB berikutnya = 2026-11-30 00:00 UTC.
+	from := time.Date(2026, 11, 25, 3, 0, 0, 0, time.UTC)
+	s := scheduledMessage{Recur: "weekly", TimeOfDay: "07:00", Weekday: 1, TzOffsetMinutes: 420}
+	next, err := computeNextAt(s, from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC)
+	if !next.UTC().Equal(want) {
+		t.Fatalf("weekly next = %v, ingin %v", next.UTC(), want)
+	}
+}
+
+// Grup E: tool git, PDF dari Markdown, screenshot, ringkas URL.
+
+func TestGitToolReadOnly(t *testing.T) {
+	f := setup(t, nil)
+	dir := f.app.sandboxDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q"}, {"config", "user.email", "uji@test"}, {"config", "user.name", "Uji"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "halo.txt"), []byte("halo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, _ := f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "git", "status --short", true)
+	if !strings.Contains(result, "halo.txt") {
+		t.Fatalf("git status harus menampilkan halo.txt: %q", result)
+	}
+	result, _ = f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "git", "push origin main", true)
+	if !strings.Contains(result, "baca-saja") {
+		t.Fatalf("git push harus ditolak: %q", result)
+	}
+}
+
+func TestPDFFromMarkdownTool(t *testing.T) {
+	f := setup(t, nil)
+	result, _ := f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "pdf_from_markdown",
+		"laporan.pdf\n# Judul Laporan\n\nIni paragraf **penting** dengan teks panjang yang harus dibungkus rapi ke baris berikutnya tanpa terpotong.\n\n- Poin satu\n- Poin dua\n\n## Bagian Kedua\n\nPenutup.", true)
+	if !strings.Contains(result, "PDF dibuat: laporan.pdf") {
+		t.Fatalf("hasil pdf_from_markdown: %q", result)
+	}
+	raw, err := os.ReadFile(filepath.Join(f.app.sandboxDir(), "laporan.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(raw, []byte("%PDF-1.4")) || !bytes.Contains(raw, []byte("%%EOF")) {
+		t.Fatal("file bukan PDF valid")
+	}
+	if !bytes.Contains(raw, []byte("Judul Laporan")) {
+		t.Fatal("judul tidak ada di PDF")
+	}
+}
+
+func TestScreenshotAndSummarizeGuards(t *testing.T) {
+	f := setup(t, nil)
+	result, _ := f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "summarize_url", "http://127.0.0.1/rahasia", true)
+	if !strings.HasPrefix(result, "Error:") {
+		t.Fatalf("URL privat harus ditolak: %q", result)
+	}
+	result, _ = f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "screenshot_url", "bukan-url", true)
+	if !strings.HasPrefix(result, "Error:") {
+		t.Fatalf("URL tidak valid harus ditolak: %q", result)
+	}
+	if chrome := findChromeBinary(); chrome != "" {
+		if _, err := os.Stat(chrome); err != nil {
+			t.Fatalf("findChromeBinary menunjuk file tidak ada: %s", chrome)
+		}
+	}
+}
+
+// Grup F: pencarian lanjutan.
+
+func TestSearchFilters(t *testing.T) {
+	f := setup(t, nil)
+	f.api("POST", "/api/message", object{"text": "@Plamo cari kata unikzebra"}, 202)
+	f.finish(2)
+	f.api("POST", "/api/message", object{"text": "@GLM kata unikzebra juga"}, 202)
+	f.finish(4)
+	count := func(path string) int {
+		out := f.api("GET", path, nil, 200)
+		return len(asObjects(out["results"]))
+	}
+	if got := count("/api/search?q=unikzebra"); got < 2 {
+		t.Fatalf("pencarian dasar harus menemukan >=2, dapat %d", got)
+	}
+	if got := count("/api/search?q=unikzebra&seat=M01"); got != 0 {
+		t.Fatalf("filter kursi M01 harus 0 (balasan kursi tidak memuat kata itu), dapat %d", got)
+	}
+	if got := count("/api/search?q=teks%20polos&seat=M02"); got != 1 {
+		t.Fatalf("filter kursi M02 harus 1, dapat %d", got)
+	}
+	if got := count("/api/search?q=unikzebra&seat=owner"); got != 2 {
+		t.Fatalf("filter pemilik harus 2, dapat %d", got)
+	}
+	if got := count("/api/search?q=unikzebra&from=2099-01-01"); got != 0 {
+		t.Fatalf("filter tanggal masa depan harus 0, dapat %d", got)
+	}
+	if got := count("/api/search?q=unikzebra&hasImage=1"); got != 0 {
+		t.Fatalf("filter gambar harus 0, dapat %d", got)
+	}
+	if got := count("/api/search?seat=M02"); got != 1 {
+		t.Fatalf("filter tanpa kata kunci harus jalan, dapat %d", got)
+	}
+}
+
+// Grup G: template diskusi, ringkasan, kompaksi.
+
+func TestTemplatesCRUDAndUse(t *testing.T) {
+	f := setup(t, nil)
+	created := f.api("POST", "/api/templates", object{"name": "Brainstorm", "seats": []any{"M01", "M02"}, "instruction": "Beri sudut pandang berbeda."}, 201)
+	id, _ := created["id"].(string)
+	if id == "" {
+		t.Fatalf("template harus punya id: %v", created)
+	}
+	list := f.api("GET", "/api/templates", nil, 200)
+	if len(asObjects(list["templates"])) != 1 {
+		t.Fatalf("daftar template harus 1: %v", list)
+	}
+	f.api("POST", "/api/templates", object{"name": "", "seats": []any{"M01"}}, 400)
+	f.api("POST", "/api/templates", object{"name": "X", "seats": []any{"ZZZ"}}, 400)
+	job := f.api("POST", "/api/message", object{"text": "ide aplikasi", "templateId": id}, 202)
+	jobID, _ := job["jobId"].(string)
+	f.finish(3)
+	state := f.state()
+	var jobKind string
+	for _, j := range asObjects(state["jobs"]) {
+		if j["id"] == jobID {
+			jobKind, _ = j["kind"].(string)
+			steps := asObjects(j["steps"])
+			if len(steps) != 2 || steps[0]["seat"] != "M01" || steps[1]["seat"] != "M02" {
+				t.Fatalf("langkah template harus M01 lalu M02: %v", steps)
+			}
+		}
+	}
+	if jobKind != "template" {
+		t.Fatalf("kind pekerjaan harus template, dapat %q", jobKind)
+	}
+	f.api("DELETE", "/api/templates/"+id, nil, 200)
+	f.api("POST", "/api/message", object{"text": "halo", "templateId": id}, 404)
+}
+
+func TestSummarizeRoomAndCompaction(t *testing.T) {
+	f := setup(t, nil)
+	// Kursi integrator bawaan adalah MUSE (antrean); arahkan ke kursi gateway.
+	f.api("POST", "/api/settings", object{"settings": object{"integratorSeat": "M01"}}, 200)
+	f.api("POST", "/api/message", object{"text": "@Plamo diskusi awal"}, 202)
+	f.finish(2)
+	roomID, _ := f.state()["activeRoomId"].(string)
+	f.api("POST", "/api/rooms/"+roomID+"/summarize", nil, 202)
+	f.finish(3)
+	state := f.state()
+	found := false
+	for _, m := range asObjects(state["messages"]) {
+		if m["label"] == summaryLabel {
+			found = true
+			if m["pinned"] != true {
+				t.Fatalf("pesan ringkasan harus tersemat: %v", m)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("pesan ringkasan tidak ditemukan")
+	}
+	for _, r := range asObjects(state["rooms"]) {
+		if r["id"] == roomID {
+			if s, _ := r["summary"].(string); s == "" {
+				t.Fatal("ringkasan ruang harus tersimpan")
+			}
+			if c, _ := r["summaryCount"].(float64); c < 3 {
+				t.Fatalf("summaryCount harus >=3, dapat %v", c)
+			}
+		}
+	}
+	// Kompaksi: ruang dengan ringkasan + >40 pesan -> konteks diawali ringkasan.
+	d := f.app.data
+	room := d.findRoom(roomID)
+	room.Summary = "ringkasan lama"
+	for i := 0; i < 45; i++ {
+		d.Messages = append(d.Messages, &message{ID: uuid(), RoomID: roomID, AuthorType: "owner", Text: "pesan lama", Status: "completed"})
+	}
+	ctx := contextFor(d, &job{RoomID: roomID, Prompt: "lanjut"})
+	if len(ctx.Messages) == 0 || ctx.Messages[0].Text != "ringkasan lama" {
+		t.Fatalf("konteks kompak harus diawali ringkasan: %+v", ctx.Messages[:1])
+	}
+	if len(ctx.Messages) > 41 {
+		t.Fatalf("konteks kompak maksimal 41 entri, dapat %d", len(ctx.Messages))
+	}
+}
+
+// Grup B: sematan ruang, tema, ukuran font.
+
+func TestRoomPinnedAndTheme(t *testing.T) {
+	f := setup(t, nil)
+	roomID, _ := f.state()["activeRoomId"].(string)
+	f.api("POST", "/api/rooms/"+roomID, object{"pinned": true}, 200)
+	rooms := asObjects(f.state()["rooms"])
+	if len(rooms) != 1 || rooms[0]["pinned"] != true {
+		t.Fatalf("ruang harus tersemat: %v", rooms)
+	}
+	f.api("POST", "/api/settings", object{"settings": object{"theme": "auto", "fontSize": "L"}}, 200)
+	settings := f.state()["settings"].(map[string]any)
+	if settings["theme"] != "auto" || settings["fontSize"] != "L" {
+		t.Fatalf("tema/font harus tersimpan: %v", settings)
+	}
+	f.api("POST", "/api/settings", object{"settings": object{"theme": "neon"}}, 400)
+	f.api("POST", "/api/settings", object{"settings": object{"fontSize": "XL"}}, 400)
+	f.api("POST", "/api/settings", object{"settings": object{"theme": "dark"}}, 200)
+	if f.state()["settings"].(map[string]any)["darkMode"] != true {
+		t.Fatal("tema dark harus menyalakan darkMode lama")
+	}
+}
