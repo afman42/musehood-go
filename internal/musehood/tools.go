@@ -58,6 +58,10 @@ Tool yang tersedia:
 - generate_image: buat gambar dari deskripsi teks; gambar terlampir pada balasanmu. Argumen: deskripsi gambar.
 - memory_save: simpan catatan penting ke memori kursimu (akan kamu ingat di percakapan berikutnya). Argumen: catatan singkat.
 - current_time: tanggal dan waktu sekarang. Argumen: kosongkan.
+- git: perintah git baca-saja di folder kerja. Argumen: subperintah, mis. "status", "diff", "log --oneline -5", "show HEAD".
+- screenshot_url: ambil screenshot halaman web; gambar terlampir pada balasanmu. Argumen: URL lengkap (http/https).
+- summarize_url: ambil isi halaman web untuk kamu ringkas. Argumen: URL lengkap (http/https).
+- pdf_from_markdown: buat file PDF dari teks Markdown di folder kerja. Baris pertama argumen (opsional): nama file .pdf; baris berikutnya: isi Markdown.
 
 Gunakan tool hanya bila benar-benar perlu (mis. butuh info terkini dari web atau isi file). Bila tidak perlu, jawab langsung tanpa blok tool.`
 
@@ -253,6 +257,14 @@ func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg strin
 		return a.toolMemorySave(s, arg), ""
 	case "current_time":
 		return toolCurrentTime(), ""
+	case "git":
+		return a.toolGit(ctx, arg), ""
+	case "screenshot_url":
+		return a.toolScreenshotURL(ctx, arg)
+	case "summarize_url":
+		return a.toolSummarizeURL(ctx, arg), ""
+	case "pdf_from_markdown":
+		return a.toolPDFFromMarkdown(arg), ""
 	case "run_code":
 		if !code {
 			return "Error: tool coding dimatikan di Pengaturan.", ""

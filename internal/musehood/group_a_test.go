@@ -1,10 +1,14 @@
 package musehood
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -259,5 +263,69 @@ func TestComputeNextAtWeekly(t *testing.T) {
 	want := time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC)
 	if !next.UTC().Equal(want) {
 		t.Fatalf("weekly next = %v, ingin %v", next.UTC(), want)
+	}
+}
+
+// Grup E: tool git, PDF dari Markdown, screenshot, ringkas URL.
+
+func TestGitToolReadOnly(t *testing.T) {
+	f := setup(t, nil)
+	dir := f.app.sandboxDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q"}, {"config", "user.email", "uji@test"}, {"config", "user.name", "Uji"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "halo.txt"), []byte("halo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, _ := f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "git", "status --short", true)
+	if !strings.Contains(result, "halo.txt") {
+		t.Fatalf("git status harus menampilkan halo.txt: %q", result)
+	}
+	result, _ = f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "git", "push origin main", true)
+	if !strings.Contains(result, "baca-saja") {
+		t.Fatalf("git push harus ditolak: %q", result)
+	}
+}
+
+func TestPDFFromMarkdownTool(t *testing.T) {
+	f := setup(t, nil)
+	result, _ := f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "pdf_from_markdown",
+		"laporan.pdf\n# Judul Laporan\n\nIni paragraf **penting** dengan teks panjang yang harus dibungkus rapi ke baris berikutnya tanpa terpotong.\n\n- Poin satu\n- Poin dua\n\n## Bagian Kedua\n\nPenutup.", true)
+	if !strings.Contains(result, "PDF dibuat: laporan.pdf") {
+		t.Fatalf("hasil pdf_from_markdown: %q", result)
+	}
+	raw, err := os.ReadFile(filepath.Join(f.app.sandboxDir(), "laporan.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(raw, []byte("%PDF-1.4")) || !bytes.Contains(raw, []byte("%%EOF")) {
+		t.Fatal("file bukan PDF valid")
+	}
+	if !bytes.Contains(raw, []byte("Judul Laporan")) {
+		t.Fatal("judul tidak ada di PDF")
+	}
+}
+
+func TestScreenshotAndSummarizeGuards(t *testing.T) {
+	f := setup(t, nil)
+	result, _ := f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "summarize_url", "http://127.0.0.1/rahasia", true)
+	if !strings.HasPrefix(result, "Error:") {
+		t.Fatalf("URL privat harus ditolak: %q", result)
+	}
+	result, _ = f.app.runTool(context.Background(), f.app.data.Settings, seat{}, "screenshot_url", "bukan-url", true)
+	if !strings.HasPrefix(result, "Error:") {
+		t.Fatalf("URL tidak valid harus ditolak: %q", result)
+	}
+	if chrome := findChromeBinary(); chrome != "" {
+		if _, err := os.Stat(chrome); err != nil {
+			t.Fatalf("findChromeBinary menunjuk file tidak ada: %s", chrome)
+		}
 	}
 }
