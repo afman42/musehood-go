@@ -403,6 +403,8 @@ func TestTemplatesCRUDAndUse(t *testing.T) {
 
 func TestSummarizeRoomAndCompaction(t *testing.T) {
 	f := setup(t, nil)
+	// Kursi integrator bawaan adalah MUSE (antrean); arahkan ke kursi gateway.
+	f.api("POST", "/api/settings", object{"integratorSeat": "M01"}, 200)
 	f.api("POST", "/api/message", object{"text": "@Plamo diskusi awal"}, 202)
 	f.finish(2)
 	roomID, _ := f.state()["activeRoomId"].(string)
