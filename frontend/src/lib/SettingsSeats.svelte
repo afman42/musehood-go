@@ -138,7 +138,7 @@
         <span class="model-label">Skill aktif</span>
         <SkillPicker bind:value={item.skills} available={availableSkills} code={item.code} />
         <span class="field-hint">{skillsEnabled
-          ? 'Cari skill lalu tekan untuk menempel ke kursi ini; isinya (SKILL.md di folder skills/ server) disisipkan ke instruksi kursi.'
+          ? 'Cari skill lalu tekan untuk menempel ke kursi ini. Skill dibaca dari folder skills/ server dan direktori skills.sh (~/.agents/skills, ~/.claude/skills); isinya disisipkan ke instruksi kursi.'
           : 'Skill sedang NONAKTIF global (saklar di bagian atas Pengaturan). Pilihan tetap tersimpan, tapi tidak dipakai sampai diaktifkan lagi.'}</span>
         {#if item.code.startsWith('C')}
           <button class="text-button danger-text" type="button" onclick={() => removeSeat(item.code, item.name)}>Hapus kursi ini</button>
