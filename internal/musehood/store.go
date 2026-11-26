@@ -106,6 +106,13 @@ type settings struct {
 	// skill yang dipilih per kursi tidak disisipkan ke system prompt.
 	// Nil berarti aktif.
 	SkillsEnabled *bool `json:"skillsEnabled,omitempty"`
+	// StreamingEnabled mengizinkan balasan gateway ditampilkan bertahap
+	// (streaming SSE) selagi model menjawab. Nil berarti aktif.
+	StreamingEnabled *bool `json:"streamingEnabled,omitempty"`
+}
+
+func (s settings) streamingOn() bool {
+	return s.StreamingEnabled == nil || *s.StreamingEnabled
 }
 
 func (s settings) toolsOn() bool {
@@ -1168,8 +1175,9 @@ type settingsUpdate struct {
 		DemoFallback    *bool   `json:"demoFallback"`
 		DarkMode        *bool   `json:"darkMode"`
 		IntegratorSeat  *string `json:"integratorSeat"`
-		ToolsEnabled    *bool   `json:"toolsEnabled"`
-		CodeToolEnabled *bool   `json:"codeToolEnabled"`
+		ToolsEnabled     *bool   `json:"toolsEnabled"`
+		CodeToolEnabled  *bool   `json:"codeToolEnabled"`
+		StreamingEnabled *bool   `json:"streamingEnabled"`
 		SkillsEnabled   *bool   `json:"skillsEnabled"`
 		ClearAPIKey     bool    `json:"clearApiKey"`
 	} `json:"settings"`
@@ -1348,6 +1356,10 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		if patch.SkillsEnabled != nil {
 			enabled := *patch.SkillsEnabled
 			next.Settings.SkillsEnabled = &enabled
+		}
+		if patch.StreamingEnabled != nil {
+			enabled := *patch.StreamingEnabled
+			next.Settings.StreamingEnabled = &enabled
 		}
 		if patch.IntegratorSeat != nil {
 			code := strings.TrimSpace(*patch.IntegratorSeat)

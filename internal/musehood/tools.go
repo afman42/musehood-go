@@ -139,8 +139,14 @@ func toolResultOK(result string) bool {
 		!strings.Contains(result, "dinonaktifkan untuk kursi ini")
 }
 
-func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools, code bool, onActivity func(toolName string)) (workerReply, error) {
-	text, err := a.chat(ctx, cfg, s, history)
+func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools, code, stream bool, onActivity func(toolName string), onDelta func(partial string)) (workerReply, error) {
+	chatFn := a.chat
+	if stream {
+		chatFn = func(ctx context.Context, cfg settings, s seat, history []gatewayMessage) (string, error) {
+			return a.chatStream(ctx, cfg, s, history, onDelta)
+		}
+	}
+	text, err := chatFn(ctx, cfg, s, history)
 	if err != nil {
 		return workerReply{}, err
 	}
@@ -173,7 +179,7 @@ func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history [
 			gatewayMessage{"assistant", text},
 			gatewayMessage{"user", fmt.Sprintf("Hasil tool %s:\n%s\n\nLanjutkan jawabanmu untuk pengguna berdasarkan hasil di atas.", name, result)},
 		)
-		next, err := a.chat(ctx, cfg, s, history)
+		next, err := chatFn(ctx, cfg, s, history)
 		if err != nil {
 			break
 		}

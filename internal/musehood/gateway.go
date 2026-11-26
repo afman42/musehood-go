@@ -307,6 +307,28 @@ func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayM
 	a.recordStat(s, cfg, *s.Model, true, time.Since(start), promptTokens, completionTokens)
 	return text, nil
 }
+
+// chatStream seperti chat, tetapi mencoba streaming lebih dulu: onDelta
+// menerima teks parsial selama model menjawab. Bila streaming gagal atau
+// kosong, jatuh kembali ke chat biasa (yang mencatat statistiknya sendiri).
+func (a *App) chatStream(ctx context.Context, cfg settings, s seat, history []gatewayMessage, onDelta func(partial string)) (string, error) {
+	if s.Provider == "muse" {
+		return "", errors.New("Kursi ini memakai antrean file Muse.")
+	}
+	if s.Model == nil || *s.Model == "" {
+		return "", problem(400, fmt.Sprintf("Nama model %s (%s) belum diisi di Pengaturan.", s.Name, s.Code))
+	}
+	start := time.Now()
+	text, err := a.protocolChatStream(ctx, cfg, *s.Model, history, onDelta)
+	if err == nil {
+		a.recordStat(s, cfg, *s.Model, true, time.Since(start), 0, 0)
+		return text, nil
+	}
+	if ctx.Err() != nil {
+		return "", err
+	}
+	return a.chat(ctx, cfg, s, history)
+}
 func (a *App) generateImage(ctx context.Context, cfg settings, s seat, prompt string) (string, error) {
 	start := time.Now()
 	image, err := a.generateImageInner(ctx, cfg, s, prompt)

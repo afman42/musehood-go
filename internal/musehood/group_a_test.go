@@ -88,12 +88,21 @@ func TestToolCallsRecordedAndActivity(t *testing.T) {
 			io.WriteString(w, `{"data":[]}`)
 			return
 		}
+		var body struct{ Stream *bool }
+		json.NewDecoder(r.Body).Decode(&body)
 		calls++
+		text := "Sudah saya cek waktunya."
 		if calls == 1 {
-			io.WriteString(w, `{"choices":[{"message":{"content":"<<TOOL:current_time>>\n<</TOOL>>"}}]}`)
+			text = "<<TOOL:current_time>>\n<</TOOL>>"
+		}
+		if body.Stream != nil && *body.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": text}}}})
+			io.WriteString(w, "data: "+string(raw)+"\n\ndata: [DONE]\n\n")
 			return
 		}
-		io.WriteString(w, `{"choices":[{"message":{"content":"Sudah saya cek waktunya."}}]}`)
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": text}}}})
+		w.Write(raw)
 	})
 	f.api("POST", "/api/message", object{"text": "@Plamo jam berapa sekarang?"}, 202)
 	msgs := f.finish(2)
@@ -111,5 +120,70 @@ func TestToolCallsRecordedAndActivity(t *testing.T) {
 	raw, _ := json.Marshal(reply)
 	if !strings.Contains(string(raw), "current_time") {
 		t.Fatal("toolCalls harus ikut terkirim ke klien")
+	}
+}
+
+// Grup D1: streaming.
+
+func TestStreamDeltaParsers(t *testing.T) {
+	cases := []struct {
+		proto   protocol
+		payload string
+		want    string
+	}{
+		{protoOpenAI, `{"choices":[{"delta":{"content":"Halo "}}]}`, "Halo "},
+		{protoOpenAI, `{"choices":[{"delta":{"content":[{"text":"dunia"}]}}]}`, "dunia"},
+		{protoResponses, `{"type":"response.output_text.delta","delta":"potongan"}`, "potongan"},
+		{protoResponses, `{"type":"response.created"}`, ""},
+		{protoAnthropic, `{"type":"content_block_delta","delta":{"type":"text_delta","text":"teks"}}`, "teks"},
+		{protoGemini, `{"candidates":[{"content":{"parts":[{"text":"gemini "},{"text":"teks"}]}}]}`, "gemini teks"},
+		{protoOllama, `{"message":{"role":"assistant","content":"ollama"}}`, "ollama"},
+		{protoOpenAI, `[DONE]`, ""},
+	}
+	for _, c := range cases {
+		if got := streamDeltaText(c.proto, c.payload); got != c.want {
+			t.Errorf("streamDeltaText(%s, %s) = %q, ingin %q", c.proto, c.payload, got, c.want)
+		}
+	}
+}
+
+func TestStreamingEndToEndAndFallback(t *testing.T) {
+	f := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			io.WriteString(w, `{"data":[]}`)
+			return
+		}
+		var body struct {
+			Model  string
+			Stream *bool
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Model == "nostream" {
+			if body.Stream != nil && *body.Stream {
+				http.Error(w, "stream tidak didukung", 400)
+				return
+			}
+			io.WriteString(w, `{"choices":[{"message":{"content":"jawaban non-stream"}}]}`)
+			return
+		}
+		if body.Stream != nil && *body.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Halo \"}}]}\n\n")
+			io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"streaming\"}}]}\n\n")
+			io.WriteString(w, "data: [DONE]\n\n")
+			return
+		}
+		io.WriteString(w, `{"choices":[{"message":{"content":"jawaban biasa"}}]}`)
+	})
+	f.api("POST", "/api/settings", object{"settings": object{"streamingEnabled": true}, "seats": []object{{"code": "M01", "model": "streammodel"}, {"code": "M02", "model": "nostream"}}}, 200)
+	f.api("POST", "/api/message", object{"text": "@Plamo halo"}, 202)
+	msgs := f.finish(2)
+	if msgs[1]["text"] != "Halo streaming" {
+		t.Fatalf("hasil streaming salah: %v", msgs[1])
+	}
+	f.api("POST", "/api/message", object{"text": "@GLM halo"}, 202)
+	msgs = f.finish(4)
+	if msgs[3]["text"] != "jawaban non-stream" {
+		t.Fatalf("fallback non-stream salah: %v", msgs[3])
 	}
 }

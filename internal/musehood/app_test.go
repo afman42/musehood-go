@@ -103,7 +103,7 @@ func setup(t *testing.T, gatewayExtra http.HandlerFunc) fixture {
 	server := httptest.NewServer(app)
 	t.Cleanup(server.Close)
 	f := fixture{t: t, server: server, dir: dir, app: app}
-	f.api("POST", "/api/settings", object{"settings": object{"baseUrl": gateway.URL + "/v1/", "apiKey": secret}, "seats": []object{{"code": "M10", "model": "sse"}, {"code": "M01", "model": "array"}, {"code": "M02", "model": "plain"}, {"code": "M04", "model": "missing-from-list"}, {"code": "M03", "model": "image"}, {"code": "M05", "model": "delta"}}}, 200)
+	f.api("POST", "/api/settings", object{"settings": object{"baseUrl": gateway.URL + "/v1/", "apiKey": secret, "streamingEnabled": false}, "seats": []object{{"code": "M10", "model": "sse"}, {"code": "M01", "model": "array"}, {"code": "M02", "model": "plain"}, {"code": "M04", "model": "missing-from-list"}, {"code": "M03", "model": "image"}, {"code": "M05", "model": "delta"}}}, 200)
 	return f
 }
 func (f fixture) api(method, path string, body any, status int) object {

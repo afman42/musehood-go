@@ -523,18 +523,27 @@ func (a *App) advanceLocked(j *job) {
 			}
 			tools := a.data.Settings.toolsOn()
 			code := a.data.Settings.codeToolOn()
+			stream := a.data.Settings.streamingOn()
 			a.runLocked(j, s, member, m, false, func(ctx context.Context) (workerReply, error) {
 				onActivity := func(toolName string) {
 					a.mu.Lock()
 					m.StatusText = member.Name + " menjalankan " + toolName + "…"
 					a.mu.Unlock()
 				}
-				reply, err := a.chatWithTools(ctx, cfg, member, history, tools, code, onActivity)
+				onDelta := func(partial string) {
+					if idx := strings.Index(partial, "<<TOOL:"); idx >= 0 {
+						partial = partial[:idx]
+					}
+					a.mu.Lock()
+					m.Text = a.redactLocked(partial)
+					a.mu.Unlock()
+				}
+				reply, err := a.chatWithTools(ctx, cfg, member, history, tools, code, stream, onActivity, onDelta)
 				for _, fb := range fallbacks {
 					if err == nil {
 						break
 					}
-					if fbReply, fbErr := a.chatWithTools(ctx, fb.cfg, fb.member, history, tools, code, onActivity); fbErr == nil {
+					if fbReply, fbErr := a.chatWithTools(ctx, fb.cfg, fb.member, history, tools, code, stream, onActivity, onDelta); fbErr == nil {
 						return fbReply, nil
 					}
 				}

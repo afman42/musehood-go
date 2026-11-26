@@ -9,6 +9,7 @@ export type Settings = {
   toolsEnabled?: boolean;
   codeToolEnabled?: boolean;
   skillsEnabled?: boolean;
+  streamingEnabled?: boolean;
 };
 export type SkillDef = { name: string; description: string; source?: string };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
