@@ -56,5 +56,5 @@
     </article>
   {/each}
   <label>Nama preset<input aria-label="Nama preset baru" maxlength="80" placeholder="Contoh: Susunan riset" autocomplete="off" bind:value={presetName}></label>
-  <button class="secondary-button" type="button" onclick={savePreset} style="margin-top:10px">Simpan preset dari susunan saat ini</button>
+  <button class="secondary-button mt-10" type="button" onclick={savePreset}>Simpan preset dari susunan saat ini</button>
 </section>

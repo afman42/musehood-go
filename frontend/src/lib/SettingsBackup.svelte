@@ -37,7 +37,7 @@
     <a class="secondary-button" href="/api/backup" download="cadangan-musehood.json">Unduh cadangan</a>
     <button class="secondary-button" type="button" onclick={() => restoreInput.click()} disabled={restoring}>{restoring ? 'Memulihkan…' : 'Pulihkan cadangan'}</button>
   </div>
-  <p class="section-hint" style="margin-top:14px">Ekspor riwayat ruang aktif:</p>
+  <p class="section-hint mt-14">Ekspor riwayat ruang aktif:</p>
   <div class="provider-form-actions">
     <a class="secondary-button" href={`/api/export?format=md&room=${current?.activeRoomId ?? ''}`} download="riwayat-musehood.md">Markdown</a>
     <a class="secondary-button" href={`/api/export?format=json&room=${current?.activeRoomId ?? ''}`} download="riwayat-musehood.json">JSON</a>
