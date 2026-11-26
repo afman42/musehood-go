@@ -1,0 +1,29 @@
+[Unit]
+Description=Musehood Go — obrolan grup multi-AI
+Documentation=https://github.com/afman42/musehood-go
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+ExecStart=@BIN@ -host @HOST@ -port @PORT@ -data-dir @DATA_DIR@
+WorkingDirectory=@DATA_DIR@
+Restart=on-failure
+RestartSec=3
+
+# Pengerasan dasar. Catatan: tool run_code/run_shell memakai bubblewrap;
+# pastikan user namespace tidak dimatikan di kernel (kernel.unprivileged_userns_clone=1).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=@DATA_DIR@
+CapabilityBoundingSet=
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

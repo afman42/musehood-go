@@ -32,6 +32,28 @@ Buka **http://127.0.0.1:3001**. Skrip memasang dependensi npm, membuat `frontend
 
 Flag mengalahkan env, env mengalahkan bawaan. Proxy lokal perlu meneruskan Host yang sama dengan host pada Origin browser. Host dan Origin diperiksa pada request, termasuk endpoint pekerja.
 
+### Instalasi sebagai service (opsional)
+
+Untuk menjalankan Musehood Go sebagai service latar di Linux, gunakan `install.sh`:
+
+```sh
+./install.sh                      # binary saja (ke /usr/local/bin atau ~/.local/bin)
+sudo ./install.sh --service       # binary + service latar
+sudo ./install.sh --uninstall     # lepas service + binary (data dipertahankan)
+```
+
+`install.sh` mengunduh binary rilis yang sesuai arsitektur mesin (atau pakai `--binary PATH` untuk binary lokal), lalu — bila `--service` — mendeteksi init system dan memasang service yang cocok:
+
+| Init system | Template | Contoh distro |
+| --- | --- | --- |
+| systemd | `packaging/systemd/musehood-go.service` | Ubuntu, Debian, Fedora, Arch, RHEL, openSUSE |
+| OpenRC | `packaging/openrc/musehood-go` | Alpine, Gentoo, Artix |
+| SysV init | `packaging/sysv/musehood-go` | distro lama |
+
+Service berjalan sebagai user sistem khusus (`musehood`, dibuat otomatis), data di `/var/lib/musehood-go`, dan memakai flag CLI (`-host`, `-port`, `-data-dir`). Semua bisa diubah lewat opsi: `--user`, `--host`, `--port`, `--data-dir`, `--service-name`, `--version`. Lihat `./install.sh --help`. Repo GitHub bersifat privat — set `GITHUB_TOKEN` bila unduhan butuh autentikasi.
+
+Catatan: unit systemd menyertakan pengerasan dasar (`NoNewPrivileges`, `ProtectSystem=full`, dll.). Tool `run_code`/`run_shell` memakai bubblewrap, jadi pastikan user namespace tidak dimatikan di kernel.
+
 ## Build release (semua platform)
 
 `build-release.sh` membangun frontend sekali, lalu cross-compile binary Go untuk semua pasangan `GOOS/GOARCH` dari `go tool dist list` (`CGO_ENABLED=0`, `GOPROXY=off`, `GOFLAGS=-mod=mod`). Hasilnya di `dist/<os>-<arch>/musehood-go` (`.exe` untuk windows).
