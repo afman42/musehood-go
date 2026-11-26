@@ -143,6 +143,11 @@ export function createChat(hooks: ChatHooks = {}) {
     }, 300);
   }
 
+  async function decideApproval(id: string, approved: boolean) {
+    await api(`/api/approvals/${id}`, { approved });
+    await refresh();
+  }
+
   function clearSearchResults() {
     clearTimeout(searchTimer);
     serverResults = [];
@@ -173,6 +178,7 @@ export function createChat(hooks: ChatHooks = {}) {
     uploadFile,
     scheduleSearch,
     clearSearchResults,
+    decideApproval,
   };
 }
 

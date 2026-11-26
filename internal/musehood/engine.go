@@ -520,10 +520,11 @@ func (a *App) advanceLocked(j *job) {
 				hasFallback = true
 			}
 			tools := a.data.Settings.toolsOn()
+			code := a.data.Settings.codeToolOn()
 			a.runLocked(j, s, member, m, false, func(ctx context.Context) (workerReply, error) {
-				reply, err := a.chatWithTools(ctx, cfg, member, history, tools)
+				reply, err := a.chatWithTools(ctx, cfg, member, history, tools, code)
 				if err != nil && hasFallback {
-					if fbReply, fbErr := a.chatWithTools(ctx, fbCfg, fbMember, history, tools); fbErr == nil {
+					if fbReply, fbErr := a.chatWithTools(ctx, fbCfg, fbMember, history, tools, code); fbErr == nil {
 						return fbReply, nil
 					}
 				}
