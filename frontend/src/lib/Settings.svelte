@@ -49,6 +49,7 @@
       prompt: seat.prompt || seat.defaultPrompt || '',
       fallbackModel: seat.fallbackModel ?? '',
       memory: seat.memory ?? '',
+      skills: (seat.skills ?? []).join(', '),
     }));
     integratorSeat = current.settings.integratorSeat || 'MUSE';
     roomEdits = (current.rooms ?? []).map((room) => ({
@@ -79,7 +80,8 @@
     saving = true;
     try {
       await mutate('/api/settings', {
-        owner: { name: ownerName }, group: { name: groupName }, seats,
+        owner: { name: ownerName }, group: { name: groupName },
+        seats: seats.map((s) => ({ ...s, skills: s.skills.split(',').map((x) => x.trim()).filter(Boolean) })),
         settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled },
       });
       providersPanel?.clearConnectionError();

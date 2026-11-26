@@ -40,6 +40,9 @@ type seat struct {
 	// Memory adalah catatan persisten kursi yang disisipkan ke system prompt
 	// setiap kali kursi menjawab, dan tetap ada setelah chat dibersihkan.
 	Memory string `json:"memory,omitempty"`
+	// Skills adalah nama skill (folder skills/) yang aktif untuk kursi ini;
+	// badan skill disisipkan ke system prompt.
+	Skills []string `json:"skills,omitempty"`
 }
 type settings struct {
 	BaseURL          string `json:"baseUrl"`
@@ -182,8 +185,9 @@ type presetSeat struct {
 	Provider      string  `json:"provider"`
 	Model         *string `json:"model,omitempty"`
 	Prompt        string  `json:"prompt,omitempty"`
-	FallbackModel string  `json:"fallbackModel,omitempty"`
-	Memory        string  `json:"memory,omitempty"`
+	FallbackModel string   `json:"fallbackModel,omitempty"`
+	Memory        string   `json:"memory,omitempty"`
+	Skills        []string `json:"skills,omitempty"`
 }
 
 // seatPreset adalah templat susunan kursi yang bisa disimpan dan dimuat ulang.
@@ -1041,13 +1045,14 @@ type settingsUpdate struct {
 	Group *nameUpdate `json:"group"`
 	Seats *[]struct {
 		nameUpdate
-		Code          string  `json:"code"`
-		Role          *string `json:"role"`
-		Provider      *string `json:"provider"`
-		Model         *string `json:"model"`
-		Prompt        *string `json:"prompt"`
-		FallbackModel *string `json:"fallbackModel"`
-		Memory        *string `json:"memory"`
+		Code          string    `json:"code"`
+		Role          *string   `json:"role"`
+		Provider      *string   `json:"provider"`
+		Model         *string   `json:"model"`
+		Prompt        *string   `json:"prompt"`
+		FallbackModel *string   `json:"fallbackModel"`
+		Memory        *string   `json:"memory"`
+		Skills        *[]string `json:"skills"`
 	} `json:"seats"`
 	Settings *struct {
 		BaseURL         *string `json:"baseUrl"`
@@ -1141,6 +1146,23 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 					return problem(400, "Memori kursi maksimal 4000 karakter, tanpa karakter kontrol.")
 				}
 				s.Memory = memory
+			}
+			if patch.Skills != nil {
+				if len(*patch.Skills) > 20 {
+					return problem(400, "Maksimal 20 skill per kursi.")
+				}
+				skills := make([]string, 0, len(*patch.Skills))
+				for _, name := range *patch.Skills {
+					name = strings.TrimSpace(name)
+					if name == "" {
+						continue
+					}
+					if jsLength(name) > 60 || badSetting.MatchString(name) {
+						return problem(400, "Nama skill tidak valid.")
+					}
+					skills = append(skills, name)
+				}
+				s.Skills = skills
 			}
 		}
 		seen := map[string]bool{}

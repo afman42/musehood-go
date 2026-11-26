@@ -39,7 +39,7 @@ func defaultPromptFor(s seat) string {
 	return "Laksanakan peran " + role + "."
 }
 
-func systemPrompt(s seat, d data) string {
+func (a *App) systemPrompt(s seat, d data) string {
 	rolePrompt := strings.TrimSpace(s.Prompt)
 	if rolePrompt == "" {
 		rolePrompt = defaultPromptFor(s)
@@ -51,6 +51,7 @@ func systemPrompt(s seat, d data) string {
 	if memory := strings.TrimSpace(s.Memory); memory != "" {
 		prompt += " Memori kursi (catatan persisten yang harus kamu ingat dan pakai): " + memory
 	}
+	prompt += a.skillsPrompt(s)
 	return prompt
 }
 
@@ -100,10 +101,10 @@ type gatewayMessage struct {
 	Content string `json:"content"`
 }
 
-func gatewayMessages(s seat, d data, j *job) []gatewayMessage {
-	system := systemPrompt(s, d)
+func (a *App) gatewayMessages(s seat, d data, j *job) []gatewayMessage {
+	system := a.systemPrompt(s, d)
 	if d.Settings.toolsOn() {
-		system += buildToolInstructions(d.Settings.codeToolOn())
+		system += a.buildToolInstructions(d.Settings.codeToolOn())
 	}
 	history := []gatewayMessage{{"system", system}}
 	for _, m := range contextFor(d, j).Messages {

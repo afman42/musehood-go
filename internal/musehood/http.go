@@ -289,7 +289,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	path := r.URL.Path
 	var want string
 	switch path {
-	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search":
+	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools":
 		want = http.MethodGet
 	case "/api/providers", "/api/rooms", "/api/presets":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -388,6 +388,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return 0, nil, err
 		}
 		return a.respondLocked(201, func() (any, error) { return a.createPresetLocked(body.Name) })
+	case "/api/skills":
+		return a.respondLocked(200, func() (any, error) { return map[string]any{"skills": a.loadSkills()}, nil })
+	case "/api/tools":
+		return a.respondLocked(200, func() (any, error) { return map[string]any{"tools": a.loadCustomTools()}, nil })
 	case "/api/stats":
 		return a.respondLocked(200, func() (any, error) { return map[string]any{"stats": a.data.Stats}, nil })
 	case "/api/search":
