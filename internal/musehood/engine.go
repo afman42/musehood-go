@@ -454,6 +454,14 @@ func (a *App) advanceLocked(j *job) {
 			})
 			return
 		}
+		if s.Kind == "vote" && member.Provider == "muse" {
+			// Pemilih voting hanya kursi gateway. Kursi yang berubah jalur
+			// ke antrean setelah voting dibuat dilewati, agar pekerja antrean
+			// tidak menjawab dengan prompt chat biasa.
+			m.Error = "Kursi antrean Muse tidak ikut voting."
+			a.finishStepLocked(j, s, m)
+			continue
+		}
 		if member.Provider == "muse" {
 			if err := a.enqueueLocked(j, s, member, m); err == nil {
 				return
@@ -564,6 +572,7 @@ func (a *App) runLocked(j *job, s *step, member seat, m *message, worker bool, r
 		a.advanceLocked(j)
 	})
 }
+
 // clearLocked membersihkan pesan dan pekerjaan satu ruang saja (bawaan:
 // ruang aktif). Ruang lain dan pengaturan tetap utuh.
 func (a *App) clearLocked(roomID string) error {

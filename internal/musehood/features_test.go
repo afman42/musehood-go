@@ -99,6 +99,78 @@ func TestRoomsCRUDAndIsolation(t *testing.T) {
 	f.api("DELETE", "/api/rooms/"+defaultRoomID, nil, 400)
 }
 
+func TestUpdateRoom(t *testing.T) {
+	f := setup(t, nil)
+	out := f.api("POST", "/api/rooms", object{"name": "Awal", "seatCodes": []string{"M01"}}, 201)
+	id := out["activeRoomId"].(string)
+
+	updated := f.api("POST", "/api/rooms/"+id, object{"name": "Diganti", "seatCodes": []string{"M01", "M02"}}, 200)
+	rooms := asObjects(updated["rooms"])
+	found := false
+	for _, r := range rooms {
+		if r["id"] == id {
+			found = true
+			if r["name"] != "Diganti" || len(r["seatCodes"].([]any)) != 2 {
+				t.Fatalf("ruang tidak terupdate: %v", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("ruang hasil update tidak ditemukan")
+	}
+	f.api("POST", "/api/rooms/"+id, object{"seatCodes": []string{"TIDAKADA"}}, 400)
+	f.api("POST", "/api/rooms/room-hantu", object{"name": "X"}, 404)
+	f.api("POST", "/api/rooms/"+id, object{"name": "  "}, 400)
+}
+
+func TestVoteOnlyQueueAnswersRejected(t *testing.T) {
+	f := setup(t, nil)
+	// Jadikan M01 kursi antrean juga, lalu diskusi dijawab dua kursi antrean.
+	f.api("POST", "/api/settings", object{"seats": []object{{"code": "M01", "provider": "muse"}}}, 200)
+	f.api("POST", "/api/message", object{"text": "@Muse @Plamo halo antrean"}, 202)
+	for range 2 {
+		q := f.pending("chat")
+		f.api("POST", "/api/queue/muse/"+q["id"].(string), object{"text": "jawaban antrean"}, 200)
+	}
+	f.finish(3)
+	// Kandidat ada dua, tetapi tidak ada pemilih gateway.
+	f.api("POST", "/api/vote", object{}, 409)
+}
+
+func TestPresetApplyNameCollisionRejected(t *testing.T) {
+	f := setup(t, nil)
+	preset := f.api("POST", "/api/presets", object{"name": "Tabrakan"}, 201)
+	id := preset["id"].(string)
+	f.app.mu.Lock()
+	for i := range f.app.data.Presets {
+		if f.app.data.Presets[i].ID == id {
+			f.app.data.Presets[i].Seats[1].Name = f.app.data.Presets[i].Seats[0].Name
+		}
+	}
+	f.app.mu.Unlock()
+	f.api("POST", "/api/presets/"+id+"/apply", object{}, 400)
+}
+
+func TestRestoreRejectsInvalidJob(t *testing.T) {
+	f := setup(t, nil)
+	res, err := http.Get(f.server.URL + "/api/backup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	var backup object
+	if json.Unmarshal(raw, &backup) != nil {
+		t.Fatal("cadangan bukan JSON")
+	}
+	backup["jobs"] = []object{{"id": uuid(), "prompt": "x", "kind": "chat", "createdAt": now(), "status": "processing", "index": 9, "steps": []object{}}}
+	f.api("POST", "/api/restore", backup, 400)
+	// Data asli tidak berubah setelah restore ditolak.
+	if len(messages(f.state())) != 0 {
+		t.Fatal("state berubah setelah restore gagal")
+	}
+}
+
 func TestPinMessage(t *testing.T) {
 	f := setup(t, nil)
 	f.api("POST", "/api/message", object{"text": "@Plamo sematkan ini"}, 202)

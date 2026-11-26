@@ -241,7 +241,7 @@
     if (!name) { notify('Nama ruang wajib diisi.', true); return; }
     try {
       forceScroll = true;
-      await api('/api/rooms', { name, seatCodes: newRoomSeats });
+      await api('/api/rooms', { name, seatCodes: newRoomSeats.length === (current?.seats.length ?? 0) ? [] : newRoomSeats });
       roomDialog.close();
       await refresh();
       notify(`Ruang ${name} dibuat.`);
@@ -325,6 +325,7 @@
     searchOpen = !searchOpen;
     query = '';
     matchIndex = 0;
+    serverResults = [];
     if (searchOpen) {
       await tick();
       searchInput?.focus();
