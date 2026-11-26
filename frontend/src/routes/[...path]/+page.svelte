@@ -18,6 +18,7 @@
   let applied = 0;
   let messageKey = '';
   let forceScroll = false;
+  let scrolledOnce = false;
   const clock = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
   const day = new Intl.DateTimeFormat('id-ID');
   const fullDay = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -76,7 +77,8 @@
       forceScroll = false;
       if (shouldScroll) {
         await tick();
-        messages.scrollTop = messages.scrollHeight;
+        messages.scrollTo({ top: messages.scrollHeight, behavior: scrolledOnce ? 'smooth' : 'auto' });
+        scrolledOnce = true;
       }
     }
   }
@@ -170,7 +172,7 @@
   }
 
   function scrollForImage() {
-    if (messages.scrollHeight - messages.scrollTop - messages.clientHeight < 450) messages.scrollTop = messages.scrollHeight;
+    if (messages.scrollHeight - messages.scrollTop - messages.clientHeight < 450) messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
   }
 
   function startReply(message: Message) {
@@ -500,7 +502,7 @@
                 </a>
               {/if}
             {/if}
-            {#if message.status === 'typing' || message.status === 'waiting'}<p class="typing-status" class:waiting={message.status === 'waiting'}>{message.statusText || `${name} sedang mengetik...`}</p>{/if}
+            {#if message.status === 'typing' || message.status === 'waiting'}<p class="typing-status" class:waiting={message.status === 'waiting'}><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>{message.statusText || `${name} sedang mengetik...`}</p>{/if}
             {#if message.error}<pre class="provider-error" aria-label="Error asli provider">{message.error}</pre>{/if}
             {#if message.reactions?.length}
               <div class="reaction-bar">

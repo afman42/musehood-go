@@ -146,3 +146,63 @@ html.dark .room-form>label input{background:#26332b;border-color:#3a4a3f;color:v
 html.dark .stats-table{border-color:#2e3d34}
 html.dark .stats-row{border-color:#2e3d34}
 html.dark .stats-head{background:#26332b;color:#a9bfa9}
+
+/* --- UI lebih smooth & responsif (26 Nov 2026) --- */
+body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+/* Animasi pesan masuk */
+@keyframes msg-in{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+.message{animation:msg-in .28s ease both}
+/* Feedback tekan tombol */
+button{transition:transform .12s ease,background-color .15s ease,border-color .15s ease,opacity .15s ease}
+button:active{transform:scale(.97)}
+.seat-card,.room-chip,.action-chip,.pinned-item,.search-result{transition:transform .12s ease,background-color .15s ease,border-color .15s ease}
+.seat-card:active,.room-chip:active,.action-chip:active{transform:scale(.96)}
+/* Dialog masuk halus */
+@keyframes dialog-pop{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:none}}
+@keyframes dialog-slide{from{transform:translateX(40px);opacity:.4}to{transform:none;opacity:1}}
+@keyframes backdrop-in{from{opacity:0}to{opacity:1}}
+.mention-dialog[open]{animation:dialog-pop .22s ease both}
+.settings-dialog[open]{animation:dialog-slide .26s ease both}
+.settings-dialog::backdrop,.mention-dialog::backdrop{animation:backdrop-in .22s ease both}
+/* Toast masuk halus */
+@keyframes toast-in{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+.toast:not([hidden]){animation:toast-in .25s ease both}
+/* Titik mengetik melompat */
+.typing-dots{display:inline-flex;gap:3px;align-items:center;flex-shrink:0}
+.typing-dots i{width:5px;height:5px;border-radius:50%;background:#82a88a;animation:typing-bounce 1.1s ease-in-out infinite}
+.typing-dots i:nth-child(2){animation-delay:.15s}
+.typing-dots i:nth-child(3){animation-delay:.3s}
+@keyframes typing-bounce{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-4px);opacity:1}}
+.typing-status::before{display:none}
+.typing-status.waiting .typing-dots i{animation:none;background:#c2aa64;opacity:.8}
+/* Target sentuh lebih besar */
+.msg-action{width:38px;height:38px;font-size:14px}
+@media(max-width:359px){.icon-button{width:38px;height:38px}}
+/* Aksi pesan terlihat di perangkat sentuh */
+@media(hover:none){.msg-actions{opacity:.6}}
+/* Hover desktop */
+@media(hover:hover){
+  .seat-card:hover{transform:translateY(-1px)}
+  .bubble{transition:box-shadow .18s ease}
+  .message:hover .bubble{box-shadow:0 4px 16px #284e3114}
+  .room-chip:hover{transform:translateY(-1px)}
+  .action-chip:hover{transform:translateY(-1px)}
+  .pinned-item:hover{transform:translateY(-1px)}
+  .primary-button:hover,.send-button:hover{filter:brightness(1.06)}
+}
+/* Scroll-snap strip horizontal + scrollbar halus */
+.seat-strip,.room-bar,.pinned-bar{scroll-snap-type:x proximity}
+.seat-card,.room-chip,.pinned-item{scroll-snap-align:start}
+.messages{scrollbar-width:thin;scrollbar-color:#c4d2bd transparent}
+.messages::-webkit-scrollbar{width:8px}
+.messages::-webkit-scrollbar-thumb{background:#c4d2bd;border-radius:8px}
+.messages::-webkit-scrollbar-track{background:transparent}
+html.dark .messages{scrollbar-color:#3a4a3f transparent}
+html.dark .messages::-webkit-scrollbar-thumb{background:#3a4a3f}
+/* Layar lebar */
+@media(min-width:1100px){
+  .app{max-width:1120px}
+  .messages{padding:26px 56px 32px}
+  .message{max-width:68%}
+  .settings-dialog{width:min(100%,560px)}
+}
