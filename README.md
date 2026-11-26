@@ -133,6 +133,14 @@ Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran too
 | `append_file` / `edit_file` | Tambah teks ke akhir file; ganti sebagian isi file (penanda `<<<OLD>>>`/`<<<NEW>>>`) |
 | `delete_file` | Hapus file di sandbox — **memerlukan persetujuan pemilik** |
 | `download_file` | Unduh URL ke sandbox (maks 10 MB, penjaga SSRF) |
+| `zip_files` | Kompres file sandbox ke zip (maks 50 MB) |
+| `unzip_file` | Ekstrak zip di sandbox (rata, anti zip-slip, maks 100 entri/50 MB) |
+| `file_hash` | SHA-256 sebuah file |
+| `image_info` | Format, dimensi, dan ukuran gambar (PNG/JPEG/GIF) |
+| `resize_image` | Perkecil gambar ke lebar maksimum (bilinear, rasio dipertahankan) |
+| `convert_image` | Ubah format gambar PNG ↔ JPEG |
+| `pdf_text` | Ekstrak teks PDF (memakai `pdftotext` bila tersedia) |
+| `csv_json` | Konversi CSV ↔ JSON (baris pertama CSV = nama kolom) |
 | `generate_image` | Buat gambar lewat endpoint `images/generations` provider; gambar terlampir pada balasan |
 | `memory_save` | Simpan catatan ke memori per kursi (maks 500 char/catatan, total 4000 char) |
 | `current_time` | Tanggal dan waktu sekarang (Asia/Jakarta) |
