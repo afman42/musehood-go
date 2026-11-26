@@ -26,6 +26,22 @@
       .catch(() => { /* daftar kosong: picker tetap bisa nama manual */ });
   });
 
+  let allToolNames = $state<string[]>([]);
+  let toolsLoaded = false;
+  $effect(() => {
+    if (toolsLoaded) return;
+    toolsLoaded = true;
+    api<{ tools: Array<{ name: string }>; builtin: string[] }>('/api/tools')
+      .then((out) => { allToolNames = [...(out.builtin ?? []), ...(out.tools ?? []).map((t) => t.name)]; })
+      .catch(() => { /* daftar kosong: bagian tool disembunyikan */ });
+  });
+
+  function toggleDisabledTool(item: SeatEdit, name: string, disabled: boolean) {
+    item.disabledTools = disabled
+      ? [...item.disabledTools, name]
+      : item.disabledTools.filter((t) => t !== name);
+  }
+
   let newSeatName = $state('');
   let newSeatRole = $state('');
   let newSeatModel = $state('');
@@ -126,10 +142,19 @@
         </label>
         <span class="field-hint">Menggantikan instruksi peran bawaan. Kosongkan untuk kembali ke prompt bawaan peran.</span>
         {#if item.provider === 'gateway'}
-          <label class="model-label">Model fallback (cadangan)
-            <input aria-label={`Model fallback ${item.code}`} maxlength="200" placeholder="Dicoba sekali bila model utama gagal" autocomplete="off" spellcheck="false" data-fallback={item.code} bind:value={item.fallbackModel}>
+          <label class="model-label">Rantai model fallback (cadangan)
+            <input aria-label={`Model fallback ${item.code}`} maxlength="1000" placeholder="model-a, model-b, model-c" autocomplete="off" spellcheck="false" data-fallback={item.code} bind:value={item.fallbackModels}>
           </label>
-          <span class="field-hint">Boleh berformat alias/model. Kosongkan untuk tanpa fallback.</span>
+          <span class="field-hint">Dicoba berurutan bila model utama gagal. Pisahkan dengan koma, boleh berformat alias/model. Kosongkan untuk tanpa fallback.</span>
+          <details class="tools-details">
+            <summary>Tool dinonaktifkan untuk kursi ini ({item.disabledTools.length})</summary>
+            <div class="tools-checks">
+              {#each allToolNames as toolName (toolName)}
+                <label class="check-label"><input type="checkbox" checked={item.disabledTools.includes(toolName)} onchange={(e) => toggleDisabledTool(item, toolName, e.currentTarget.checked)}> {toolName}</label>
+              {/each}
+            </div>
+            <span class="field-hint">Tool yang dicentang tidak ditawarkan dan tidak dijalankan untuk kursi ini.</span>
+          </details>
         {/if}
         <label class="prompt-label">Memori kursi
           <textarea aria-label={`Memori ${item.code}`} rows="2" maxlength="4000" placeholder="Catatan persisten yang selalu diingat kursi ini…" data-memory={item.code} bind:value={item.memory}></textarea>

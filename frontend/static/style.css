@@ -307,3 +307,7 @@ html.dark .shj-syn-var{color:#e6f0e4}
 html.dark .shj-syn-oper{color:#ff8fa3}
 html.dark .shj-syn-insert{color:#8fe3a0}
 html.dark .shj-syn-deleted,html.dark .shj-syn-err{color:#ffa198}
+.tools-details{margin:6px 0}
+.tools-details summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.tools-checks{display:flex;flex-wrap:wrap;gap:4px 14px;margin:8px 0}
+.tools-checks .check-label{display:flex;align-items:center;gap:6px;font-size:12.5px}

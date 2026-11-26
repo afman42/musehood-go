@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -394,9 +395,16 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	case "/api/skills":
 		return a.respondLocked(200, func() (any, error) { return map[string]any{"skills": a.loadSkills()}, nil })
 	case "/api/tools":
-		return a.respondLocked(200, func() (any, error) { return map[string]any{"tools": a.loadCustomTools()}, nil })
+		return a.respondLocked(200, func() (any, error) {
+			builtin := make([]string, 0, len(builtinToolNames))
+			for name := range builtinToolNames {
+				builtin = append(builtin, name)
+			}
+			sort.Strings(builtin)
+			return map[string]any{"tools": a.loadCustomTools(), "builtin": builtin}, nil
+		})
 	case "/api/stats":
-		return a.respondLocked(200, func() (any, error) { return map[string]any{"stats": a.data.Stats}, nil })
+		return a.respondLocked(200, func() (any, error) { return map[string]any{"stats": a.statsWithCostLocked()}, nil })
 	case "/api/search":
 		return a.respondLocked(200, func() (any, error) { return a.searchLocked(r.URL.Query().Get("q")), nil })
 	case "/api/vote":

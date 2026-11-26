@@ -201,6 +201,36 @@ func (a *App) models(ctx context.Context, cfg settings) ([]string, error) {
 	return a.protocolModels(ctx, cfg)
 }
 
+// statsWithCostLocked menyalin statistik dan menambahkan estimasi biaya
+// (USD) per kunci model berdasarkan harga token provider yang cocok.
+// Kunci seat tidak diberi biaya karena harga melekat pada provider/model.
+func (a *App) statsWithCostLocked() map[string]any {
+	out := make(map[string]any, len(a.data.Stats))
+	for key, st := range a.data.Stats {
+		entry := map[string]any{
+			"requests": st.Requests, "success": st.Success, "failed": st.Failed,
+			"totalLatencyMs": st.TotalLatencyMs, "promptTokens": st.PromptTokens,
+			"completionTokens": st.CompletionTokens, "lastAt": st.LastAt,
+		}
+		if strings.HasPrefix(key, "model:") {
+			rest := strings.TrimPrefix(key, "model:")
+			providerName, _, _ := strings.Cut(rest, "/")
+			for _, p := range a.data.Providers {
+				if p.Name == providerName || (p.Alias != "" && p.Alias == providerName) {
+					if p.PriceInputPer1M > 0 || p.PriceOutputPer1M > 0 {
+						cost := float64(st.PromptTokens)/1e6*p.PriceInputPer1M +
+							float64(st.CompletionTokens)/1e6*p.PriceOutputPer1M
+						entry["estimatedCostUsd"] = cost
+					}
+					break
+				}
+			}
+		}
+		out[key] = entry
+	}
+	return out
+}
+
 // recordStat mencatat satu panggilan gateway ke statistik pemakaian.
 // Dipanggil dari goroutine pekerjaan (tanpa mutex), jadi ia mengunci sendiri;
 // penyimpanan ke disk terjadi pada save berikutnya (finishStepLocked dll).

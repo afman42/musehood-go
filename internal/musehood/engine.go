@@ -507,24 +507,29 @@ func (a *App) advanceLocked(j *job) {
 			for i := range history {
 				history[i].Content = a.redactLocked(history[i].Content)
 			}
-			// Fallback per kursi: konfigurasi model cadangan diselesaikan
-			// sekarang (resolusi alias butuh daftar provider) sebelum
-			// goroutine berjalan tanpa mutex.
-			var fbCfg settings
-			var fbMember seat
-			hasFallback := false
-			if fb := strings.TrimSpace(member.FallbackModel); fb != "" {
-				fbCfg, fb = a.data.resolveModelProviderLocked(a.data.Settings, fb)
-				fbMember = member
-				fbMember.Model = &fb
-				hasFallback = true
+			// Rantai fallback per kursi: konfigurasi tiap model cadangan
+			// diselesaikan sekarang (resolusi alias butuh daftar provider)
+			// sebelum goroutine berjalan tanpa mutex.
+			type fallbackAttempt struct {
+				cfg    settings
+				member seat
+			}
+			var fallbacks []fallbackAttempt
+			for _, fb := range member.fallbackChain() {
+				fbCfg, resolved := a.data.resolveModelProviderLocked(a.data.Settings, fb)
+				fbMember := member
+				fbMember.Model = &resolved
+				fallbacks = append(fallbacks, fallbackAttempt{fbCfg, fbMember})
 			}
 			tools := a.data.Settings.toolsOn()
 			code := a.data.Settings.codeToolOn()
 			a.runLocked(j, s, member, m, false, func(ctx context.Context) (workerReply, error) {
 				reply, err := a.chatWithTools(ctx, cfg, member, history, tools, code)
-				if err != nil && hasFallback {
-					if fbReply, fbErr := a.chatWithTools(ctx, fbCfg, fbMember, history, tools, code); fbErr == nil {
+				for _, fb := range fallbacks {
+					if err == nil {
+						break
+					}
+					if fbReply, fbErr := a.chatWithTools(ctx, fb.cfg, fb.member, history, tools, code); fbErr == nil {
 						return fbReply, nil
 					}
 				}

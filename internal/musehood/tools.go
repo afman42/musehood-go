@@ -65,13 +65,33 @@ const codeToolInstruction = `
 - run_code: jalankan kode di sandbox terisolasi (tanpa jaringan, maks 10 detik). Baris pertama argumen: bahasa (python atau javascript); baris berikutnya: kode. Hasil stdout/stderr dikembalikan kepadamu. Kode yang terdeteksi berbahaya memerlukan persetujuan pemilik sebelum dijalankan.
 - run_shell: jalankan perintah shell sederhana di sandbox yang sama (mis. ls, cat, grep). Argumen: perintah shell. Selalu memerlukan persetujuan pemilik.`
 
-func (a *App) buildToolInstructions(code bool) string {
+func (a *App) buildToolInstructions(code bool, s seat) string {
 	text := toolInstructions
 	if code {
 		text += codeToolInstruction
 	}
+	if len(s.DisabledTools) > 0 {
+		lines := strings.Split(text, "\n")
+		kept := lines[:0]
+		for _, line := range lines {
+			disabled := false
+			for _, name := range s.DisabledTools {
+				if strings.HasPrefix(line, "- "+name+":") {
+					disabled = true
+					break
+				}
+			}
+			if !disabled {
+				kept = append(kept, line)
+			}
+		}
+		text = strings.Join(kept, "\n")
+	}
 	for _, tool := range a.loadCustomTools() {
 		if tool.Type == "shell" && !code {
+			continue
+		}
+		if s.toolDisabled(tool.Name) {
 			continue
 		}
 		hint := tool.ArgHint
@@ -160,6 +180,9 @@ func (a *App) sandboxPath(name string) (string, error) {
 // runTool menjalankan satu tool; nilai kedua adalah URL gambar bila tool
 // menghasilkan gambar (generate_image), selain itu kosong.
 func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg string, code bool) (string, string) {
+	if s.toolDisabled(name) {
+		return fmt.Sprintf("Tool %s dinonaktifkan untuk kursi ini oleh pemilik.", name), ""
+	}
 	switch name {
 	case "web_search":
 		return a.toolWebSearch(ctx, arg), ""

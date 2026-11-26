@@ -48,7 +48,9 @@
       provider: seat.provider,
       ...(seat.model === undefined ? {} : { model: seat.model }),
       prompt: seat.prompt || seat.defaultPrompt || '',
-      fallbackModel: seat.fallbackModel ?? '',
+      fallbackModel: '',
+      fallbackModels: [seat.fallbackModel, ...(seat.fallbackModels ?? [])].filter(Boolean).join(', '),
+      disabledTools: [...(seat.disabledTools ?? [])],
       memory: seat.memory ?? '',
       skills: (seat.skills ?? []).join(', '),
     }));
@@ -83,7 +85,7 @@
     try {
       await mutate('/api/settings', {
         owner: { name: ownerName }, group: { name: groupName },
-        seats: seats.map((s) => ({ ...s, skills: s.skills.split(',').map((x) => x.trim()).filter(Boolean) })),
+        seats: seats.map((s) => ({ ...s, skills: s.skills.split(',').map((x) => x.trim()).filter(Boolean), fallbackModels: s.fallbackModels.split(',').map((x) => x.trim()).filter(Boolean) })),
         settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled, skillsEnabled },
       });
       providersPanel?.clearConnectionError();

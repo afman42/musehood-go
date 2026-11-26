@@ -37,6 +37,12 @@ type seat struct {
 	// FallbackModel adalah model cadangan (boleh berformat alias/model) yang
 	// dicoba sekali bila panggilan chat model utama gagal. Kosong = tanpa fallback.
 	FallbackModel string `json:"fallbackModel,omitempty"`
+	// FallbackModels adalah rantai model cadangan tambahan yang dicoba
+	// berurutan setelah FallbackModel bila panggilan sebelumnya gagal.
+	FallbackModels []string `json:"fallbackModels,omitempty"`
+	// DisabledTools adalah nama tool yang dinonaktifkan khusus untuk kursi
+	// ini (kosong = semua tool aktif sesuai saklar global).
+	DisabledTools []string `json:"disabledTools,omitempty"`
 	// Memory adalah catatan persisten kursi yang disisipkan ke system prompt
 	// setiap kali kursi menjawab, dan tetap ada setelah chat dibersihkan.
 	Memory string `json:"memory,omitempty"`
@@ -44,6 +50,39 @@ type seat struct {
 	// badan skill disisipkan ke system prompt.
 	Skills []string `json:"skills,omitempty"`
 }
+// fallbackChain mengembalikan daftar model cadangan kursi secara berurutan:
+// FallbackModel (lama) lalu FallbackModels, tanpa duplikat dan tanpa model utama.
+func (s seat) fallbackChain() []string {
+	seen := map[string]bool{}
+	chain := []string{}
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			return
+		}
+		if s.Model != nil && name == strings.TrimSpace(*s.Model) {
+			return
+		}
+		seen[name] = true
+		chain = append(chain, name)
+	}
+	add(s.FallbackModel)
+	for _, name := range s.FallbackModels {
+		add(name)
+	}
+	return chain
+}
+
+// toolDisabled melaporkan apakah tool tertentu dinonaktifkan untuk kursi ini.
+func (s seat) toolDisabled(name string) bool {
+	for _, disabled := range s.DisabledTools {
+		if disabled == name {
+			return true
+		}
+	}
+	return false
+}
+
 type settings struct {
 	BaseURL          string `json:"baseUrl"`
 	APIKey           string `json:"apiKey"`
@@ -91,17 +130,23 @@ type gatewayProvider struct {
 	BaseURL  string `json:"baseUrl"`
 	APIKey   string `json:"apiKey"`
 	Protocol string `json:"protocol"`
+	// PriceInputPer1M/PriceOutputPer1M adalah harga USD per 1 juta token
+	// untuk estimasi biaya di statistik. Nol = belum diisi.
+	PriceInputPer1M  float64 `json:"priceInputPer1M,omitempty"`
+	PriceOutputPer1M float64 `json:"priceOutputPer1M,omitempty"`
 }
 
 // gatewayProviderView adalah tampilan aman satu provider untuk klien.
 type gatewayProviderView struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Alias     string `json:"alias,omitempty"`
-	BaseURL   string `json:"baseUrl"`
-	Protocol  string `json:"protocol"`
-	HasAPIKey bool   `json:"hasApiKey"`
-	Active    bool   `json:"active"`
+	ID               string  `json:"id"`
+	Name             string  `json:"name"`
+	Alias            string  `json:"alias,omitempty"`
+	BaseURL          string  `json:"baseUrl"`
+	Protocol         string  `json:"protocol"`
+	HasAPIKey        bool    `json:"hasApiKey"`
+	Active           bool    `json:"active"`
+	PriceInputPer1M  float64 `json:"priceInputPer1M,omitempty"`
+	PriceOutputPer1M float64 `json:"priceOutputPer1M,omitempty"`
 }
 type message struct {
 	ID         string      `json:"id"`
@@ -187,15 +232,17 @@ type room struct {
 
 // presetSeat adalah salinan konfigurasi satu kursi di dalam preset.
 type presetSeat struct {
-	Code          string  `json:"code"`
-	Name          string  `json:"name"`
-	Role          string  `json:"role"`
-	Provider      string  `json:"provider"`
-	Model         *string `json:"model,omitempty"`
-	Prompt        string  `json:"prompt,omitempty"`
-	FallbackModel string   `json:"fallbackModel,omitempty"`
-	Memory        string   `json:"memory,omitempty"`
-	Skills        []string `json:"skills,omitempty"`
+	Code           string   `json:"code"`
+	Name           string   `json:"name"`
+	Role           string   `json:"role"`
+	Provider       string   `json:"provider"`
+	Model          *string  `json:"model,omitempty"`
+	Prompt         string   `json:"prompt,omitempty"`
+	FallbackModel  string   `json:"fallbackModel,omitempty"`
+	FallbackModels []string `json:"fallbackModels,omitempty"`
+	DisabledTools  []string `json:"disabledTools,omitempty"`
+	Memory         string   `json:"memory,omitempty"`
+	Skills         []string `json:"skills,omitempty"`
 }
 
 // seatPreset adalah templat susunan kursi yang bisa disimpan dan dimuat ulang.
@@ -559,7 +606,7 @@ func (d *data) resolveModelProviderLocked(cfg settings, model string) (settings,
 }
 
 func (d *data) providerView(p gatewayProvider) gatewayProviderView {
-	return gatewayProviderView{ID: p.ID, Name: p.Name, Alias: p.Alias, BaseURL: p.BaseURL, Protocol: p.Protocol, HasAPIKey: p.APIKey != "", Active: p.ID == d.Settings.ActiveProviderID}
+	return gatewayProviderView{ID: p.ID, Name: p.Name, Alias: p.Alias, BaseURL: p.BaseURL, Protocol: p.Protocol, HasAPIKey: p.APIKey != "", Active: p.ID == d.Settings.ActiveProviderID, PriceInputPer1M: p.PriceInputPer1M, PriceOutputPer1M: p.PriceOutputPer1M}
 }
 
 func (d *data) providerViews() []gatewayProviderView {
@@ -615,12 +662,24 @@ func newProviderID() string {
 }
 
 type providerInput struct {
-	Name        *string `json:"name"`
-	Alias       *string `json:"alias"`
-	BaseURL     *string `json:"baseUrl"`
-	APIKey      *string `json:"apiKey"`
-	Protocol    *string `json:"protocol"`
-	ClearAPIKey bool    `json:"clearApiKey"`
+	Name             *string  `json:"name"`
+	Alias            *string  `json:"alias"`
+	BaseURL          *string  `json:"baseUrl"`
+	APIKey           *string  `json:"apiKey"`
+	Protocol         *string  `json:"protocol"`
+	PriceInputPer1M  *float64 `json:"priceInputPer1M"`
+	PriceOutputPer1M *float64 `json:"priceOutputPer1M"`
+	ClearAPIKey      bool     `json:"clearApiKey"`
+}
+
+func validatePrice(value *float64) error {
+	if value == nil {
+		return nil
+	}
+	if *value < 0 || *value > 100000 {
+		return problem(400, "Harga token harus antara 0 dan 100000 USD per 1 juta token.")
+	}
+	return nil
 }
 
 // validateProviderAlias memeriksa alias provider: label pembeda singkat yang
@@ -672,7 +731,19 @@ func (a *App) createProviderLocked(input providerInput) (gatewayProviderView, er
 	if key == "" && proto != "ollama" {
 		return gatewayProviderView{}, problem(400, "API key wajib diisi kecuali protokol Ollama.")
 	}
+	if err := validatePrice(input.PriceInputPer1M); err != nil {
+		return gatewayProviderView{}, err
+	}
+	if err := validatePrice(input.PriceOutputPer1M); err != nil {
+		return gatewayProviderView{}, err
+	}
 	p := gatewayProvider{ID: newProviderID(), Name: name, Alias: alias, BaseURL: base, APIKey: key, Protocol: proto}
+	if input.PriceInputPer1M != nil {
+		p.PriceInputPer1M = *input.PriceInputPer1M
+	}
+	if input.PriceOutputPer1M != nil {
+		p.PriceOutputPer1M = *input.PriceOutputPer1M
+	}
 	next := a.data
 	next.Providers = append(slices.Clone(next.Providers), p)
 	if len(next.Providers) == 1 {
@@ -736,6 +807,18 @@ func (a *App) updateProviderLocked(id string, input providerInput) (gatewayProvi
 	}
 	if p.APIKey == "" && p.Protocol != "ollama" {
 		return gatewayProviderView{}, problem(400, "API key wajib diisi kecuali protokol Ollama.")
+	}
+	if err := validatePrice(input.PriceInputPer1M); err != nil {
+		return gatewayProviderView{}, err
+	}
+	if err := validatePrice(input.PriceOutputPer1M); err != nil {
+		return gatewayProviderView{}, err
+	}
+	if input.PriceInputPer1M != nil {
+		p.PriceInputPer1M = *input.PriceInputPer1M
+	}
+	if input.PriceOutputPer1M != nil {
+		p.PriceOutputPer1M = *input.PriceOutputPer1M
 	}
 	changed := false
 	if p.ID == next.Settings.ActiveProviderID {
@@ -1057,10 +1140,12 @@ type settingsUpdate struct {
 		Role          *string   `json:"role"`
 		Provider      *string   `json:"provider"`
 		Model         *string   `json:"model"`
-		Prompt        *string   `json:"prompt"`
-		FallbackModel *string   `json:"fallbackModel"`
-		Memory        *string   `json:"memory"`
-		Skills        *[]string `json:"skills"`
+		Prompt         *string   `json:"prompt"`
+		FallbackModel  *string   `json:"fallbackModel"`
+		FallbackModels *[]string `json:"fallbackModels"`
+		DisabledTools  *[]string `json:"disabledTools"`
+		Memory         *string   `json:"memory"`
+		Skills         *[]string `json:"skills"`
 	} `json:"seats"`
 	Settings *struct {
 		BaseURL         *string `json:"baseUrl"`
@@ -1148,6 +1233,40 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 					return problem(400, "Nama model fallback tidak valid.")
 				}
 				s.FallbackModel = strings.TrimSpace(*patch.FallbackModel)
+			}
+			if patch.FallbackModels != nil {
+				if len(*patch.FallbackModels) > 5 {
+					return problem(400, "Maksimal 5 model fallback tambahan per kursi.")
+				}
+				models := make([]string, 0, len(*patch.FallbackModels))
+				for _, name := range *patch.FallbackModels {
+					name = strings.TrimSpace(name)
+					if name == "" {
+						continue
+					}
+					if jsLength(name) > 200 || badSetting.MatchString(name) {
+						return problem(400, "Nama model fallback tidak valid.")
+					}
+					models = append(models, name)
+				}
+				s.FallbackModels = models
+			}
+			if patch.DisabledTools != nil {
+				if len(*patch.DisabledTools) > 60 {
+					return problem(400, "Terlalu banyak tool dinonaktifkan.")
+				}
+				tools := make([]string, 0, len(*patch.DisabledTools))
+				for _, name := range *patch.DisabledTools {
+					name = strings.TrimSpace(name)
+					if name == "" {
+						continue
+					}
+					if !customToolNamePattern.MatchString(name) {
+						return problem(400, "Nama tool tidak valid.")
+					}
+					tools = append(tools, name)
+				}
+				s.DisabledTools = tools
 			}
 			if patch.Memory != nil {
 				memory := strings.TrimSpace(*patch.Memory)

@@ -1,5 +1,5 @@
 export type Identity = { name: string; avatar: string };
-export type Seat = Identity & { code: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; defaultPrompt?: string; present: boolean; fallbackModel?: string; memory?: string; skills?: string[] };
+export type Seat = Identity & { code: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; defaultPrompt?: string; present: boolean; fallbackModel?: string; fallbackModels?: string[]; disabledTools?: string[]; memory?: string; skills?: string[] };
 export type ReviewLevel = 'Longgar' | 'Santai' | 'Sedang' | 'Ketat';
 export type GatewayProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini' | 'ollama';
 export type Settings = {
@@ -20,11 +20,11 @@ export type Message = {
   roomId?: string; pinned?: boolean; votes?: number; bestAnswer?: boolean; toolsUsed?: string[];
 };
 export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[] };
-export type PresetSeat = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; fallbackModel?: string; memory?: string };
+export type PresetSeat = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; fallbackModel?: string; fallbackModels?: string[]; disabledTools?: string[]; memory?: string; skills?: string[] };
 export type SeatPreset = { id: string; name: string; createdAt: string; seats: PresetSeat[] };
-export type UsageStat = { requests: number; success: number; failed: number; totalLatencyMs: number; promptTokens: number; completionTokens: number; lastAt?: string };
+export type UsageStat = { requests: number; success: number; failed: number; totalLatencyMs: number; promptTokens: number; completionTokens: number; lastAt?: string; estimatedCostUsd?: number };
 export type SearchResult = { id: string; roomId: string; roomName: string; author: string; text: string; createdAt: string };
-export type GatewayProvider = { id: string; name: string; alias?: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean };
+export type GatewayProvider = { id: string; name: string; alias?: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean; priceInputPer1M?: number; priceOutputPer1M?: number };
 export type ProviderModelTest = { model: string; ok: boolean; latencyMs?: number; reply?: string; error?: string };
 export type Connection = { models: string[]; testedAt: string };
 export type Approval = { id: string; seatCode: string; seatName: string; kind: 'code' | 'shell' | 'delete'; language?: string; detail: string; createdAt: string };
@@ -35,6 +35,6 @@ export type State = {
   pendingApprovals?: Approval[];
 };
 export type Notice = { text: string; error: boolean; target: string | null };
-export type SeatEdit = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string; fallbackModel: string; memory: string; skills: string };
+export type SeatEdit = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string; fallbackModel: string; fallbackModels: string; disabledTools: string[]; memory: string; skills: string };
 export type RoomEdit = { id: string; name: string; seatCodes: string[] };
 export type ModelTestResult = { ok: boolean; latencyMs?: number; reply?: string; error?: string };

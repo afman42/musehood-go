@@ -16,6 +16,8 @@
   let provBaseUrl = $state('');
   let provProtocol = $state<GatewayProtocol>('openai');
   let provApiKey = $state('');
+  let provPriceIn = $state('');
+  let provPriceOut = $state('');
   let editingProviderId = $state<string | null>(null);
   let fetchedModels = $state<Record<string, { models: string[]; testedAt: string }>>({});
   let providerTests = $state<Record<string, Record<string, ModelTestResult>>>({});
@@ -46,6 +48,8 @@
     provBaseUrl = '';
     provProtocol = 'openai';
     provApiKey = '';
+    provPriceIn = '';
+    provPriceOut = '';
     editingProviderId = null;
     connectionError = '';
   }
@@ -57,6 +61,8 @@
     provBaseUrl = provider.baseUrl;
     provProtocol = provider.protocol;
     provApiKey = '';
+    provPriceIn = provider.priceInputPer1M ? String(provider.priceInputPer1M) : '';
+    provPriceOut = provider.priceOutputPer1M ? String(provider.priceOutputPer1M) : '';
   }
 
   async function saveProvider() {
@@ -67,6 +73,10 @@
     try {
       const body: Record<string, unknown> = { name, alias: provAlias.trim(), baseUrl, protocol: provProtocol };
       if (provApiKey) body.apiKey = provApiKey;
+      const priceIn = Number.parseFloat(provPriceIn);
+      const priceOut = Number.parseFloat(provPriceOut);
+      body.priceInputPer1M = Number.isFinite(priceIn) && priceIn >= 0 ? priceIn : 0;
+      body.priceOutputPer1M = Number.isFinite(priceOut) && priceOut >= 0 ? priceOut : 0;
       if (editingProviderId) {
         await api(`/api/providers/${editingProviderId}`, body);
         notify('Provider diperbarui.');
@@ -190,6 +200,8 @@
     </select></label>
     <p class="field-hint">Menentukan format permintaan dan endpoint Fetch Models. Pembuatan gambar hanya didukung protokol OpenAI — Chat Completions; protokol lain otomatis memakai jalur gambar pekerja Muse.</p>
     <label>API key<input aria-label="API key provider" type="password" placeholder={editingProviderId ? 'Biarkan kosong untuk mempertahankan key' : 'Masukkan API key gateway'} autocomplete="new-password" spellcheck="false" bind:value={provApiKey}></label>
+    <label>Harga input (USD/1jt token)<input aria-label="Harga input provider" type="number" min="0" step="any" placeholder="Opsional, untuk estimasi biaya" bind:value={provPriceIn}></label>
+    <label>Harga output (USD/1jt token)<input aria-label="Harga output provider" type="number" min="0" step="any" placeholder="Opsional, untuk estimasi biaya" bind:value={provPriceOut}></label>
     <div class="provider-form-actions">
       <button class="secondary-button" type="button" onclick={saveProvider} disabled={savingProvider}>{savingProvider ? 'Menyimpan…' : editingProviderId ? 'Simpan perubahan' : 'Tambah provider'}</button>
       {#if editingProviderId}

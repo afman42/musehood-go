@@ -106,7 +106,7 @@ type gatewayMessage struct {
 func (a *App) gatewayMessages(s seat, d data, j *job) []gatewayMessage {
 	system := a.systemPrompt(s, d)
 	if d.Settings.toolsOn() {
-		system += a.buildToolInstructions(d.Settings.codeToolOn())
+		system += a.buildToolInstructions(d.Settings.codeToolOn(), s)
 	}
 	history := []gatewayMessage{{"system", system}}
 	for _, m := range contextFor(d, j).Messages {
