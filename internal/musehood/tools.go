@@ -324,6 +324,12 @@ func htmlToText(raw string) string {
 // checkPublicURL menolak URL ke alamat privat/loopback (anti-SSRF).
 // Catatan: permintaan keluar lewat proxy egress; pemeriksaan DNS di sini
 // memblokir target privat yang jelas sebelum permintaan dibuat.
+// lookupIP dapat diganti dalam tes agar jalur sukses tool jaringan bisa
+// diuji dengan server lokal tanpa melemahkan penjaga SSRF di produksi.
+var lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
+	return net.DefaultResolver.LookupIP(ctx, "ip", host)
+}
+
 func checkPublicURL(ctx context.Context, raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
@@ -333,7 +339,7 @@ func checkPublicURL(ctx context.Context, raw string) error {
 	if host == "" || strings.EqualFold(host, "localhost") {
 		return fmt.Errorf("host tidak valid")
 	}
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	ips, err := lookupIP(ctx, host)
 	if err != nil || len(ips) == 0 {
 		return fmt.Errorf("host tidak dapat dijangkau")
 	}
@@ -370,6 +376,12 @@ func (a *App) toolWebSearch(ctx context.Context, query string) string {
 	if err != nil {
 		return "Error: pencarian gagal (" + err.Error() + ")."
 	}
+	return parseDDGResults(body)
+}
+
+// parseDDGResults mengubah HTML DuckDuckGo Lite menjadi daftar hasil
+// bernomor (judul, cuplikan, URL tujuan setelah membuka redirect uddg).
+func parseDDGResults(body string) string {
 	links := ddgLinkPattern.FindAllStringSubmatch(body, 5)
 	snippets := ddgSnippetPattern.FindAllStringSubmatch(body, 5)
 	if len(links) == 0 {

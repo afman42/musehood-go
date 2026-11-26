@@ -26,3 +26,4 @@ lhr-tunnel.log
 dist-build-*.log
 release-*.log
 /data.json.bak-*
+/frontend/tests/unit/.tmp/
