@@ -47,7 +47,7 @@ type App struct {
 	running         map[*job]context.CancelFunc
 	closed          bool
 	approvalMu      sync.Mutex
-	approvals       map[string]*codeApproval
+	approvals       map[string]*approval
 }
 type apiError struct {
 	status  int

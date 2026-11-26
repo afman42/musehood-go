@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -42,12 +43,19 @@ Tool yang tersedia:
 - list_files: daftar file di folder kerja bersama. Argumen: kosongkan.
 - read_file: baca isi file di folder kerja. Argumen: nama file.
 - write_file: tulis file ke folder kerja. Baris pertama argumen: nama file; baris berikutnya: isi file.
+- append_file: tambahkan teks ke akhir file di folder kerja (dibuat bila belum ada). Baris pertama argumen: nama file; baris berikutnya: teks tambahan.
+- edit_file: ganti sebagian isi file. Format argumen: baris pertama nama file, lalu baris <<<OLD>>>, teks lama, baris <<<NEW>>>, teks baru.
+- delete_file: hapus file di folder kerja. Argumen: nama file. Memerlukan persetujuan pemilik.
+- download_file: unduh file dari URL ke folder kerja (maks 10 MB). Baris pertama argumen: URL; baris kedua (opsional): nama file tujuan.
+- generate_image: buat gambar dari deskripsi teks; gambar terlampir pada balasanmu. Argumen: deskripsi gambar.
+- memory_save: simpan catatan penting ke memori kursimu (akan kamu ingat di percakapan berikutnya). Argumen: catatan singkat.
 - current_time: tanggal dan waktu sekarang. Argumen: kosongkan.
 
 Gunakan tool hanya bila benar-benar perlu (mis. butuh info terkini dari web atau isi file). Bila tidak perlu, jawab langsung tanpa blok tool.`
 
 const codeToolInstruction = `
-- run_code: jalankan kode di sandbox terisolasi (tanpa jaringan, maks 10 detik). Baris pertama argumen: bahasa (python atau javascript); baris berikutnya: kode. Hasil stdout/stderr dikembalikan kepadamu. Kode yang terdeteksi berbahaya memerlukan persetujuan pemilik sebelum dijalankan.`
+- run_code: jalankan kode di sandbox terisolasi (tanpa jaringan, maks 10 detik). Baris pertama argumen: bahasa (python atau javascript); baris berikutnya: kode. Hasil stdout/stderr dikembalikan kepadamu. Kode yang terdeteksi berbahaya memerlukan persetujuan pemilik sebelum dijalankan.
+- run_shell: jalankan perintah shell sederhana di sandbox yang sama (mis. ls, cat, grep). Argumen: perintah shell. Selalu memerlukan persetujuan pemilik.`
 
 func buildToolInstructions(code bool) string {
 	if code {
@@ -88,12 +96,16 @@ func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history [
 		return workerReply{Text: text}, nil
 	}
 	var used []string
+	var imageURL string
 	for round := 0; round < maxToolRounds; round++ {
 		name, arg, found := parseToolBlock(text)
 		if !found {
 			break
 		}
-		result := a.runTool(ctx, s, name, arg, code)
+		result, image := a.runTool(ctx, cfg, s, name, arg, code)
+		if image != "" {
+			imageURL = image
+		}
 		used = append(used, name)
 		history = append(history,
 			gatewayMessage{"assistant", text},
@@ -105,7 +117,7 @@ func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history [
 		}
 		text = next
 	}
-	return workerReply{Text: stripToolBlocks(text), ToolsUsed: used}, nil
+	return workerReply{Text: stripToolBlocks(text), ImageURL: imageURL, ToolsUsed: used}, nil
 }
 
 func (a *App) sandboxDir() string {
@@ -126,27 +138,46 @@ func (a *App) sandboxPath(name string) (string, error) {
 	return full, nil
 }
 
-func (a *App) runTool(ctx context.Context, s seat, name, arg string, code bool) string {
+// runTool menjalankan satu tool; nilai kedua adalah URL gambar bila tool
+// menghasilkan gambar (generate_image), selain itu kosong.
+func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg string, code bool) (string, string) {
 	switch name {
 	case "web_search":
-		return a.toolWebSearch(ctx, arg)
+		return a.toolWebSearch(ctx, arg), ""
 	case "fetch_url":
-		return a.toolFetchURL(ctx, arg)
+		return a.toolFetchURL(ctx, arg), ""
 	case "list_files":
-		return a.toolListFiles()
+		return a.toolListFiles(), ""
 	case "read_file":
-		return a.toolReadFile(arg)
+		return a.toolReadFile(arg), ""
 	case "write_file":
-		return a.toolWriteFile(arg)
+		return a.toolWriteFile(arg), ""
+	case "append_file":
+		return a.toolAppendFile(arg), ""
+	case "edit_file":
+		return a.toolEditFile(arg), ""
+	case "delete_file":
+		return a.toolDeleteFile(ctx, s, arg), ""
+	case "download_file":
+		return a.toolDownloadFile(ctx, arg), ""
+	case "generate_image":
+		return a.toolGenerateImage(ctx, cfg, s, arg)
+	case "memory_save":
+		return a.toolMemorySave(s, arg), ""
 	case "current_time":
-		return toolCurrentTime()
+		return toolCurrentTime(), ""
 	case "run_code":
 		if !code {
-			return "Error: tool coding dimatikan di Pengaturan."
+			return "Error: tool coding dimatikan di Pengaturan.", ""
 		}
-		return a.toolRunCode(ctx, s, arg)
+		return a.toolRunCode(ctx, s, arg), ""
+	case "run_shell":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolRunShell(ctx, s, arg), ""
 	default:
-		return fmt.Sprintf("Tool %q tidak dikenal.", name)
+		return fmt.Sprintf("Tool %q tidak dikenal.", name), ""
 	}
 }
 
@@ -358,37 +389,41 @@ func dangerousCode(code string) (string, bool) {
 	return "", false
 }
 
-// codeApproval adalah permintaan persetujuan pemilik untuk menjalankan
-// kode yang terdeteksi berbahaya.
-type codeApproval struct {
+// approval adalah permintaan persetujuan pemilik untuk tindakan kursi
+// yang berisiko: menjalankan kode berbahaya (kind "code"), perintah
+// shell (kind "shell"), atau menghapus file (kind "delete"). Detail
+// berisi kode/perintah/nama file yang akan dijalankan; Language hanya
+// untuk kind "code".
+type approval struct {
 	ID        string `json:"id"`
 	SeatCode  string `json:"seatCode"`
 	SeatName  string `json:"seatName"`
-	Language  string `json:"language"`
-	Code      string `json:"code"`
+	Kind      string `json:"kind"`
+	Language  string `json:"language,omitempty"`
+	Detail    string `json:"detail"`
 	CreatedAt string `json:"createdAt"`
 	done      chan bool
 }
 
-func (a *App) requestCodeApproval(ctx context.Context, s seat, language, code string) bool {
-	approval := &codeApproval{
+func (a *App) requestApproval(ctx context.Context, s seat, kind, language, detail string) bool {
+	req := &approval{
 		ID: uuid(), SeatCode: s.Code, SeatName: s.Name,
-		Language: language, Code: code, CreatedAt: now(),
+		Kind: kind, Language: language, Detail: detail, CreatedAt: now(),
 		done: make(chan bool, 1),
 	}
 	a.approvalMu.Lock()
 	if a.approvals == nil {
-		a.approvals = map[string]*codeApproval{}
+		a.approvals = map[string]*approval{}
 	}
-	a.approvals[approval.ID] = approval
+	a.approvals[req.ID] = req
 	a.approvalMu.Unlock()
 	defer func() {
 		a.approvalMu.Lock()
-		delete(a.approvals, approval.ID)
+		delete(a.approvals, req.ID)
 		a.approvalMu.Unlock()
 	}()
 	select {
-	case approved := <-approval.done:
+	case approved := <-req.done:
 		return approved
 	case <-time.After(approvalTimeout):
 		return false
@@ -397,12 +432,12 @@ func (a *App) requestCodeApproval(ctx context.Context, s seat, language, code st
 	}
 }
 
-func (a *App) pendingApprovals() []codeApproval {
+func (a *App) pendingApprovals() []approval {
 	a.approvalMu.Lock()
 	defer a.approvalMu.Unlock()
-	out := make([]codeApproval, 0, len(a.approvals))
-	for _, approval := range a.approvals {
-		out = append(out, *approval)
+	out := make([]approval, 0, len(a.approvals))
+	for _, req := range a.approvals {
+		out = append(out, *req)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
 	return out
@@ -441,7 +476,7 @@ func (a *App) toolRunCode(ctx context.Context, s seat, arg string) string {
 		return "Error: kode terlalu besar (maks 100 KB)."
 	}
 	if match, dangerous := dangerousCode(code); dangerous {
-		if !a.requestCodeApproval(ctx, s, language, code) {
+		if !a.requestApproval(ctx, s, "code", language, code) {
 			return fmt.Sprintf("Kode TIDAK dijalankan: terdeteksi pola berbahaya (%q) dan pemilik menolak atau tidak menyetujui dalam %d detik. Tulis ulang kode yang lebih aman atau jelaskan kebutuhanmu.", match, int(approvalTimeout.Seconds()))
 		}
 	}
@@ -504,4 +539,200 @@ func (a *App) executeCode(ctx context.Context, interpreter, ext, code string) st
 		text = "(tidak ada output)"
 	}
 	return truncateToolResult(text)
+}
+
+// --- Tool tambahan: edit/append/delete/download file, shell, gambar, memori ---
+
+func (a *App) toolAppendFile(arg string) string {
+	name, content, _ := strings.Cut(arg, "\n")
+	full, err := a.sandboxPath(name)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	if err := os.MkdirAll(a.sandboxDir(), 0o755); err != nil {
+		return "Error: gagal membuat folder kerja."
+	}
+	existing, _ := os.ReadFile(full)
+	if len(existing)+len(content) > maxSandboxFileBytes {
+		return "Error: isi file akan melebihi batas 100 KB."
+	}
+	file, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return "Error: gagal membuka file."
+	}
+	defer file.Close()
+	if _, err := file.WriteString(content); err != nil {
+		return "Error: gagal menulis file."
+	}
+	return fmt.Sprintf("Teks ditambahkan ke %s (sekarang %d byte).", filepath.Base(full), len(existing)+len(content))
+}
+
+func (a *App) toolEditFile(arg string) string {
+	name, rest, found := strings.Cut(arg, "\n")
+	if !found {
+		return "Error: format edit_file adalah baris pertama nama file, lalu <<<OLD>>>, teks lama, <<<NEW>>>, teks baru."
+	}
+	full, err := a.sandboxPath(name)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	oldPart, newPart, found := strings.Cut(rest, "<<<NEW>>>")
+	if !found {
+		return "Error: penanda <<<NEW>>> tidak ditemukan."
+	}
+	oldText := strings.TrimPrefix(strings.TrimSpace(oldPart), "<<<OLD>>>")
+	oldText = strings.Trim(oldText, "\n")
+	newText := strings.Trim(newPart, "\n")
+	if oldText == "" {
+		return "Error: teks lama kosong."
+	}
+	raw, err := os.ReadFile(full)
+	if err != nil {
+		return "Error: file tidak ditemukan."
+	}
+	content := string(raw)
+	if !strings.Contains(content, oldText) {
+		return "Error: teks lama tidak ditemukan di file; baca dulu isi file dengan read_file."
+	}
+	updated := strings.Replace(content, oldText, newText, 1)
+	if len(updated) > maxSandboxFileBytes {
+		return "Error: isi file akan melebihi batas 100 KB."
+	}
+	if err := os.WriteFile(full, []byte(updated), 0o644); err != nil {
+		return "Error: gagal menulis file."
+	}
+	return fmt.Sprintf("File %s diubah (%d byte).", filepath.Base(full), len(updated))
+}
+
+func (a *App) toolDeleteFile(ctx context.Context, s seat, arg string) string {
+	full, err := a.sandboxPath(arg)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	if _, err := os.Stat(full); err != nil {
+		return "Error: file tidak ditemukan."
+	}
+	if !a.requestApproval(ctx, s, "delete", "", filepath.Base(full)) {
+		return fmt.Sprintf("File TIDAK dihapus: pemilik menolak atau tidak menyetujui dalam %d detik.", int(approvalTimeout.Seconds()))
+	}
+	if err := os.Remove(full); err != nil {
+		return "Error: gagal menghapus file."
+	}
+	return fmt.Sprintf("File %s terhapus.", filepath.Base(full))
+}
+
+const maxDownloadBytes = 10 * 1024 * 1024
+
+func (a *App) toolDownloadFile(ctx context.Context, arg string) string {
+	rawURL, name, _ := strings.Cut(arg, "\n")
+	rawURL = strings.TrimSpace(rawURL)
+	name = strings.TrimSpace(name)
+	if err := checkPublicURL(ctx, rawURL); err != nil {
+		return "Error: " + err.Error()
+	}
+	if name == "" {
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			return "Error: URL tidak valid."
+		}
+		name = path.Base(parsed.Path)
+	}
+	return a.downloadToSandbox(ctx, rawURL, name)
+}
+
+func (a *App) downloadToSandbox(ctx context.Context, rawURL, name string) string {
+	full, err := a.sandboxPath(name)
+	if err != nil {
+		return "Error: nama file tujuan tidak valid; tentukan nama file di baris kedua."
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "Error: URL tidak valid."
+	}
+	req.Header.Set("User-Agent", browserUserAgent)
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "Error: unduhan gagal: " + err.Error()
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Sprintf("Error: unduhan gagal (HTTP %d).", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadBytes+1))
+	if err != nil {
+		return "Error: unduhan gagal: " + err.Error()
+	}
+	if len(raw) > maxDownloadBytes {
+		return "Error: file melebihi batas 10 MB."
+	}
+	if err := os.MkdirAll(a.sandboxDir(), 0o755); err != nil {
+		return "Error: gagal membuat folder kerja."
+	}
+	if err := os.WriteFile(full, raw, 0o644); err != nil {
+		return "Error: gagal menyimpan file."
+	}
+	return fmt.Sprintf("File %s terunduh (%d byte).", filepath.Base(full), len(raw))
+}
+
+func (a *App) toolRunShell(ctx context.Context, s seat, arg string) string {
+	command := strings.TrimSpace(arg)
+	if command == "" {
+		return "Error: perintah shell kosong."
+	}
+	if len(command) > maxSandboxFileBytes {
+		return "Error: perintah terlalu besar (maks 100 KB)."
+	}
+	if !a.requestApproval(ctx, s, "shell", "", command) {
+		return fmt.Sprintf("Perintah TIDAK dijalankan: pemilik menolak atau tidak menyetujui dalam %d detik.", int(approvalTimeout.Seconds()))
+	}
+	return a.executeCode(ctx, "sh", "sh", command+"\n")
+}
+
+func (a *App) toolGenerateImage(ctx context.Context, cfg settings, s seat, arg string) (string, string) {
+	prompt := strings.TrimSpace(arg)
+	if prompt == "" {
+		return "Error: deskripsi gambar kosong.", ""
+	}
+	image, err := a.generateImage(ctx, cfg, s, prompt)
+	if err != nil {
+		return "Error: pembuatan gambar gagal: " + err.Error(), ""
+	}
+	return "Gambar berhasil dibuat dan terlampir pada balasanmu. Sampaikan kepada pengguna bahwa gambarnya sudah jadi.", image
+}
+
+const maxSeatMemoryChars = 4000
+
+func (a *App) toolMemorySave(s seat, arg string) string {
+	note := strings.TrimSpace(arg)
+	if note == "" {
+		return "Error: catatan kosong."
+	}
+	if len(note) > 500 {
+		note = note[:500]
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	seat := a.data.findSeat(s.Code)
+	if seat == nil {
+		return "Error: kursi tidak ditemukan."
+	}
+	entry := "- " + note
+	if seat.Memory != "" {
+		seat.Memory += "\n"
+	}
+	seat.Memory += entry
+	// Bila melebihi batas, buang catatan tertua (baris teratas).
+	for len(seat.Memory) > maxSeatMemoryChars {
+		_, rest, found := strings.Cut(seat.Memory, "\n")
+		if !found {
+			seat.Memory = seat.Memory[len(seat.Memory)-maxSeatMemoryChars:]
+			break
+		}
+		seat.Memory = rest
+	}
+	if err := a.saveLocked(); err != nil {
+		return "Error: gagal menyimpan memori."
+	}
+	return "Catatan tersimpan ke memorimu."
 }

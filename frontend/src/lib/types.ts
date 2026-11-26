@@ -25,12 +25,12 @@ export type SearchResult = { id: string; roomId: string; roomName: string; autho
 export type GatewayProvider = { id: string; name: string; alias?: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean };
 export type ProviderModelTest = { model: string; ok: boolean; latencyMs?: number; reply?: string; error?: string };
 export type Connection = { models: string[]; testedAt: string };
-export type CodeApproval = { id: string; seatCode: string; seatName: string; language: string; code: string; createdAt: string };
+export type Approval = { id: string; seatCode: string; seatName: string; kind: 'code' | 'shell' | 'delete'; language?: string; detail: string; createdAt: string };
 export type State = {
   group: Identity; owner: Identity; seats: Seat[]; settings: Settings; providers: GatewayProvider[]; messages: Message[];
   presence: { present: number; total: number }; connection: Connection | null;
   rooms: Room[]; activeRoomId: string; presets?: SeatPreset[]; stats?: Record<string, UsageStat>;
-  pendingApprovals?: CodeApproval[];
+  pendingApprovals?: Approval[];
 };
 export type Notice = { text: string; error: boolean; target: string | null };
 export type SeatEdit = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string; fallbackModel: string; memory: string };
