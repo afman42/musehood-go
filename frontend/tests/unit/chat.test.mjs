@@ -148,6 +148,17 @@ test('uploadImage mengembalikan imageUrl', async () => {
   assert.ok(calls[0].body instanceof FormData);
 });
 
+test('upload dengan callback progress tetap jalan (fallback fetch di Node)', async () => {
+  stubFetch();
+  const chat = createChat({});
+  const seen = [];
+  const url = await chat.uploadImage(new File(['x'], 'x.png', { type: 'image/png' }), pct => seen.push(pct));
+  assert.equal(url, '/images/x.png');
+  // Di Node tidak ada XMLHttpRequest, jadi jalur fetch dipakai dan
+  // callback progress tidak dipanggil — hasil unggahan tetap benar.
+  assert.deepEqual(seen, []);
+});
+
 test('scheduleSearch debounce + clearSearchResults', async () => {
   stubFetch();
   const chat = createChat({});

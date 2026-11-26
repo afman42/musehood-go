@@ -121,18 +121,43 @@ test('SearchBar: jumlah hasil dan navigasi tampil', async () => {
   assert.match(html, /aria-label/);
 });
 
+const composerProps = {
+  text: '', submitting: false, asking: false, voting: false,
+  uploadingImage: false, uploadingFile: false, uploadProgress: null,
+  replyTo: undefined, replyAuthorName: '', pendingImage: '', pendingFile: null,
+  onSend: noop, onProgress: noop, onVote: noop, onOpenMention: noop,
+  onImagePrompt: noop, onUploadImage: noop, onUploadFile: noop,
+  onCancelReply: noop, onCancelImage: noop, onCancelFile: noop,
+};
+
 test('Composer: textarea pesan dan tombol aksi berlabel', async () => {
-  const html = await renderComponent('Composer', {
-    text: '', submitting: false, asking: false, voting: false,
-    uploadingImage: false, uploadingFile: false,
-    replyTo: undefined, replyAuthorName: '', pendingImage: '', pendingFile: null,
-    onSend: noop, onProgress: noop, onVote: noop, onOpenMention: noop,
-    onImagePrompt: noop, onUploadImage: noop, onUploadFile: noop,
-    onCancelReply: noop, onCancelImage: noop, onCancelFile: noop,
-  });
+  const html = await renderComponent('Composer', composerProps);
   assert.match(html, /<textarea/);
   assert.match(html, /aria-label/);
   assert.match(html, /Kirim|@ Kursi/);
+});
+
+test('Composer: saat mengirim tombol menampilkan status + detik', async () => {
+  const html = await renderComponent('Composer', { ...composerProps, submitting: true });
+  assert.match(html, /Mengirim… 0 dtk/);
+  assert.match(html, /sending/);
+});
+
+test('Composer: unggahan menampilkan progress bar + persen', async () => {
+  const html = await renderComponent('Composer', { ...composerProps, uploadingFile: true, uploadProgress: 45 });
+  assert.match(html, /role="progressbar"/);
+  assert.match(html, /aria-valuenow="45"/);
+  assert.match(html, /Mengunggah file… 45%/);
+});
+
+test('Composer: lampiran selesai bertanda siap dikirim', async () => {
+  const html = await renderComponent('Composer', {
+    ...composerProps,
+    pendingImage: '/images/x.png',
+    pendingFile: { name: 'a.txt', size: 12 },
+  });
+  assert.match(html, /✓ Gambar siap dikirim/);
+  assert.match(html, /✓ siap dikirim/);
 });
 
 test('AvatarButton: tombol dengan label dan gambar avatar', async () => {

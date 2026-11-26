@@ -119,17 +119,39 @@ export function createChat(hooks: ChatHooks = {}) {
     await mutate(`/api/message/${id}/edit`, { text });
   }
 
-  async function uploadImage(file: File): Promise<string> {
+  // Unggah FormData dengan laporan kemajuan (0-100) lewat XHR; di
+  // lingkungan tanpa XHR (tes Node) kembali ke fetch biasa.
+  function uploadForm<T>(route: string, body: FormData, onProgress?: (pct: number) => void): Promise<T> {
+    if (typeof XMLHttpRequest === 'undefined' || !onProgress) return api<T>(route, body);
+    return new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', route);
+      xhr.upload.onprogress = event => {
+        if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+      };
+      xhr.onload = () => {
+        let result;
+        try { result = JSON.parse(xhr.responseText); } catch { reject(new Error('Respons server tidak valid.')); return; }
+        if (xhr.status < 200 || xhr.status >= 300) { reject(new Error(result.error || `HTTP ${xhr.status}`)); return; }
+        onProgress(100);
+        resolve(result as T);
+      };
+      xhr.onerror = () => reject(new Error('Unggahan gagal: koneksi terputus.'));
+      xhr.send(body);
+    });
+  }
+
+  async function uploadImage(file: File, onProgress?: (pct: number) => void): Promise<string> {
     const body = new FormData();
     body.set('image', file);
-    const out = await api<{ imageUrl: string }>('/api/upload-image', body);
+    const out = await uploadForm<{ imageUrl: string }>('/api/upload-image', body, onProgress);
     return out.imageUrl;
   }
 
-  async function uploadFile(file: File): Promise<Attachment> {
+  async function uploadFile(file: File, onProgress?: (pct: number) => void): Promise<Attachment> {
     const body = new FormData();
     body.set('file', file);
-    return api<Attachment>('/api/upload-file', body);
+    return uploadForm<Attachment>('/api/upload-file', body, onProgress);
   }
 
   function scheduleSearch(q: string) {
