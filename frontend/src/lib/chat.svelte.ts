@@ -1,5 +1,5 @@
 import { api, apiDelete, errorText } from './api';
-import type { Attachment, Message, Notice, ScheduledMessage, SearchResult, State } from './types';
+import type { Attachment, Message, Notice, ScheduledMessage, SearchFilters, SearchResult, State } from './types';
 
 export const NOTIFY_KEY = 'musehood-notify';
 
@@ -208,12 +208,19 @@ export function createChat(hooks: ChatHooks = {}) {
     return uploadForm<Attachment>('/api/upload-file', body, onProgress);
   }
 
-  function scheduleSearch(q: string) {
+  function scheduleSearch(q: string, filters?: SearchFilters) {
     clearTimeout(searchTimer);
-    if (!q) { serverResults = []; return; }
+    const hasFilters = Boolean(filters && (filters.seat || filters.room || filters.from || filters.to || filters.hasImage));
+    if (!q && !hasFilters) { serverResults = []; return; }
     searchTimer = setTimeout(async () => {
       try {
-        const out = await api<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`);
+        const params = new URLSearchParams({ q });
+        if (filters?.seat) params.set('seat', filters.seat);
+        if (filters?.room) params.set('room', filters.room);
+        if (filters?.from) params.set('from', filters.from);
+        if (filters?.to) params.set('to', filters.to);
+        if (filters?.hasImage) params.set('hasImage', '1');
+        const out = await api<{ results: SearchResult[] }>(`/api/search?${params.toString()}`);
         serverResults = out.results;
       } catch { /* pencarian lokal di ruang aktif tetap jalan */ }
     }, 300);

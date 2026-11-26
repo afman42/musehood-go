@@ -430,7 +430,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	case "/api/stats":
 		return a.respondLocked(200, func() (any, error) { return map[string]any{"stats": a.statsWithCostLocked()}, nil })
 	case "/api/search":
-		return a.respondLocked(200, func() (any, error) { return a.searchLocked(r.URL.Query().Get("q")), nil })
+		query := r.URL.Query()
+		filters := searchFilters{
+			Seat:     query.Get("seat"),
+			Room:     query.Get("room"),
+			From:     query.Get("from"),
+			To:       query.Get("to"),
+			HasImage: query.Get("hasImage") == "1",
+		}
+		return a.respondLocked(200, func() (any, error) { return a.searchLocked(query.Get("q"), filters), nil })
 	case "/api/vote":
 		var body struct {
 			RoomID string `json:"roomId"`

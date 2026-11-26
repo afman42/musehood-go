@@ -15,7 +15,7 @@
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
   import { errorText } from '../../lib/api';
-  import type { Attachment, Message, SearchResult } from '../../lib/types';
+  import { emptySearchFilters, type Attachment, type Message, type SearchFilters, type SearchResult } from '../../lib/types';
 
   // Referensi DOM.
   let messages: HTMLElement;
@@ -65,6 +65,7 @@
   let uploadingFile = $state(false);
   let uploadProgress = $state<number | null>(null);
   let searchOpen = $state(false);
+  let searchFilters = $state<SearchFilters>(emptySearchFilters());
   let query = $state('');
   let matchIndex = $state(0);
 
@@ -281,8 +282,8 @@
     <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => roomDialog?.open()} />
   {/if}
   {#if searchOpen}
-    <SearchBar bind:this={searchBar} bind:query matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}
-      onInput={() => chat.scheduleSearch(query.trim())} onPrev={() => jumpTo(-1)} onNext={() => jumpTo(1)} onClose={toggleSearch} onJumpResult={jumpToResult} />
+    <SearchBar bind:this={searchBar} bind:query bind:filters={searchFilters} seats={current?.seats ?? []} rooms={current?.rooms ?? []} matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}
+      onInput={() => chat.scheduleSearch(query.trim(), searchFilters)} onPrev={() => jumpTo(-1)} onNext={() => jumpTo(1)} onClose={toggleSearch} onJumpResult={jumpToResult} />
   {/if}
   <SeatStrip seats={chat.roomSeats} onMention={(seat) => composer?.insertMention(seat.name)} />
   {#if current && !chat.connectionReady}

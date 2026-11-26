@@ -329,3 +329,35 @@ func TestScreenshotAndSummarizeGuards(t *testing.T) {
 		}
 	}
 }
+
+// Grup F: pencarian lanjutan.
+
+func TestSearchFilters(t *testing.T) {
+	f := setup(t, nil)
+	f.api("POST", "/api/message", object{"text": "@Plamo cari kata unikzebra"}, 202)
+	f.finish(2)
+	f.api("POST", "/api/message", object{"text": "@GLM kata unikzebra juga"}, 202)
+	f.finish(4)
+	count := func(path string) int {
+		out := f.api("GET", path, nil, 200)
+		return len(asObjects(out["results"]))
+	}
+	if got := count("/api/search?q=unikzebra"); got < 2 {
+		t.Fatalf("pencarian dasar harus menemukan >=2, dapat %d", got)
+	}
+	if got := count("/api/search?q=unikzebra&seat=M01"); got != 1 {
+		t.Fatalf("filter kursi M01 harus 1, dapat %d", got)
+	}
+	if got := count("/api/search?q=unikzebra&seat=owner"); got != 2 {
+		t.Fatalf("filter pemilik harus 2, dapat %d", got)
+	}
+	if got := count("/api/search?q=unikzebra&from=2099-01-01"); got != 0 {
+		t.Fatalf("filter tanggal masa depan harus 0, dapat %d", got)
+	}
+	if got := count("/api/search?q=unikzebra&hasImage=1"); got != 0 {
+		t.Fatalf("filter gambar harus 0, dapat %d", got)
+	}
+	if got := count("/api/search?seat=M02"); got != 1 {
+		t.Fatalf("filter tanpa kata kunci harus jalan, dapat %d", got)
+	}
+}

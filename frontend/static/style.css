@@ -330,3 +330,10 @@ html.dark .schedule-dialog textarea,html.dark .schedule-dialog input,html.dark .
 .schedule-item strong{display:block;font-size:12.5px;overflow-wrap:anywhere}
 .schedule-item small{display:block;color:var(--muted);font-size:10.5px;margin-top:3px}
 .schedule-item.disabled{opacity:.55}
+.search-filters{padding:0 14px 10px}
+.search-filters summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
+.search-filter-grid{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:end;margin-top:8px}
+.search-filter-grid label{font-size:11px;font-weight:650;display:flex;flex-direction:column;gap:4px}
+.search-filter-grid select,.search-filter-grid input[type=date]{height:34px;border:1px solid #dfe6da;border-radius:7px;padding:5px 8px;font-size:12px;background:#fff;color:var(--ink)}
+html.dark .search-filter-grid select,html.dark .search-filter-grid input[type=date]{background:#2a3a31;border-color:#3c4f42}
+.search-filter-grid .check-label{flex-direction:row;align-items:center;gap:6px}

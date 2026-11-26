@@ -32,6 +32,8 @@ export type PresetSeat = { code: string; name: string; role: string; provider: '
 export type SeatPreset = { id: string; name: string; createdAt: string; seats: PresetSeat[] };
 export type UsageStat = { requests: number; success: number; failed: number; totalLatencyMs: number; promptTokens: number; completionTokens: number; lastAt?: string; estimatedCostUsd?: number };
 export type SearchResult = { id: string; roomId: string; roomName: string; author: string; text: string; createdAt: string };
+export type SearchFilters = { seat: string; room: string; from: string; to: string; hasImage: boolean };
+export const emptySearchFilters = (): SearchFilters => ({ seat: '', room: '', from: '', to: '', hasImage: false });
 export type GatewayProvider = { id: string; name: string; alias?: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean; priceInputPer1M?: number; priceOutputPer1M?: number };
 export type ProviderModelTest = { model: string; ok: boolean; latencyMs?: number; reply?: string; error?: string };
 export type Connection = { models: string[]; testedAt: string };
