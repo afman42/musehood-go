@@ -1,0 +1,8 @@
+{
+  "name": "cuaca",
+  "description": "Cuaca saat ini sebuah kota (wttr.in)",
+  "argHint": "nama kota, contoh: Pontianak",
+  "type": "http_get",
+  "url": "https://wttr.in/{{kota}}?format=3&m",
+  "params": ["kota"]
+}

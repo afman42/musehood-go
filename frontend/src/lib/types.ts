@@ -1,5 +1,5 @@
 export type Identity = { name: string; avatar: string };
-export type Seat = Identity & { code: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; defaultPrompt?: string; present: boolean; fallbackModel?: string; memory?: string };
+export type Seat = Identity & { code: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt?: string; defaultPrompt?: string; present: boolean; fallbackModel?: string; memory?: string; skills?: string[] };
 export type ReviewLevel = 'Longgar' | 'Santai' | 'Sedang' | 'Ketat';
 export type GatewayProtocol = 'openai' | 'openai-responses' | 'anthropic' | 'gemini' | 'ollama';
 export type Settings = {
@@ -33,6 +33,6 @@ export type State = {
   pendingApprovals?: Approval[];
 };
 export type Notice = { text: string; error: boolean; target: string | null };
-export type SeatEdit = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string; fallbackModel: string; memory: string };
+export type SeatEdit = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string; fallbackModel: string; memory: string; skills: string };
 export type RoomEdit = { id: string; name: string; seatCodes: string[] };
 export type ModelTestResult = { ok: boolean; latencyMs?: number; reply?: string; error?: string };

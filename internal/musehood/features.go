@@ -192,7 +192,7 @@ func (a *App) createPresetLocked(name string) (any, error) {
 	}
 	p := seatPreset{ID: newPresetID(), Name: name, CreatedAt: now()}
 	for _, s := range a.data.Seats {
-		ps := presetSeat{Code: s.Code, Name: s.Name, Role: s.Role, Provider: s.Provider, Prompt: s.Prompt, FallbackModel: s.FallbackModel, Memory: s.Memory}
+		ps := presetSeat{Code: s.Code, Name: s.Name, Role: s.Role, Provider: s.Provider, Prompt: s.Prompt, FallbackModel: s.FallbackModel, Memory: s.Memory, Skills: s.Skills}
 		if s.Model != nil {
 			model := *s.Model
 			ps.Model = &model
@@ -241,6 +241,7 @@ func (a *App) applyPresetLocked(id string) (any, error) {
 		s.Prompt = ps.Prompt
 		s.FallbackModel = ps.FallbackModel
 		s.Memory = ps.Memory
+		s.Skills = ps.Skills
 		applied++
 	}
 	seen := map[string]bool{}

@@ -159,6 +159,27 @@ Seperti mode approval pada agent terminal (mis. Hermes), tindakan berisiko menun
 
 API: `POST /api/approvals/{id}` dengan `{approved: bool}`; permintaan yang menunggu muncul sebagai `pendingApprovals` di `/api/state` (kind `code`/`shell`/`delete`).
 
+### Skill per kursi
+
+Kursi dapat diberi **skill**: instruksi tambahan dalam format `SKILL.md` yang sama dengan skill pi (frontmatter `name`/`description` + badan Markdown). Letakkan skill sebagai `skills/<nama>/SKILL.md` atau file `skills/<nama>.md` di direktori data, lalu aktifkan namanya pada kursi lewat Pengaturan (field **Skill aktif**, pisahkan koma). Badan skill disisipkan ke system prompt kursi setiap kali menjawab (maks 6.000 karakter per skill, 12.000 total). Daftar skill yang tersedia: `GET /api/skills`. Contoh ada di `skills/contoh/SKILL.md` — skill pi yang sudah ada bisa disalin apa adanya ke folder ini.
+
+### Tool kustom
+
+Selain tool bawaan, tambahkan tool sendiri lewat definisi JSON di `tools/<nama>.json` (dimuat ulang otomatis, tanpa restart):
+
+```json
+{
+  "name": "cuaca",
+  "description": "Cuaca saat ini sebuah kota (wttr.in)",
+  "argHint": "nama kota, contoh: Pontianak",
+  "type": "http_get",
+  "url": "https://wttr.in/{{kota}}?format=3&m",
+  "params": ["kota"]
+}
+```
+
+Dua tipe: `http_get` (GET ke URL template; `{{param}}` diganti dari baris argumen berurutan, `{{arg}}` = seluruh argumen; melewati penjaga SSRF; field opsional `userAgent`) dan `shell` (perintah template dijalankan di sandbox yang sama dengan `run_shell` — selalu memerlukan persetujuan pemilik dan toggle tool coding aktif). Nama tool harus huruf kecil/angka/underscore dan tidak boleh menabrak tool bawaan. Daftar tool kustom: `GET /api/tools`. Contoh siap pakai ada di `tools/cuaca.json`.
+
 ## Statistik pemakaian
 
 `GET /api/stats` mengembalikan pemakaian per kursi dan per model (jumlah request, sukses/gagal, latensi, token) untuk chat dan gambar. Tabel statistik tampil di Pengaturan.
@@ -214,6 +235,8 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | POST | `/api/vote` | Voting jawaban terbaik diskusi terakhir |
 | GET | `/api/stats` | Statistik pemakaian per kursi/model |
 | GET | `/api/search?q=…` | Pencarian lintas ruang |
+| GET | `/api/skills` | Daftar skill yang tersedia (nama + deskripsi) |
+| GET | `/api/tools` | Daftar tool kustom dari folder `tools/` |
 | GET | `/api/backup` | Unduh cadangan (API key dikosongkan) |
 | POST | `/api/restore` | Pulihkan cadangan (maks 32 MB, key lama dipertahankan) |
 | GET | `/api/export` | Ekspor chat (JSON/HTML, sadar ruang) |

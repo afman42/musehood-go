@@ -123,6 +123,10 @@
           <textarea aria-label={`Memori ${item.code}`} rows="2" maxlength="4000" placeholder="Catatan persisten yang selalu diingat kursi ini…" data-memory={item.code} bind:value={item.memory}></textarea>
         </label>
         <span class="field-hint">Disisipkan ke instruksi kursi setiap kali menjawab; tetap ada setelah chat dibersihkan.</span>
+        <label class="model-label">Skill aktif
+          <input aria-label={`Skill ${item.code}`} maxlength="600" placeholder="Nama skill dari folder skills/, pisahkan koma" autocomplete="off" spellcheck="false" data-skills={item.code} bind:value={item.skills}>
+        </label>
+        <span class="field-hint">Skill adalah file SKILL.md di folder skills/ server; isinya disisipkan ke instruksi kursi.</span>
         {#if item.code.startsWith('C')}
           <button class="text-button danger-text" type="button" onclick={() => removeSeat(item.code, item.name)}>Hapus kursi ini</button>
         {/if}

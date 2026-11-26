@@ -27,16 +27,17 @@ func findStateSeat(t *testing.T, state object, code string) object {
 }
 
 func TestCustomPrompt(t *testing.T) {
+	app := &App{dir: t.TempDir()}
 	d := data{Group: identity{"Musehood", ""}, Owner: owner{identity{"Arman", ""}, true}, Settings: settings{ReviewLevel: "Sedang"}}
 	s := seat{identity: identity{"Opus", ""}, Code: "M10", Role: "Perencana"}
 	if got := defaultPromptFor(s); got != duties["M10"] {
 		t.Fatalf("defaultPromptFor M10 = %q, mau duties", got)
 	}
-	if got := systemPrompt(s, d); !strings.Contains(got, duties["M10"]) {
+	if got := app.systemPrompt(s, d); !strings.Contains(got, duties["M10"]) {
 		t.Fatalf("systemPrompt default tidak memuat duties: %q", got)
 	}
 	s.Prompt = "  Jawab selalu dalam bentuk tabel.  "
-	got := systemPrompt(s, d)
+	got := app.systemPrompt(s, d)
 	if !strings.Contains(got, "Jawab selalu dalam bentuk tabel.") {
 		t.Fatalf("systemPrompt tidak memakai prompt kustom: %q", got)
 	}
@@ -47,7 +48,7 @@ func TestCustomPrompt(t *testing.T) {
 		t.Fatalf("identitas kursi harus tetap ada: %q", got)
 	}
 	s.Prompt = "   "
-	if got := systemPrompt(s, d); !strings.Contains(got, duties["M10"]) {
+	if got := app.systemPrompt(s, d); !strings.Contains(got, duties["M10"]) {
 		t.Fatalf("prompt kosong harus kembali ke default: %q", got)
 	}
 	custom := seat{identity: identity{"Nova", ""}, Code: "C01", Role: "Pengamat"}
@@ -55,7 +56,7 @@ func TestCustomPrompt(t *testing.T) {
 		t.Fatalf("defaultPromptFor kursi custom = %q", got)
 	}
 	reviewer := seat{identity: identity{"GLM", ""}, Code: "M02", Role: "Peninjau", Prompt: "Periksa dengan teliti."}
-	if got := systemPrompt(reviewer, d); !strings.Contains(got, "Level Review Sedang") {
+	if got := app.systemPrompt(reviewer, d); !strings.Contains(got, "Level Review Sedang") {
 		t.Fatalf("M02 harus tetap mendapat Level Review: %q", got)
 	}
 }

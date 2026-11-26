@@ -65,11 +65,22 @@ const codeToolInstruction = `
 - run_code: jalankan kode di sandbox terisolasi (tanpa jaringan, maks 10 detik). Baris pertama argumen: bahasa (python atau javascript); baris berikutnya: kode. Hasil stdout/stderr dikembalikan kepadamu. Kode yang terdeteksi berbahaya memerlukan persetujuan pemilik sebelum dijalankan.
 - run_shell: jalankan perintah shell sederhana di sandbox yang sama (mis. ls, cat, grep). Argumen: perintah shell. Selalu memerlukan persetujuan pemilik.`
 
-func buildToolInstructions(code bool) string {
+func (a *App) buildToolInstructions(code bool) string {
+	text := toolInstructions
 	if code {
-		return toolInstructions + codeToolInstruction
+		text += codeToolInstruction
 	}
-	return toolInstructions
+	for _, tool := range a.loadCustomTools() {
+		if tool.Type == "shell" && !code {
+			continue
+		}
+		hint := tool.ArgHint
+		if hint == "" {
+			hint = "sesuai deskripsi"
+		}
+		text += fmt.Sprintf("\n- %s: %s. Argumen: %s.", tool.Name, tool.Description, hint)
+	}
+	return text
 }
 
 func parseToolBlock(text string) (name, arg string, found bool) {
@@ -201,6 +212,9 @@ func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg strin
 		}
 		return a.toolRunShell(ctx, s, arg), ""
 	default:
+		if tool, ok := a.findCustomTool(name); ok {
+			return a.runCustomTool(ctx, s, tool, arg, code), ""
+		}
 		return fmt.Sprintf("Tool %q tidak dikenal.", name), ""
 	}
 }

@@ -200,7 +200,7 @@ func TestSeatMemoryAndFallbackSettings(t *testing.T) {
 	}
 	f.app.mu.Lock()
 	member := f.app.data.findSeat("M01")
-	prompt := systemPrompt(*member, f.app.data)
+	prompt := f.app.systemPrompt(*member, f.app.data)
 	f.app.mu.Unlock()
 	if !strings.Contains(prompt, "Pemilik suka jawaban singkat.") {
 		t.Fatalf("memori tidak masuk system prompt: %s", prompt)

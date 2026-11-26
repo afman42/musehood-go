@@ -187,7 +187,7 @@ func (a *App) messageLocked(j *job, s *step, member seat) *message {
 	return m
 }
 func (a *App) enqueueLocked(j *job, s *step, member seat, m *message) error {
-	q := queueRequest{ID: uuid(), Seat: member.Code, Kind: s.Kind, Prompt: systemPrompt(member, a.data) + "\n\n", Context: contextFor(a.data, j), CreatedAt: now()}
+	q := queueRequest{ID: uuid(), Seat: member.Code, Kind: s.Kind, Prompt: a.systemPrompt(member, a.data) + "\n\n", Context: contextFor(a.data, j), CreatedAt: now()}
 	if s.Kind == "summary" {
 		q.Prompt += "Buat Hasil Akhir - Integrasi berdasarkan semua hasil tahap sebelumnya.\n"
 	}
@@ -326,7 +326,7 @@ func (a *App) voteMessagesLocked(voter seat, j *job) []gatewayMessage {
 	}
 	instruction := "Kamu menilai jawaban-jawaban kursi lain untuk permintaan pemilik. Pilih SATU jawaban terbaik (jangan pilih jawabanmu sendiri). Balas HANYA dengan kode kursi jawaban terbaik (mis. M01) diikuti satu kalimat alasan singkat."
 	return []gatewayMessage{
-		{"system", systemPrompt(voter, a.data) + " " + instruction},
+		{"system", a.systemPrompt(voter, a.data) + " " + instruction},
 		{"user", "Permintaan pemilik: " + j.Prompt + "\n\nJawaban kandidat:\n" + list.String() + "Kursimu adalah " + voter.Code + " (" + voter.Name + "). Jangan memilih jawabanmu sendiri."},
 	}
 }
@@ -488,7 +488,7 @@ func (a *App) advanceLocked(j *job) {
 			}
 			subject := jobPrefix.ReplaceAllString(j.Prompt, "")
 			raw, _ := json.Marshal(contextFor(a.data, j))
-			prompt := a.redactLocked(systemPrompt(member, a.data) + "\nPermintaan gambar: " + subject + "\nKonteks tugas: " + string(raw))
+			prompt := a.redactLocked(a.systemPrompt(member, a.data) + "\nPermintaan gambar: " + subject + "\nKonteks tugas: " + string(raw))
 			a.runLocked(j, s, member, m, false, func(ctx context.Context) (workerReply, error) {
 				image, err := a.generateImage(ctx, cfg, member, prompt)
 				return workerReply{ImageURL: image, Text: subject}, err
@@ -503,7 +503,7 @@ func (a *App) advanceLocked(j *job) {
 				return workerReply{Text: text}, err
 			})
 		} else {
-			history := gatewayMessages(member, a.data, j)
+			history := a.gatewayMessages(member, a.data, j)
 			for i := range history {
 				history[i].Content = a.redactLocked(history[i].Content)
 			}
