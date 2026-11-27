@@ -77,7 +77,7 @@ Yang wajib berhasil: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64
 | M04 | Deepseek | Penasihat |
 | M05 | Fable | Analis Data |
 
-Semua kursi — termasuk MUSE — dapat diubah dari Pengaturan: nama, peran, provider ("muse" untuk antrean pekerja atau "gateway"), model, model fallback, memori per kursi, skill aktif, dan avatar. Pengaturan `integratorSeat` memilih kursi yang menutup pipeline "Tugas:" dan menjawab Tanya Progres (bawaan MUSE).
+Semua kursi — termasuk MUSE — dapat diubah dari Pengaturan: nama, peran, **prompt kustom peran** (editor system prompt per kursi), provider ("muse" untuk antrean pekerja atau "gateway"), model, **rantai fallback bertingkat** (satu model fallback utama + sampai 5 model cadangan yang dicoba berurutan bila model utama gagal), **tool yang dinonaktifkan** untuk kursi itu (allowlist per kursi), memori per kursi, skill aktif, dan avatar. Pengaturan `integratorSeat` memilih kursi yang menutup pipeline "Tugas:" dan menjawab Tanya Progres (bawaan MUSE).
 
 Selain tujuh kursi bawaan, pemilik dapat menambah kursi AI sendiri dari Pengaturan (bagian "Tambah kursi"): isi nama, peran, dan nama model gateway. Kursi custom mendapat kode otomatis `C01`, `C02`, … dan langsung muncul di daftar kursi, bisa di-mention (`@Nama`), ikut Diskusi Bergilir, serta bisa diganti avatar dan modelnya seperti kursi lain. Kursi custom dapat dihapus dari Pengaturan (kursi bawaan tidak dapat dihapus, dan kursi yang sedang dipakai tugas berjalan tidak dapat dihapus sampai tugas selesai).
 
@@ -94,7 +94,7 @@ Aplikasi mendukung **banyak provider gateway** sekaligus. Setiap provider punya 
 3. Isi nama model untuk tiap kursi gateway. Model dapat ditulis `alias/model` untuk mengarahkan kursi ke provider beralias itu tanpa mengganti provider aktif (awalan alias dibuang sebelum dikirim).
 4. Klik **Tes Koneksi** untuk menyimpan pengaturan dan melihat status tiap kursi. Input key kosong mempertahankan key yang tersimpan; **Hapus key** menghapusnya.
 
-Gateway memakai `GET /v1/models`, `POST /v1/chat/completions` (atau endpoint sesuai protokol), dan `POST /v1/images/generations`. Error provider ditampilkan bersama status HTTP dan isi asli, dengan key disamarkan. Fallback demo dapat diaktifkan dari pengaturan untuk chat gateway dan ditandai **DEMO** pada pesan. Pengaturan awalnya mati. Bila model utama kursi gagal, **model fallback per kursi** dicoba sekali secara otomatis.
+Gateway memakai `GET /v1/models`, `POST /v1/chat/completions` (atau endpoint sesuai protokol), dan `POST /v1/images/generations`. Balasan kursi gateway **di-streaming** (SSE per protokol: openai, openai-responses, anthropic, gemini, ollama) sehingga teks muncul bertahap; bila streaming gagal atau kosong, otomatis jatuh ke permintaan biasa. Saklarnya ada di Pengaturan (`streamingEnabled`, bawaan aktif). Error provider ditampilkan bersama status HTTP dan isi asli, dengan key disamarkan. Fallback demo dapat diaktifkan dari pengaturan untuk chat gateway dan ditandai **DEMO** pada pesan. Pengaturan awalnya mati. Bila model utama kursi gagal, **rantai fallback per kursi** dicoba berurutan secara otomatis. Tiap provider dapat diisi **harga input/output per 1M token** untuk estimasi biaya di statistik.
 
 API: `GET/POST /api/providers`, `POST/DELETE /api/providers/{id}`, `POST /api/providers/{id}/activate`, `GET /api/providers/{id}/models`, `POST /api/providers/{id}/test-models`, `POST /api/test-model`, `POST /api/test-connection`.
 
@@ -107,15 +107,25 @@ API: `GET/POST /api/providers`, `POST/DELETE /api/providers/{id}`, `POST /api/pr
 - **Markdown di bubble**: teks pesan dirender sebagai Markdown (paragraf, heading, **bold**, *italic*, ~~coret~~, `kode`, blok kode, blockquote, daftar, garis horizontal, tautan) oleh parser subset aman di frontend — HTML mentah tidak pernah diteruskan, dan mention di dalam teks tetap bisa ditekan. Blok kode ber-bahasa diberi **syntax highlighting** (@speed-highlight/core, 34 bahasa) yang dimuat malas per bahasa dan warnanya mengikuti tema terang/gelap aplikasi.
 - **Status kirim & progres unggah**: selama pesan dikirim, tombol kirim menampilkan "Mengirim… N dtk" dengan penghitung detik berjalan. Unggahan gambar/file menampilkan bar progres + persen, dan lampiran yang selesai diunggah ditandai "✓ siap dikirim" sebelum pesan dikirim.
 - **Voting jawaban terbaik**: tombol Vote meminta kursi gateway yang menjawab diskusi terakhir memilih jawaban terbaik; pemenang ditandai dan integrator menerbitkan ringkasan hasil voting.
+- **Regenerate**: tombol ↻ pada balasan kursi menjalankan ulang jawaban kursi itu (pesan lama diganti; langkah gambar menghasilkan gambar baru).
+- **Pesan terjadwal**: tombol ⏰ **Jadwalkan** di composer mengirim pesan sekali pada waktu tertentu, atau berulang harian/mingguan/tiap N jam (zona waktu mengikuti browser). Jadwal dikelola dari dialog yang sama.
+- **Draft otomatis**: teks composer yang belum terkirim tersimpan per ruang di browser dan pulih saat kembali ke ruang itu.
+- **Notifikasi browser**: bila diaktifkan di Pengaturan, notifikasi muncul saat kursi selesai membalas dan tab tidak aktif.
 - **Bersihkan chat** menghapus riwayat, status tugas, dan antrean aktif setelah konfirmasi. Pengaturan tetap tersimpan.
 
 ## Ruang, pencarian, dan ekspor
 
-- **Multi-ruang**: setiap ruang punya riwayat dan susunan kursi sendiri. Ruang bawaan "Utama" menampung data lama. Pengalih ruang ada di header; ruang dikelola dari Pengaturan. Daftar kursi kosong pada ruang berarti semua kursi ikut.
-- **Pencarian** mencari teks di semua ruang (`GET /api/search?q=…`) dan menampilkan hasil dari server.
+- **Multi-ruang**: setiap ruang punya riwayat dan susunan kursi sendiri. Ruang bawaan "Utama" menampung data lama. Pengalih ruang ada di header; ruang dikelola dari Pengaturan. Daftar kursi kosong pada ruang berarti semua kursi ikut. Ruang dapat **disematkan** (📌, naik ke urutan teratas) dan menampilkan **badge belum dibaca** berdasarkan jumlah pesan yang sudah dilihat di browser.
+- **Pencarian lanjutan** mencari teks di semua ruang (`GET /api/search?q=…`) dengan filter pengirim (pemilik/kursi), ruang, rentang tanggal, dan ada gambar; kata kunci boleh kosong bila filter aktif.
 - **Pesan tersemat (pin)**: pesan dapat disematkan dan tampil di bar tersemat di atas chat.
 - **Ekspor**: chat dapat diekspor sebagai JSON atau HTML siap cetak/PDF, sadar ruang aktif.
 - **Cadangan & pulihkan**: `GET /api/backup` mengunduh seluruh data dengan semua API key dikosongkan; `POST /api/restore` memulihkan cadangan sambil mempertahankan API key lama per ID provider.
+
+## Template diskusi, ringkasan, dan kompaksi konteks
+
+- **Template diskusi**: preset bernama berisi urutan kursi + instruksi (dibuat di Pengaturan → Template; klik chip kursi untuk menambah langkah, klik langkah untuk menghapus). Pilih template di composer sebelum mengirim — pesan dijalankan sebagai pipeline urutan kursi template dengan instruksi sebagai konteks, sementara pesan pemilik tetap menampilkan teks asli. Maksimal 30 template, 1–12 langkah.
+- **Ringkasan diskusi**: tombol 📝 **Ringkas** di baris ruang meminta kursi integrator merangkum ruang aktif; hasil tersemat sebagai pesan berlabel "Ringkasan diskusi".
+- **Kompaksi konteks otomatis**: ruang yang bertambah 80 pesan sejak ringkasan terakhir diringkas otomatis. Konteks yang dikirim ke kursi menjadi ringkasan + 40 pesan terakhir, sehingga diskusi panjang tetap ringan.
 
 ## Lampiran file
 
@@ -125,7 +135,7 @@ API: `POST /api/upload-file` (→ `{url, name, size, mime}`), `GET /uploads/<fil
 
 ## Tool untuk kursi gateway
 
-Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran tool per balasan). Protokolnya berbasis teks — model menulis blok `<<TOOL:nama>>argumen<</TOOL>>`, server menjalankan tool-nya, lalu hasil tool dikirim kembali sebagai pesan lanjutan — sehingga bekerja di semua provider/protokol, termasuk jembatan CLI yang hanya mengembalikan teks. Pesan yang memakai tool menampilkan chip nama tool di UI. Toggle **"Tool untuk kursi gateway"** di Pengaturan mengendalikan semuanya (bawaan aktif).
+Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran tool per balasan). Protokolnya berbasis teks — model menulis blok `<<TOOL:nama>>argumen<</TOOL>>`, server menjalankan tool-nya, lalu hasil tool dikirim kembali sebagai pesan lanjutan — sehingga bekerja di semua provider/protokol, termasuk jembatan CLI yang hanya mengembalikan teks. Selama tool berjalan, status mengetik menampilkan aktivitasnya ("Plamo menjalankan web_search…"); hasilnya tampil sebagai **kartu tool** di bawah balasan (klik untuk melihat argumen + hasil). Toggle **"Tool untuk kursi gateway"** di Pengaturan mengendalikan semuanya (bawaan aktif), dan tiap kursi dapat menonaktifkan tool tertentu (allowlist per kursi). Total **36 tool bawaan**:
 
 | Tool | Fungsi |
 | --- | --- |
@@ -146,8 +156,24 @@ Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran too
 | `generate_image` | Buat gambar lewat endpoint `images/generations` provider; gambar terlampir pada balasan |
 | `memory_save` | Simpan catatan ke memori per kursi (maks 500 char/catatan, total 4000 char) |
 | `current_time` | Tanggal dan waktu sekarang (Asia/Jakarta) |
+| `git` | Perintah git baca-saja di sandbox (status/diff/log/show/branch/remote) |
+| `screenshot_url` | Screenshot halaman web (Chromium headless); gambar terlampir pada balasan |
+| `summarize_url` | Ambil isi halaman web untuk diringkas kursi |
+| `pdf_from_markdown` | Buat PDF A4 dari teks Markdown ke sandbox |
+| `translate_text` | Terjemahan antar bahasa via MyMemory (baris pertama: pasangan `id>en`) |
+| `ocr_image` | Baca teks dari gambar sandbox (memakai `tesseract` bila tersedia) |
+| `image_caption` | Jelaskan isi gambar sandbox memakai model vision kursi (semua protokol) |
+| `qr_code` | QR code PNG dari teks/URL; gambar terlampir pada balasan |
+| `rss_feed` | Baca feed RSS 2.0 / Atom (item terbaru) |
+| `youtube_transcript` | Transkrip/caption video YouTube tanpa kunci API |
+| `currency_convert` | Konversi mata uang, kurs ECB via frankfurter.app (mis. `100 USD IDR`) |
+| `text_to_speech` | Teks menjadi WAV di sandbox (memakai `espeak-ng` bila tersedia; `lang=id`/`lang=en`) |
+| `http_post` | POST JSON ke URL publik — **memerlukan persetujuan pemilik** |
+| `password_gen` | Password acak kuat (8–128 karakter, opsi `nosymbol`) |
 | `run_code` | Jalankan Python/JavaScript di sandbox terisolasi |
 | `run_shell` | Jalankan perintah shell di sandbox yang sama |
+
+Beberapa tool memakai binary sistem bila tersedia dan gagal dengan pesan jelas bila tidak ada: `ocr_image` → `tesseract-ocr`, `text_to_speech` → `espeak-ng`, `pdf_text` → `pdftotext` (poppler-utils), `screenshot_url` → Chromium. Di Debian/Ubuntu: `apt install tesseract-ocr espeak-ng poppler-utils`.
 
 ### Sandbox kode dan persetujuan pemilik
 
@@ -158,8 +184,9 @@ Seperti mode approval pada agent terminal (mis. Hermes), tindakan berisiko menun
 - Kode yang terdeteksi pola berbahaya (`os.system`, subprocess, akses jaringan, baca path absolut, `rm -rf`, loop tak berujung, dll.) — deteksi berbasis pola, bukan jaminan.
 - Semua perintah `run_shell`.
 - Semua `delete_file`.
+- Semua `http_post` (URL + isi JSON ditampilkan pada banner).
 
-API: `POST /api/approvals/{id}` dengan `{approved: bool}`; permintaan yang menunggu muncul sebagai `pendingApprovals` di `/api/state` (kind `code`/`shell`/`delete`).
+API: `POST /api/approvals/{id}` dengan `{approved: bool}`; permintaan yang menunggu muncul sebagai `pendingApprovals` di `/api/state` (kind `code`/`shell`/`delete`/`http`).
 
 ### Skill per kursi
 
@@ -184,7 +211,14 @@ Dua tipe: `http_get` (GET ke URL template; `{{param}}` diganti dari baris argume
 
 ## Statistik pemakaian
 
-`GET /api/stats` mengembalikan pemakaian per kursi dan per model (jumlah request, sukses/gagal, latensi, token) untuk chat dan gambar. Tabel statistik tampil di Pengaturan.
+`GET /api/stats` mengembalikan pemakaian per kursi dan per model (jumlah request, sukses/gagal, latensi, token) untuk chat dan gambar. Bila harga provider diisi (per 1M token input/output), statistik menyertakan **estimasi biaya** (`estimatedCostUsd`) per model. Tabel statistik tampil di Pengaturan.
+
+## PWA, tema, dan bahasa
+
+- **PWA**: aplikasi dapat di-install (manifest + ikon 192/512 + service worker). Service worker meng-cache shell aplikasi dan memakai network-first untuk `/api/` sehingga data selalu segar.
+- **Tema**: Terang / Gelap / **Otomatis** (mengikuti sistem) dan ukuran font Kecil/Sedang/Besar — diatur di Pengaturan → Diskusi, tersimpan sebagai `settings.theme`/`settings.fontSize`.
+- **Bahasa antarmuka**: Indonesia / English untuk chrome utama (composer, baris ruang, pencarian, dialog jadwal, label pengaturan); balasan kursi tidak diterjemahkan. Pilihan tersimpan di browser.
+- **Aksesibilitas**: menghormati `prefers-reduced-motion` dan mengumumkan balasan kursi baru lewat region `aria-live` untuk pembaca layar.
 
 ## Pekerja Muse
 
@@ -217,6 +251,12 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | POST | `/api/message/{id}/delete` | Hapus pesan |
 | POST | `/api/message/{id}/react` | Beri reaksi pada pesan |
 | POST | `/api/message/{id}/pin` | Sematkan/lepas sematan pesan |
+| POST | `/api/message/{id}/regenerate` | Jalankan ulang balasan kursi (202 `{jobId}`; pesan pemilik: 403) |
+| GET/POST | `/api/scheduled` | Daftar pesan terjadwal; buat jadwal (sekali/harian/mingguan/interval) |
+| POST/DELETE | `/api/scheduled/{id}` | Ubah/hapus jadwal |
+| GET/POST | `/api/templates` | Daftar template diskusi; buat template `{name,seats,instruction}` |
+| POST/DELETE | `/api/templates/{id}` | Ubah/hapus template |
+| POST | `/api/rooms/{id}/summarize` | Ringkas ruang (202; 409 bila ringkasan sedang berjalan) |
 | POST | `/api/upload-file` | Multipart field `file`, maksimal 10 MB, respons `{url,name,size,mime}` |
 | POST | `/api/upload-image` | Multipart gambar untuk pesan |
 | POST | `/api/seats` | `{name,role,model}` → 201 kursi custom baru |
@@ -236,9 +276,9 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | POST | `/api/approvals/{id}` | `{approved}` untuk persetujuan tool berisiko |
 | POST | `/api/vote` | Voting jawaban terbaik diskusi terakhir |
 | GET | `/api/stats` | Statistik pemakaian per kursi/model |
-| GET | `/api/search?q=…` | Pencarian lintas ruang |
+| GET | `/api/search?q=…` | Pencarian lintas ruang; filter `seat`, `room`, `from`, `to`, `hasImage=1` |
 | GET | `/api/skills` | Daftar skill yang tersedia (nama, deskripsi, sumber: lokal/skills.sh/claude) |
-| GET | `/api/tools` | Daftar tool kustom dari folder `tools/` |
+| GET | `/api/tools` | `{tools, builtin}` — tool kustom dari folder `tools/` + daftar tool bawaan |
 | GET | `/api/backup` | Unduh cadangan (API key dikosongkan) |
 | POST | `/api/restore` | Pulihkan cadangan (maks 32 MB, key lama dipertahankan) |
 | GET | `/api/export` | Ekspor chat (JSON/HTML, sadar ruang) |
@@ -251,7 +291,7 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | POST | `/api/queue/muse/:id` | `{text,imageUrl?}` atau `{error}` |
 | POST | `/api/upload-avatar` | Multipart dengan `target` dan `avatar`, raster maksimal 2 MB |
 
-Browser mengambil hasil job dari `/api/state`. Semua error API memakai `{error}`. Pengaturan mendukung `owner.name`, `group.name`, `seats[].{code,name,role,provider,model,fallbackModel,memory,skills}`, dan `settings.{baseUrl,apiKey,clearApiKey,roundRobin,reviewLevel,demoFallback,integratorSeat,toolsEnabled,codeToolEnabled,skillsEnabled}`. Avatar dapat diunggah untuk `group`, `owner`, atau kode kursi.
+Browser mengambil hasil job dari `/api/state`. Semua error API memakai `{error}`. Pengaturan mendukung `owner.name`, `group.name`, `seats[].{code,name,role,prompt,provider,model,fallbackModel,fallbackModels,disabledTools,memory,skills}`, dan `settings.{baseUrl,apiKey,clearApiKey,roundRobin,reviewLevel,demoFallback,integratorSeat,toolsEnabled,codeToolEnabled,skillsEnabled,streamingEnabled,theme,fontSize}`; provider mendukung `priceInputPer1M`/`priceOutputPer1M`. `POST /api/message` menerima `templateId` opsional. Avatar dapat diunggah untuk `group`, `owner`, atau kode kursi.
 
 ## Penyimpanan
 
@@ -291,6 +331,6 @@ node tests/frontend-perf.mjs
 
 `tests/live-e2e.mjs` menjalankan binary asli terhadap gateway mock dan menguji 49 skenario end-to-end. Uji Chromium menggunakan instalasi Playwright lokal. Isi `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` bila menggunakan executable Chromium dari lokasi lain. Lihat hasil dan cakupan pengujian di [TESTS.md](TESTS.md).
 
-Suite backend (`internal/musehood/*_test.go`, 140 fungsi tes, cakupan 84,4%) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model, persetujuan via API, tool kustom, voting, isolasi ruang), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom — resolver DNS di-stub ke IP publik dalam tes, penjaga SSRF produksi tidak dilemahkan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
+Suite backend (`internal/musehood/*_test.go`, 168 fungsi tes, cakupan 82,4%) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model + rantai fallback, persetujuan via API, tool kustom, voting, isolasi ruang, streaming SSE + fallback, regenerate, pesan terjadwal + jadwal berulang, template diskusi, ringkasan + kompaksi konteks, pencarian berfilter, sematan ruang + tema), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom, terjemahan, kurs, QR, RSS, transkrip YouTube, `http_post` berpersetujuan — resolver DNS di-stub ke IP publik dan URL API diganti server lokal dalam tes, penjaga SSRF produksi tidak dilemahkan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
 
 Suite frontend mencakup: unit (`frontend/tests/unit/`, helper format/API, parser Markdown, lazy-load syntax highlighting + composable `chat.svelte.ts` yang dikompilasi dan dijalankan di Node dengan fetch/document stub, via `node --test`), komponen (`frontend/tests/component/`, render SSR komponen Svelte), E2E UI (`tests/frontend-e2e.mjs`: chat, mention + modal info kursi, render Markdown + syntax highlighting, pengaturan, pin, ruang, pencarian, voting, persetujuan tool; `tests/frontend-e2e-settings.mjs`: CRUD provider + fetch/test models, toggle, kursi custom, kelola ruang, preset, statistik, backup/restore, ekspor; `tests/frontend-e2e-actions.mjs`: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file), aksesibilitas (`tests/frontend-a11y.mjs`: audit axe-core mode terang + gelap, nama aksesibel, alt, keyboard/fokus, kontras WCAG, target sentuh), visual regression (`tests/frontend-visual.mjs`: screenshot 5 skenario vs baseline piksel di `tests/visual-baselines/`), dan cross-browser/performance (`tests/frontend-perf.mjs`: viewport 320–1920px, emulasi sentuh iPhone, anggaran timing/bundle/polling — Chromium saja karena unduhan browser lain diblokir di VM pengembangan).
