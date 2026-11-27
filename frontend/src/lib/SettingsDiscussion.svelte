@@ -23,6 +23,9 @@
     roundRobin = $bindable(true), reviewLevel = $bindable<ReviewLevel>('Sedang'),
     integratorSeat = $bindable('MUSE'), demoFallback = $bindable(false), toolsEnabled = $bindable(true), codeToolEnabled = $bindable(true), streamingEnabled = $bindable(true),
     responseCacheEnabled = $bindable(false), chainReplies = $bindable(false), density = $bindable('normal'),
+    nativeToolsEnabled = $bindable(true), loadBalanceProviders = $bindable(false), parallelMode = $bindable(false),
+    webhookUrl = $bindable(''), webhookEnabled = $bindable(false),
+    telegramBotToken = $bindable(''), telegramChatId = $bindable(''), telegramEnabled = $bindable(false), hasTelegramToken = false,
     theme = $bindable('light'), fontSize = $bindable('M'), seats,
   }: {
     roundRobin?: boolean;
@@ -35,6 +38,15 @@
     responseCacheEnabled?: boolean;
     chainReplies?: boolean;
     density?: string;
+    nativeToolsEnabled?: boolean;
+    loadBalanceProviders?: boolean;
+    parallelMode?: boolean;
+    webhookUrl?: string;
+    webhookEnabled?: boolean;
+    telegramBotToken?: string;
+    telegramChatId?: string;
+    telegramEnabled?: boolean;
+    hasTelegramToken?: boolean;
     theme?: string;
     fontSize?: string;
     seats: SeatEdit[];
@@ -56,6 +68,16 @@
   <label class="toggle-row"><span><strong>Streaming balasan</strong><small>Teks balasan kursi gateway muncul bertahap selagi model menjawab. Bila gateway tidak mendukung streaming, aplikasi otomatis memakai cara biasa.</small></span><input id="streamingEnabled" type="checkbox" role="switch" bind:checked={streamingEnabled}></label>
   <label class="toggle-row"><span><strong>Cache respons</strong><small>Balasan identik dari model yang sama dipakai ulang dari cache selama 10 menit tanpa memanggil gateway. Hanya berlaku untuk jalur non-streaming.</small></span><input id="responseCacheEnabled" type="checkbox" role="switch" bind:checked={responseCacheEnabled}></label>
   <label class="toggle-row"><span><strong>Balasan berantai</strong><small>Pada diskusi bergilir, kursi berikutnya diminta menanggapi balasan kursi sebelumnya secara eksplisit (menyebut namanya) dan pesan ditautkan sebagai balasan.</small></span><input id="chainReplies" type="checkbox" role="switch" bind:checked={chainReplies}></label>
+  <label class="toggle-row"><span><strong>{t('nativeTools')}</strong><small>{t('nativeToolsHint')}</small></span><input id="nativeToolsEnabled" type="checkbox" role="switch" bind:checked={nativeToolsEnabled}></label>
+  <label class="toggle-row"><span><strong>{t('loadBalance')}</strong><small>{t('loadBalanceHint')}</small></span><input id="loadBalanceProviders" type="checkbox" role="switch" bind:checked={loadBalanceProviders}></label>
+  <label class="toggle-row"><span><strong>{t('parallelMode')}</strong><small>{t('parallelModeHint')}</small></span><input id="parallelMode" type="checkbox" role="switch" bind:checked={parallelMode}></label>
+  <label class="toggle-row"><span><strong>{t('webhook')}</strong><small>{t('webhookHint')}</small></span><input id="webhookEnabled" type="checkbox" role="switch" bind:checked={webhookEnabled}></label>
+  {#if webhookEnabled}<label>{t('webhookUrl')}<input id="webhookUrl" maxlength="500" placeholder="https://contoh.com/hook" autocomplete="off" spellcheck="false" bind:value={webhookUrl}></label>{/if}
+  <label class="toggle-row"><span><strong>{t('telegramBridge')}</strong><small>{t('telegramBridgeHint')}</small></span><input id="telegramEnabled" type="checkbox" role="switch" bind:checked={telegramEnabled}></label>
+  {#if telegramEnabled}
+    <label>{t('telegramToken')}<input id="telegramBotToken" type="password" maxlength="200" placeholder={hasTelegramToken ? '•••••••• (tersimpan)' : '123456:ABC-DEF…'} autocomplete="off" bind:value={telegramBotToken}></label>
+    <label>{t('telegramChatId')}<input id="telegramChatId" maxlength="30" placeholder="123456789" autocomplete="off" spellcheck="false" bind:value={telegramChatId}></label>
+  {/if}
   <label>Kepadatan tampilan<select id="densitySelect" bind:value={density}><option value="normal">Normal</option><option value="compact">Kompak</option></select></label>
   <label class="toggle-row"><span><strong>Tool coding (run_code & run_shell)</strong><small>Kursi gateway dapat menjalankan kode Python/JavaScript dan perintah shell di sandbox terisolasi (user nobody, tanpa jaringan, maks 10 detik). Kode berbahaya dan semua perintah shell menunggu persetujuanmu di banner chat sebelum dijalankan.</small></span><input id="codeToolEnabled" type="checkbox" role="switch" bind:checked={codeToolEnabled}></label>
   <label>{t('theme')}<select id="themeSelect" bind:value={theme}><option value="light">{t('themeLight')}</option><option value="dark">{t('themeDark')}</option><option value="auto">{t('themeAuto')}</option></select></label>

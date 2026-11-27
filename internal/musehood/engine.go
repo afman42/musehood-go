@@ -132,10 +132,10 @@ func (a *App) submitLocked(text, replyTo, imageURL string, att *attachment, room
 	for i := range steps {
 		steps[i].Status = "pending"
 	}
-	j := &job{ID: uuid(), Prompt: text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID}
+	j := &job{ID: uuid(), Prompt: text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, BranchID: r.activeBranch()}
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
-	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL, Attachment: att, RoomID: r.ID})
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL, Attachment: att, RoomID: r.ID, BranchID: r.activeBranch()})
 	if kind == "task" {
 		a.data.Task = &activeTask{JobID: j.ID, Title: taskPrefix.ReplaceAllString(text, ""), CurrentStep: ptr(steps[0].Seat), Status: "processing", CreatedAt: now(), RoomID: r.ID}
 	}
@@ -201,11 +201,11 @@ func (a *App) submitDebateLocked(seatA, seatB, topic, roomID string) (*job, erro
 	for i := range steps {
 		steps[i].Status = "pending"
 	}
-	j := &job{ID: uuid(), Prompt: "Debat: " + topic, Kind: "debate", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID}
+	j := &job{ID: uuid(), Prompt: "Debat: " + topic, Kind: "debate", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, BranchID: r.activeBranch()}
 	ownerText := fmt.Sprintf("Debat: %s (@%s vs @%s)", topic, aSeat.Name, bSeat.Name)
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
-	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: ownerText, Status: "completed", RoomID: r.ID})
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: ownerText, Status: "completed", RoomID: r.ID, BranchID: r.activeBranch()})
 	if err := a.saveLocked(); err != nil {
 		a.data = previous
 		return nil, err
@@ -227,7 +227,7 @@ func (a *App) messageLocked(j *job, s *step, member seat) *message {
 			return a.data.Messages[i]
 		}
 	}
-	m := &message{ID: uuid(), CreatedAt: now(), AuthorType: "seat", Seat: member.Code, JobID: j.ID, Status: "typing", StatusText: member.Name + " sedang mengetik...", RoomID: j.RoomID}
+	m := &message{ID: uuid(), CreatedAt: now(), AuthorType: "seat", Seat: member.Code, JobID: j.ID, Status: "typing", StatusText: member.Name + " sedang mengetik...", RoomID: j.RoomID, BranchID: j.BranchID}
 	if s.Kind == "summary" {
 		m.Label = finalLabel
 	}
@@ -332,7 +332,12 @@ func (a *App) finishStepLocked(j *job, s *step, m *message) {
 			}
 			r.SummaryCount = count
 		}
+		// Memori otomatis (fitur 3): kursi peserta yang mengaktifkan
+		// AutoMemory menulis poin memori dari ringkasan ini.
+		a.autoMemoryAfterSummaryLocked(j.RoomID, m.Text)
 	}
+	// Webhook + Telegram (fitur 41 & 43).
+	a.notifyCompletedLocked(m)
 	m.StatusText = ""
 	j.Index++
 	j.Status = "processing"
@@ -352,6 +357,12 @@ func (a *App) finishStepLocked(j *job, s *step, m *message) {
 func (a *App) completeJobLocked(j *job) {
 	j.Status = "completed"
 	j.CompletedAt = now()
+	// Bersihkan catatan budget "sekali per pekerjaan" (fitur 5).
+	for key := range a.budgetNoted {
+		if strings.HasPrefix(key, j.ID+"|") {
+			delete(a.budgetNoted, key)
+		}
+	}
 	if task := a.data.Task; task != nil && task.JobID == j.ID {
 		task.Status = "completed"
 		task.CurrentStep = nil
@@ -511,7 +522,7 @@ func (a *App) submitVoteLocked(roomID string) (*job, error) {
 	for _, code := range voters {
 		steps = append(steps, step{Seat: code, Kind: "vote", Status: "pending"})
 	}
-	j := &job{ID: uuid(), Prompt: target.Prompt, Kind: "vote", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, Candidates: ids}
+	j := &job{ID: uuid(), Prompt: target.Prompt, Kind: "vote", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, BranchID: r.activeBranch(), Candidates: ids}
 	a.data.Jobs = append(a.data.Jobs, j)
 	if err := a.saveLocked(); err != nil {
 		a.data = previous
@@ -550,9 +561,16 @@ func (a *App) advanceLocked(j *job) {
 		a.completeJobLocked(j)
 		return
 	}
+	// Mode paralel (fitur 15): putaran chat multi-kursi gateway berjalan
+	// konkuren; selain itu jalur sekuensial di bawah.
+	if a.parallelEligibleLocked(j) {
+		a.advanceParallelLocked(j)
+		return
+	}
 	for j.Index < len(j.Steps) {
 		s := &j.Steps[j.Index]
 		member := *a.data.findSeat(s.Seat)
+		a.applyRoomDisabledToolsLocked(j, &member)
 		m := a.messageLocked(j, s, member)
 		// Balasan berantai (fitur 14): tautkan pesan ini ke balasan kursi
 		// sebelumnya pada diskusi bergilir.
@@ -596,10 +614,39 @@ func (a *App) advanceLocked(j *job) {
 			a.finishStepLocked(j, s, m)
 			continue
 		}
+		// Budget harian (fitur 5): kursi yang sudah mencapai budget hari
+		// ini dilewati; catatan singkat hanya sekali per pekerjaan.
+		if a.budgetExceededLocked(member) {
+			key := j.ID + "|" + member.Code
+			if !a.budgetNoted[key] {
+				a.budgetNoted[key] = true
+				m.Error = fmt.Sprintf("Kursi %s dilewati: budget harian $%.2f sudah tercapai hari ini.", member.Name, member.DailyBudgetUSD)
+			}
+			a.finishStepLocked(j, s, m)
+			continue
+		}
 		cfg := a.data.Settings
-		if member.Model != nil {
+		// Model per jenis tugas (fitur 6): ringkasan memakai model
+		// ringkasan, putaran dengan tool memakai model tools, sisanya
+		// model chat; gambar tetap memakai Model kursi.
+		task := "chat"
+		switch {
+		case s.Kind == "roomsum" || s.Kind == "summary":
+			task = "summary"
+		case s.Kind != "image" && s.Kind != "vote" && a.data.Settings.toolsOn():
+			task = "tools"
+		}
+		taskModel := ""
+		if s.Kind == "image" {
+			if member.Model != nil {
+				taskModel = *member.Model
+			}
+		} else {
+			taskModel = member.modelForTask(task)
+		}
+		if taskModel != "" {
 			var resolved string
-			cfg, resolved = a.data.resolveModelProviderLocked(cfg, *member.Model)
+			cfg, resolved = a.data.resolveModelProviderLocked(cfg, taskModel)
 			member.Model = &resolved
 		}
 		if s.Kind == "image" {
@@ -642,16 +689,33 @@ func (a *App) advanceLocked(j *job) {
 			// Rantai fallback per kursi: konfigurasi tiap model cadangan
 			// diselesaikan sekarang (resolusi alias butuh daftar provider)
 			// sebelum goroutine berjalan tanpa mutex.
-			type fallbackAttempt struct {
-				cfg    settings
-				member seat
-			}
 			var fallbacks []fallbackAttempt
 			for _, fb := range member.fallbackChain() {
 				fbCfg, resolved := a.data.resolveModelProviderLocked(a.data.Settings, fb)
 				fbMember := member
 				fbMember.Model = &resolved
 				fallbacks = append(fallbacks, fallbackAttempt{fbCfg, fbMember})
+			}
+			// Load balancing (fitur 12): bila aktif, setelah model utama
+			// dan rantai fallback gagal total, coba provider lain dengan
+			// model bernama sama (urutan daftar provider, melewati
+			// provider yang sudah dicoba).
+			var lbAttempts []fallbackAttempt
+			if a.data.Settings.loadBalanceOn() && member.Model != nil {
+				tried := map[string]bool{cfg.BaseURL: true}
+				for _, fb := range fallbacks {
+					tried[fb.cfg.BaseURL] = true
+				}
+				for _, p := range a.data.Providers {
+					if tried[p.BaseURL] {
+						continue
+					}
+					tried[p.BaseURL] = true
+					lbMember := member
+					model := *member.Model
+					lbMember.Model = &model
+					lbAttempts = append(lbAttempts, fallbackAttempt{a.data.providerConfig(p), lbMember})
+				}
 			}
 			tools := a.data.Settings.toolsOn()
 			code := a.data.Settings.codeToolOn()
@@ -677,6 +741,14 @@ func (a *App) advanceLocked(j *job) {
 					}
 					if fbReply, fbErr := a.chatWithTools(ctx, fb.cfg, fb.member, history, tools, code, stream, onActivity, onDelta); fbErr == nil {
 						return fbReply, nil
+					}
+				}
+				for _, lb := range lbAttempts {
+					if err == nil {
+						break
+					}
+					if lbReply, lbErr := a.chatWithTools(ctx, lb.cfg, lb.member, history, tools, code, stream, onActivity, onDelta); lbErr == nil {
+						return lbReply, nil
 					}
 				}
 				return reply, err

@@ -67,49 +67,56 @@ func (a *App) requireGatewayConfig(cfg settings) error {
 }
 
 // gatewayDo sends one request to the gateway and returns the raw body, keeping
-// provider errors verbatim (status plus original body).
+// provider errors verbatim (status plus original body). Panggilan melewati
+// circuit breaker + retry (fitur 7 & 8).
 func (a *App) gatewayDo(ctx context.Context, verb, target string, body any, headers map[string]string) ([]byte, error) {
-	var input io.Reader
+	var payload []byte
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
-		input = strings.NewReader(string(raw))
+		payload = raw
 	}
-	req, err := http.NewRequestWithContext(ctx, verb, target, input)
-	if err != nil {
-		return nil, problem(502, "Koneksi gateway gagal: "+err.Error())
-	}
-	req.Header.Set("Accept", "application/json, text/event-stream, text/plain")
-	// WAF sebagian provider memblokir User-Agent bawaan Go (HTTP 567).
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	res, err := a.client.Do(req)
-	if err != nil {
-		return nil, problem(502, "Koneksi gateway gagal: "+err.Error())
-	}
-	defer res.Body.Close()
-	raw, large, err := limitedRead(res.Body, gatewayLimit)
-	if large {
-		return nil, problem(502, "HTTP "+strconv.Itoa(res.StatusCode)+": Respons gateway melebihi 20 MB.")
-	}
-	if err != nil {
-		return nil, problem(502, "HTTP "+strconv.Itoa(res.StatusCode)+": Gagal membaca respons gateway: "+err.Error())
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		status := res.StatusCode
-		if status < 400 || status > 599 {
-			status = 502
+	return a.runGatewayAttempts(ctx, target, func() gatewayAttempt {
+		var input io.Reader
+		if payload != nil {
+			input = strings.NewReader(string(payload))
 		}
-		return nil, problem(status, "HTTP "+strconv.Itoa(res.StatusCode)+": "+string(raw))
-	}
-	return raw, nil
+		req, err := http.NewRequestWithContext(ctx, verb, target, input)
+		if err != nil {
+			return gatewayAttempt{err: problem(502, "Koneksi gateway gagal: "+err.Error())}
+		}
+		req.Header.Set("Accept", "application/json, text/event-stream, text/plain")
+		// WAF sebagian provider memblokir User-Agent bawaan Go (HTTP 567).
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		res, err := a.client.Do(req)
+		if err != nil {
+			return gatewayAttempt{err: problem(502, "Koneksi gateway gagal: "+err.Error())}
+		}
+		defer res.Body.Close()
+		raw, large, err := limitedRead(res.Body, gatewayLimit)
+		if large {
+			return gatewayAttempt{status: res.StatusCode, err: problem(502, "HTTP "+strconv.Itoa(res.StatusCode)+": Respons gateway melebihi 20 MB.")}
+		}
+		if err != nil {
+			return gatewayAttempt{status: res.StatusCode, err: problem(502, "HTTP "+strconv.Itoa(res.StatusCode)+": Gagal membaca respons gateway: "+err.Error())}
+		}
+		if res.StatusCode < 200 || res.StatusCode >= 300 {
+			status := res.StatusCode
+			if status < 400 || status > 599 {
+				status = 502
+			}
+			return gatewayAttempt{status: res.StatusCode, retryAfter: parseRetryAfter(res), err: problem(status, "HTTP "+strconv.Itoa(res.StatusCode)+": "+string(raw))}
+		}
+		return gatewayAttempt{raw: raw, status: res.StatusCode}
+	})
 }
 
 func splitSystem(history []gatewayMessage) (string, []gatewayMessage) {

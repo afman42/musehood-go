@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -81,6 +82,11 @@ func (a *App) authorizeAPI(r *http.Request) error {
 	if path == "/api/login" {
 		return nil
 	}
+	// API eksternal (fitur 42) memakai token Bearer sendiri sebagai
+	// kredensial, bukan cookie PIN.
+	if path == "/api/external/message" {
+		return nil
+	}
 	if path == "/api/queue/muse" || strings.HasPrefix(path, "/api/queue/muse/") {
 		given := r.Header.Get("X-Worker-Token")
 		if workerToken == "" || subtle.ConstantTimeCompare([]byte(given), []byte(workerToken)) != 1 {
@@ -93,6 +99,85 @@ func (a *App) authorizeAPI(r *http.Request) error {
 		return problem(401, "PIN diperlukan")
 	}
 	return nil
+}
+
+// clientIP mengambil IP klien: hop pertama X-Forwarded-For bila ada,
+// selain itu alamat remote (fitur 28).
+func clientIP(r *http.Request) string {
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		if first, _, _ := strings.Cut(forwarded, ","); strings.TrimSpace(first) != "" {
+			return strings.TrimSpace(first)
+		}
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// loginAttempt melacak kegagalan masuk per IP (fitur 28).
+type loginAttempt struct {
+	failures     []time.Time
+	blockedUntil time.Time
+}
+
+const (
+	loginMaxFailures  = 5
+	loginWindow       = 5 * time.Minute
+	loginBlockFor     = 5 * time.Minute
+	loginLogMaxEvents = 200
+)
+
+// loginBlocked memeriksa apakah IP sedang diblokir rate limit.
+func (a *App) loginBlocked(ip string) bool {
+	a.loginMu.Lock()
+	defer a.loginMu.Unlock()
+	attempt := a.loginFails[ip]
+	return attempt != nil && time.Now().Before(attempt.blockedUntil)
+}
+
+// recordLoginFailure mencatat kegagalan dan memblokir IP bila ambang
+// tercapai.
+func (a *App) recordLoginFailure(ip string) {
+	a.loginMu.Lock()
+	defer a.loginMu.Unlock()
+	if a.loginFails == nil {
+		a.loginFails = map[string]*loginAttempt{}
+	}
+	attempt := a.loginFails[ip]
+	if attempt == nil {
+		attempt = &loginAttempt{}
+		a.loginFails[ip] = attempt
+	}
+	now := time.Now()
+	kept := attempt.failures[:0]
+	for _, at := range attempt.failures {
+		if now.Sub(at) < loginWindow {
+			kept = append(kept, at)
+		}
+	}
+	attempt.failures = append(kept, now)
+	if len(attempt.failures) >= loginMaxFailures {
+		attempt.blockedUntil = now.Add(loginBlockFor)
+		attempt.failures = nil
+	}
+}
+
+// recordLoginSuccess mereset hitungan kegagalan IP.
+func (a *App) recordLoginSuccess(ip string) {
+	a.loginMu.Lock()
+	defer a.loginMu.Unlock()
+	delete(a.loginFails, ip)
+}
+
+// appendLoginLogLocked menambah entri audit masuk (maks 200 FIFO) dan
+// menyimpannya. Pemanggil wajib memegang a.mu.
+func (a *App) appendLoginLogLocked(ip string, success bool) {
+	a.data.LoginLog = append(a.data.LoginLog, loginEvent{Time: now(), IP: ip, Success: success})
+	if len(a.data.LoginLog) > loginLogMaxEvents {
+		a.data.LoginLog = a.data.LoginLog[len(a.data.LoginLog)-loginLogMaxEvents:]
+	}
+	_ = a.saveLocked()
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) (int, json.RawMessage, error) {
@@ -108,9 +193,24 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) (int, json.RawMessag
 	if pinHash == "" {
 		return 0, nil, problem(400, "PIN tidak aktif.")
 	}
+	ip := clientIP(r)
+	if a.loginBlocked(ip) {
+		a.mu.Lock()
+		a.appendLoginLogLocked(ip, false)
+		a.mu.Unlock()
+		return 0, nil, problem(429, "Terlalu banyak percobaan masuk yang gagal. Coba lagi nanti.")
+	}
 	if !verifyPIN(body.PIN, pinHash) {
+		a.recordLoginFailure(ip)
+		a.mu.Lock()
+		a.appendLoginLogLocked(ip, false)
+		a.mu.Unlock()
 		return 0, nil, problem(401, "PIN salah.")
 	}
+	a.recordLoginSuccess(ip)
+	a.mu.Lock()
+	a.appendLoginLogLocked(ip, true)
+	a.mu.Unlock()
 	expiry := time.Now().Add(sessionLifetime)
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookieName, Value: makeSessionToken(pinHash, expiry),

@@ -32,7 +32,7 @@ func TestMessageActionsPreserveStateWhenSaveFails(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			msg := &message{ID: uuid(), AuthorType: "owner", JobID: "task", Text: "original", EditedAt: "original timestamp", Status: "completed", Reactions: tc.reactions}
+			msg := &message{ID: uuid(), AuthorType: "owner", JobID: "task", Text: "original", EditedAt: "original timestamp", Status: "completed", Reactions: tc.reactions, RoomID: d.Rooms[0].ID}
 			d.Messages = []*message{
 				{ID: uuid(), JobID: "other", Text: "first", Status: "completed"},
 				msg,

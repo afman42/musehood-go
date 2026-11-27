@@ -12,13 +12,29 @@
 
   let newRoomName = $state('');
 
+  let allToolNames = $state<string[]>([]);
+  let toolsLoaded = false;
+  $effect(() => {
+    if (toolsLoaded) return;
+    toolsLoaded = true;
+    api<{ tools: Array<{ name: string }>; builtin: string[] }>('/api/tools')
+      .then((out) => { allToolNames = [...(out.builtin ?? []), ...(out.tools ?? []).map((t) => t.name)]; })
+      .catch(() => { /* daftar kosong: bagian tool disembunyikan */ });
+  });
+
+  function toggleRoomDisabledTool(room: RoomEdit, name: string, disabled: boolean) {
+    room.disabledTools = disabled
+      ? [...room.disabledTools, name]
+      : room.disabledTools.filter((t) => t !== name);
+  }
+
   function toggleRoomSeatEdit(room: RoomEdit, code: string, checked: boolean) {
     room.seatCodes = checked ? [...room.seatCodes, code] : room.seatCodes.filter((c) => c !== code);
   }
 
   async function saveRoom(room: RoomEdit) {
     try {
-      await api(`/api/rooms/${room.id}`, { name: room.name, seatCodes: room.seatCodes.length === (current?.seats.length ?? 0) ? [] : room.seatCodes, seatOrder: room.seatOrder });
+      await api(`/api/rooms/${room.id}`, { name: room.name, seatCodes: room.seatCodes.length === (current?.seats.length ?? 0) ? [] : room.seatCodes, seatOrder: room.seatOrder, icon: room.icon, color: room.color, disabledTools: room.disabledTools });
       await refresh();
       onSync();
       notify('Ruang diperbarui.');
@@ -73,6 +89,22 @@
     {@const roomState = current?.rooms.find((r) => r.id === room.id)}
     <article class="room-settings">
       <label>Nama ruang<input aria-label={`Nama ruang ${room.id}`} maxlength="80" bind:value={room.name}></label>
+      <div class="room-icon-color">
+        <label>Ikon ruang<input aria-label={`Ikon ruang ${room.id}`} maxlength="8" placeholder="💬" bind:value={room.icon}></label>
+        <label>Warna ruang<input aria-label={`Warna ruang ${room.id}`} type="color" value={room.color || '#7c5cff'} oninput={(e) => room.color = e.currentTarget.value}></label>
+        {#if room.color}<button class="text-button" type="button" onclick={() => room.color = ''}>Tanpa warna</button>{/if}
+      </div>
+      {#if allToolNames.length}
+        <details class="tools-details">
+          <summary>Tool dinonaktifkan di ruang ini ({room.disabledTools.length})</summary>
+          <div class="tools-checks">
+            {#each allToolNames as toolName (toolName)}
+              <label class="check-label"><input type="checkbox" checked={room.disabledTools.includes(toolName)} onchange={(e) => toggleRoomDisabledTool(room, toolName, e.currentTarget.checked)}> {toolName}</label>
+            {/each}
+          </div>
+          <span class="field-hint">Tool yang dicentang tidak ditawarkan ke kursi mana pun di ruang ini.</span>
+        </details>
+      {/if}
       {#if roomState?.archived}<p class="field-hint">🗄 Ruang ini terarsip dan tidak tampil di bilah ruang.</p>{/if}
       <div class="room-seat-list">
         {#each current?.seats ?? [] as seat (seat.code)}

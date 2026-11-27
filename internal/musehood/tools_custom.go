@@ -80,6 +80,17 @@ type customTool struct {
 	// UserAgent opsional untuk http_get/http_post; bawaan "musehood-go/1.0"
 	// (sebagian API seperti wttr.in mengembalikan HTML untuk User-Agent browser).
 	UserAgent string `json:"userAgent"`
+	// Headers adalah header HTTP tambahan untuk http_get/http_post
+	// (fitur 22); nilai boleh memakai template {{param}}. Nilai header
+	// tidak pernah dicatat ke log audit tool.
+	Headers map[string]string `json:"headers,omitempty"`
+	// Code adalah kode JavaScript untuk tipe "javascript" (fitur 23):
+	// dijalankan di sandbox node, argumen JSON di stdin, stdout = hasil.
+	Code string `json:"code,omitempty"`
+	// Steps adalah nama tool lain untuk tipe "pipeline" (fitur 24):
+	// hasil langkah n menjadi argumen langkah n+1. Maks 5, tidak boleh
+	// pipeline bersarang.
+	Steps []string `json:"steps,omitempty"`
 }
 
 const customToolUserAgent = "musehood-go/1.0"
@@ -137,6 +148,24 @@ func (a *App) loadCustomTools() []customTool {
 			}
 		case "shell":
 			if strings.TrimSpace(tool.Command) == "" {
+				continue
+			}
+		case "javascript":
+			if strings.TrimSpace(tool.Code) == "" {
+				continue
+			}
+		case "pipeline":
+			if len(tool.Steps) == 0 || len(tool.Steps) > 5 {
+				continue
+			}
+			stepsOK := true
+			for _, step := range tool.Steps {
+				if !customToolNamePattern.MatchString(strings.TrimSpace(step)) {
+					stepsOK = false
+					break
+				}
+			}
+			if !stepsOK {
 				continue
 			}
 		default:
@@ -224,6 +253,10 @@ func substituteParams(template string, tool customTool, arg string, forURL bool)
 // fetchCustomURL melakukan GET dan mengembalikan teks respons. Penjaga SSRF
 // dilakukan pemanggil agar fungsi ini bisa diuji dengan server lokal.
 func fetchCustomURL(ctx context.Context, rawURL, userAgent string) (string, error) {
+	return fetchCustomURLHeaders(ctx, rawURL, userAgent, nil)
+}
+
+func fetchCustomURLHeaders(ctx context.Context, rawURL, userAgent string, headers map[string]string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", err
@@ -232,6 +265,9 @@ func fetchCustomURL(ctx context.Context, rawURL, userAgent string) (string, erro
 		userAgent = customToolUserAgent
 	}
 	req.Header.Set("User-Agent", userAgent)
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -253,6 +289,10 @@ func fetchCustomURL(ctx context.Context, rawURL, userAgent string) (string, erro
 // Penjaga SSRF dilakukan pemanggil agar fungsi ini bisa diuji dengan
 // server lokal.
 func postCustomJSON(ctx context.Context, rawURL, body, userAgent string) (string, error) {
+	return postCustomJSONHeaders(ctx, rawURL, body, userAgent, nil)
+}
+
+func postCustomJSONHeaders(ctx context.Context, rawURL, body, userAgent string, headers map[string]string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(body))
 	if err != nil {
 		return "", err
@@ -262,6 +302,9 @@ func postCustomJSON(ctx context.Context, rawURL, body, userAgent string) (string
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -275,7 +318,24 @@ func postCustomJSON(ctx context.Context, rawURL, body, userAgent string) (string
 	return fmt.Sprintf("HTTP %d\n%s", resp.StatusCode, strings.TrimSpace(string(raw))), nil
 }
 
+// substituteHeaders mengganti template {{param}} pada nilai header tool
+// kustom (fitur 22). Nilai hasil substitusi tidak pernah dicatat ke log.
+func substituteHeaders(tool customTool, arg string) map[string]string {
+	if len(tool.Headers) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(tool.Headers))
+	for key, value := range tool.Headers {
+		out[key] = substituteParams(value, tool, arg, false)
+	}
+	return out
+}
+
 func (a *App) runCustomTool(ctx context.Context, s seat, tool customTool, arg string, code bool) string {
+	return a.runCustomToolCfg(ctx, settings{}, s, tool, arg, code)
+}
+
+func (a *App) runCustomToolCfg(ctx context.Context, cfg settings, s seat, tool customTool, arg string, code bool) string {
 	if err := validateToolParams(tool, arg); err != nil {
 		return fmt.Sprintf("Error: argumen tool %s tidak valid: %s.", tool.Name, err.Error())
 	}
@@ -285,7 +345,7 @@ func (a *App) runCustomTool(ctx context.Context, s seat, tool customTool, arg st
 		if err := checkPublicURL(ctx, finalURL); err != nil {
 			return "Error: URL tool kustom ditolak penjaga SSRF."
 		}
-		text, err := fetchCustomURL(ctx, finalURL, tool.UserAgent)
+		text, err := fetchCustomURLHeaders(ctx, finalURL, tool.UserAgent, substituteHeaders(tool, arg))
 		if err != nil {
 			return fmt.Sprintf("Error: tool %s gagal mengambil URL.", tool.Name)
 		}
@@ -306,7 +366,7 @@ func (a *App) runCustomTool(ctx context.Context, s seat, tool customTool, arg st
 		if !a.requestApproval(ctx, s, "http", "", detail) {
 			return "Permintaan POST TIDAK dikirim karena pemilik menolak atau persetujuan kedaluwarsa."
 		}
-		text, err := postCustomJSON(ctx, finalURL, body, tool.UserAgent)
+		text, err := postCustomJSONHeaders(ctx, finalURL, body, tool.UserAgent, substituteHeaders(tool, arg))
 		if err != nil {
 			return fmt.Sprintf("Error: tool %s gagal mengirim POST.", tool.Name)
 		}
@@ -320,6 +380,35 @@ func (a *App) runCustomTool(ctx context.Context, s seat, tool customTool, arg st
 			return "Perintah TIDAK dijalankan karena pemilik menolak atau persetujuan kedaluwarsa."
 		}
 		return a.executeCode(ctx, "sh", "sh", command+"\n")
+	case "javascript":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan."
+		}
+		if len(tool.Code) > maxSandboxFileBytes {
+			return "Error: kode tool terlalu besar (maks 100 KB)."
+		}
+		if match, dangerous := dangerousCode(tool.Code); dangerous {
+			if !a.requestApproval(ctx, s, "code", "javascript", tool.Code) {
+				return fmt.Sprintf("Kode TIDAK dijalankan: terdeteksi pola berbahaya (%q) dan pemilik menolak atau tidak menyetujui.", match)
+			}
+		}
+		stdin := strings.TrimSpace(arg)
+		if !json.Valid([]byte(stdin)) {
+			wrapped, _ := json.Marshal(map[string]string{"arg": arg})
+			stdin = string(wrapped)
+		}
+		return a.executeCodeStdin(ctx, "node", "js", tool.Code, stdin)
+	case "pipeline":
+		current := arg
+		for _, stepName := range tool.Steps {
+			stepName = strings.TrimSpace(stepName)
+			if nested, ok := a.findCustomTool(stepName); ok && nested.Type == "pipeline" {
+				return fmt.Sprintf("Error: pipeline %s tidak boleh memuat pipeline lain (%s).", tool.Name, stepName)
+			}
+			result, _ := a.runTool(ctx, cfg, s, stepName, current, code)
+			current = result
+		}
+		return truncateToolResult(current)
 	}
 	return fmt.Sprintf("Error: tipe tool kustom %q tidak dikenal.", tool.Type)
 }

@@ -269,6 +269,16 @@
     catch (error) { chat.notify(errorText(error), true); }
   }
 
+  async function branchMessage(message: Message) {
+    try { await chat.branchMessage(message); chat.notify('Branch baru dibuat dan dibuka.'); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  async function setTags(message: Message, tags: string[]) {
+    try { await chat.setMessageTags(message, tags); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
   function exportDiscussion(message: Message) {
     window.open(`/api/export?message=${message.id}&format=html`, '_blank');
   }
@@ -409,6 +419,16 @@
   {#if chat.pinnedMessages.length}
     <PinnedBar pinned={chat.pinnedMessages} ownerName={current?.owner.name} seats={current?.seats ?? []} onJump={jumpToQuote} />
   {/if}
+  {#if current}
+    {@const activeRoom = current.rooms.find((room) => room.id === current.activeRoomId)}
+    {#if activeRoom?.branches && activeRoom.branches.length > 1}
+      <nav class="room-bar branch-bar" aria-label="Branch percakapan">
+        {#each activeRoom.branches as branch, index (branch.id)}
+          <button class="room-chip" class:active={(activeRoom.activeBranch ?? 'main') === branch.id} type="button" title={`Branch ${index + 1} (${branch.messageCount} pesan)`} onclick={() => chat.switchBranch(activeRoom.id, branch.id).catch((e) => chat.notify(errorText(e), true))}>{branch.id === 'main' ? '⎇ Utama' : `⎇ Branch ${index + 1}`}</button>
+        {/each}
+      </nav>
+    {/if}
+  {/if}
   <section bind:this={messages} id="messages" class="messages" aria-label="Percakapan grup" aria-live="polite" aria-relevant="additions text">
     {#if !current}
       <div class="loading-state">Memuat percakapan…</div>
@@ -459,6 +479,8 @@
           onRegenerate={() => regenerateMessage(message)}
           onRerun={() => rerunMessage(message)}
           onFork={() => forkMessage(message)}
+          onBranch={() => branchMessage(message)}
+          onTags={(tags) => setTags(message, tags)}
           onExport={() => exportDiscussion(message)}
         />
       {/each}

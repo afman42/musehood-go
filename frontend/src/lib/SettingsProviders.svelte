@@ -190,7 +190,7 @@
       {#each current?.providers ?? [] as provider (provider.id)}
         <article class="provider-row">
           <div class="provider-info">
-            <p><strong>{provider.name}</strong> {#if provider.alias}<span class="model-tag">{provider.alias}</span>{/if} {#if provider.active}<span class="provider-active">Aktif</span>{/if} {#if provider.health}<span class="health-badge {provider.health.ok ? 'ok' : 'fail'}" title={provider.health.ok ? `Dicek ${provider.health.checkedAt}` : (provider.health.error ?? '')}>{provider.health.ok ? `● Sehat ${provider.health.latencyMs} mdtk` : '● Bermasalah'}</span>{/if}</p>
+            <p><strong>{provider.name}</strong> {#if provider.alias}<span class="model-tag">{provider.alias}</span>{/if} {#if provider.active}<span class="provider-active">Aktif</span>{/if} {#if provider.health}<span class="health-badge {provider.health.ok ? 'ok' : 'fail'}" title={provider.health.ok ? `Dicek ${provider.health.checkedAt}` : (provider.health.error ?? '')}>{provider.health.ok ? `● Sehat ${provider.health.latencyMs} mdtk` : '● Bermasalah'}</span>{/if} {#if provider.health?.circuit && provider.health.circuit !== 'closed'}<span class="health-badge fail" title="Circuit breaker provider">⚡ Breaker {provider.health.circuit}</span>{/if}</p>
             <p class="field-hint">{provider.baseUrl} · {protocolLabels[provider.protocol]} · {provider.hasApiKey ? 'Key tersimpan' : 'Tanpa key'}</p>
           </div>
           <div class="provider-actions">

@@ -49,6 +49,39 @@ type seat struct {
 	// Skills adalah nama skill (folder skills/) yang aktif untuk kursi ini;
 	// badan skill disisipkan ke system prompt.
 	Skills []string `json:"skills,omitempty"`
+	// AutoMemory mengizinkan kursi ini menulis sendiri 1-3 poin memori
+	// singkat dari ringkasan ruang ke Memory-nya (fitur 3). Nil = MATI.
+	AutoMemory *bool `json:"autoMemory,omitempty"`
+	// DailyBudgetUSD adalah batas biaya harian kursi ini (fitur 5).
+	// Nol berarti tanpa batas.
+	DailyBudgetUSD float64 `json:"dailyBudgetUsd,omitempty"`
+	// ModelChat/ModelTools/ModelSummary adalah model per jenis tugas
+	// (fitur 6): chat biasa, putaran dengan tool, dan ringkasan/memori
+	// otomatis. Kosong berarti memakai Model.
+	ModelChat    string `json:"modelChat,omitempty"`
+	ModelTools   string `json:"modelTools,omitempty"`
+	ModelSummary string `json:"modelSummary,omitempty"`
+}
+
+// modelForTask mengembalikan nama model kursi ini untuk jenis tugas
+// ("chat", "tools", "summary"); kosong pada field tugas berarti Model.
+func (s seat) modelForTask(task string) string {
+	taskModel := ""
+	switch task {
+	case "tools":
+		taskModel = s.ModelTools
+	case "summary":
+		taskModel = s.ModelSummary
+	default:
+		taskModel = s.ModelChat
+	}
+	if strings.TrimSpace(taskModel) != "" {
+		return taskModel
+	}
+	if s.Model == nil {
+		return ""
+	}
+	return *s.Model
 }
 // fallbackChain mengembalikan daftar model cadangan kursi secara berurutan:
 // FallbackModel (lama) lalu FallbackModels, tanpa duplikat dan tanpa model utama.
@@ -125,6 +158,29 @@ type settings struct {
 	ChainReplies *bool `json:"chainReplies,omitempty"`
 	// Density adalah kepadatan tampilan: "normal" atau "compact".
 	Density string `json:"density,omitempty"`
+	// NativeToolsEnabled mengizinkan tool-calling native OpenAI
+	// (tools[] + tool_calls) untuk protokol openai (fitur 10).
+	// Nil berarti aktif; kegagalan jalur native jatuh ke protokol teks.
+	NativeToolsEnabled *bool `json:"nativeToolsEnabled,omitempty"`
+	// LoadBalanceProviders mengizinkan percobaan provider lain dengan
+	// model bernama sama bila provider kursi gagal total (fitur 12).
+	// Nil berarti MATI.
+	LoadBalanceProviders *bool `json:"loadBalanceProviders,omitempty"`
+	// ParallelMode membuat kursi-kursi satu putaran diskusi berjalan
+	// konkuren (fitur 15). Nil berarti MATI.
+	ParallelMode *bool `json:"parallelMode,omitempty"`
+	// WebhookURL/WebhookEnabled adalah webhook keluar saat balasan
+	// kursi selesai (fitur 41). Nil berarti MATI.
+	WebhookURL     string `json:"webhookUrl,omitempty"`
+	WebhookEnabled *bool  `json:"webhookEnabled,omitempty"`
+	// APIToken adalah token API eksternal (fitur 42). Tidak pernah
+	// dikirim ke klien lewat state; hanya ditampilkan sekali saat dibuat.
+	APIToken string `json:"apiToken,omitempty"`
+	// TelegramBotToken/TelegramChatID/TelegramEnabled adalah jembatan
+	// Telegram (fitur 43). Token tidak pernah tampil di state.
+	TelegramBotToken string `json:"telegramBotToken,omitempty"`
+	TelegramChatID   string `json:"telegramChatId,omitempty"`
+	TelegramEnabled  *bool  `json:"telegramEnabled,omitempty"`
 }
 
 func (s settings) responseCacheOn() bool {
@@ -149,6 +205,26 @@ func (s settings) codeToolOn() bool {
 
 func (s settings) skillsOn() bool {
 	return s.SkillsEnabled == nil || *s.SkillsEnabled
+}
+
+func (s settings) nativeToolsOn() bool {
+	return s.NativeToolsEnabled == nil || *s.NativeToolsEnabled
+}
+
+func (s settings) loadBalanceOn() bool {
+	return s.LoadBalanceProviders != nil && *s.LoadBalanceProviders
+}
+
+func (s settings) parallelOn() bool {
+	return s.ParallelMode != nil && *s.ParallelMode
+}
+
+func (s settings) webhookOn() bool {
+	return s.WebhookEnabled != nil && *s.WebhookEnabled && strings.TrimSpace(s.WebhookURL) != ""
+}
+
+func (s settings) telegramOn() bool {
+	return s.TelegramEnabled != nil && *s.TelegramEnabled && s.TelegramBotToken != "" && s.TelegramChatID != ""
 }
 
 // gatewayProvider adalah satu konfigurasi gateway kustom yang tersimpan.
@@ -211,6 +287,19 @@ type message struct {
 	// pratinjau hasil) untuk kartu hasil tool di tampilan.
 	ToolCalls  []toolCallRecord `json:"toolCalls,omitempty"`
 	BestAnswer bool             `json:"bestAnswer,omitempty"`
+	// BranchID adalah branch percakapan pesan ini (fitur 14). Kosong
+	// berarti branch utama "main".
+	BranchID string `json:"branchId,omitempty"`
+	// Tags adalah label bebas pemilik pada pesan (fitur 17), maks 5.
+	Tags []string `json:"tags,omitempty"`
+}
+
+// branchID mengembalikan branch pesan ini ("main" bila kosong).
+func (m *message) branchID() string {
+	if m.BranchID == "" {
+		return "main"
+	}
+	return m.BranchID
 }
 
 // toolCallRecord adalah satu pemanggilan tool oleh kursi untuk satu pesan.
@@ -251,6 +340,8 @@ type job struct {
 	Steps       []step `json:"steps"`
 	// RoomID adalah ruang tempat pekerjaan ini berjalan.
 	RoomID string `json:"roomId,omitempty"`
+	// BranchID adalah branch percakapan pekerjaan ini (fitur 14).
+	BranchID string `json:"branchId,omitempty"`
 	// Candidates adalah ID pesan jawaban yang dinilai pada pekerjaan voting.
 	Candidates []string `json:"candidates,omitempty"`
 }
@@ -285,6 +376,24 @@ type room struct {
 	// Archived menyembunyikan ruang dari bilah ruang; ruang arsip tetap
 	// bisa dicari (dengan parameter khusus) dan dipulihkan dari Pengaturan.
 	Archived bool `json:"archived,omitempty"`
+	// ActiveBranch adalah branch percakapan yang sedang ditampilkan
+	// (fitur 14). Kosong berarti "main".
+	ActiveBranch string `json:"activeBranch,omitempty"`
+	// Icon adalah emoji/teks pendek ruang (fitur 19, maks 8 rune).
+	Icon string `json:"icon,omitempty"`
+	// Color adalah warna aksen ruang berformat #rrggbb (fitur 19).
+	Color string `json:"color,omitempty"`
+	// DisabledTools adalah tool yang dinonaktifkan khusus di ruang ini
+	// (fitur 25), digabung dengan disabledTools kursi.
+	DisabledTools []string `json:"disabledTools,omitempty"`
+}
+
+// activeBranch mengembalikan branch aktif ruang ("main" bila kosong).
+func (r *room) activeBranch() string {
+	if r == nil || r.ActiveBranch == "" {
+		return "main"
+	}
+	return r.ActiveBranch
 }
 
 // presetSeat adalah salinan konfigurasi satu kursi di dalam preset.
@@ -321,6 +430,22 @@ type usageStat struct {
 	CompletionTokens int64  `json:"completionTokens"`
 	LastAt           string `json:"lastAt,omitempty"`
 }
+
+// dailyUsage adalah pemakaian token dan estimasi biaya satu kursi dalam
+// satu hari (fitur 5). CostUSD dihitung dari harga token provider.
+type dailyUsage struct {
+	TokensIn  int64   `json:"tokensIn"`
+	TokensOut int64   `json:"tokensOut"`
+	CostUSD   float64 `json:"costUsd"`
+}
+
+// loginEvent adalah satu entri audit percobaan masuk PIN (fitur 28).
+type loginEvent struct {
+	Time    string `json:"time"`
+	IP      string `json:"ip"`
+	Success bool   `json:"success"`
+}
+
 type connection struct {
 	Models   []string `json:"models"`
 	TestedAt string   `json:"testedAt"`
@@ -351,6 +476,17 @@ type data struct {
 	WorkerToken string `json:"workerToken,omitempty"`
 	// ToolLog adalah log audit pemakaian tool oleh kursi (maks 500 entri).
 	ToolLog []toolLogEntry `json:"toolLog,omitempty"`
+	// DailyUsage adalah pemakaian token+biaya per tanggal ("2006-01-02")
+	// per kode kursi (fitur 5 budget harian).
+	DailyUsage map[string]map[string]*dailyUsage `json:"dailyUsage,omitempty"`
+	// SkillUsage adalah hitungan pemakaian skill per nama skill
+	// (fitur 27), dihitung saat skill disuntikkan ke system prompt.
+	SkillUsage map[string]int `json:"skillUsage,omitempty"`
+	// LoginLog adalah audit percobaan masuk PIN (fitur 28), maks 200 entri.
+	LoginLog []loginEvent `json:"loginLog,omitempty"`
+	// TelegramOffset adalah offset update Telegram terakhir yang sudah
+	// diproses jembatan Telegram (fitur 43).
+	TelegramOffset int64 `json:"telegramOffset,omitempty"`
 }
 
 // toolLogEntry adalah satu catatan audit pemakaian tool.
@@ -384,25 +520,36 @@ func uuid() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
+// defaultData adalah data awal untuk instalasi baru.
+func defaultData() data {
+	d := data{Version: 1, Group: identity{"Musehood", "/avatars/group.svg"}, Owner: owner{identity{"Arman", "/avatars/owner.svg"}, true}, Settings: settings{RoundRobin: true, ReviewLevel: "Sedang"}, Messages: []*message{}, Jobs: []*job{}, Rooms: []room{{ID: defaultRoomID, Name: "Utama", CreatedAt: now()}}, ActiveRoomID: defaultRoomID}
+	for _, def := range defaultSeats {
+		s := seat{identity: identity{def.name, "/avatars/" + strings.ToLower(def.code) + ".svg"}, Code: def.code, Role: def.role, Provider: "gateway", Model: ptr(""), Present: true}
+		if s.Code == "MUSE" {
+			s.Provider = "muse"
+			s.Model = nil
+		}
+		d.Seats = append(d.Seats, s)
+	}
+	d.migrateProviders()
+	return d
+}
+
 func loadData(dir string) (data, error) {
-	var d data
 	raw, err := os.ReadFile(filepath.Join(dir, "data.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		d = data{Version: 1, Group: identity{"Musehood", "/avatars/group.svg"}, Owner: owner{identity{"Arman", "/avatars/owner.svg"}, true}, Settings: settings{RoundRobin: true, ReviewLevel: "Sedang"}, Messages: []*message{}, Jobs: []*job{}, Rooms: []room{{ID: defaultRoomID, Name: "Utama", CreatedAt: now()}}, ActiveRoomID: defaultRoomID}
-		for _, def := range defaultSeats {
-			s := seat{identity: identity{def.name, "/avatars/" + strings.ToLower(def.code) + ".svg"}, Code: def.code, Role: def.role, Provider: "gateway", Model: ptr(""), Present: true}
-			if s.Code == "MUSE" {
-				s.Provider = "muse"
-				s.Model = nil
-			}
-			d.Seats = append(d.Seats, s)
-		}
-		d.migrateProviders()
-		return d, nil
+		return defaultData(), nil
 	}
 	if err != nil {
-		return d, err
+		return data{}, err
 	}
+	return parseData(raw)
+}
+
+// parseData memvalidasi dan memigrasi blob JSON data (dipakai backend
+// JSON dan SQLite, fitur 34).
+func parseData(raw []byte) (data, error) {
+	var d data
 	var structure struct {
 		Settings *settings `json:"settings"`
 	}
@@ -850,7 +997,7 @@ func (a *App) createProviderLocked(input providerInput) (gatewayProviderView, er
 		next.Connection = nil
 	}
 	a.rememberKeyLocked(key)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return gatewayProviderView{}, err
 	}
 	a.data = next
@@ -930,7 +1077,7 @@ func (a *App) updateProviderLocked(id string, input providerInput) (gatewayProvi
 		next.Connection = nil
 	}
 	a.rememberKeyLocked(p.APIKey)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return gatewayProviderView{}, err
 	}
 	a.data = next
@@ -964,7 +1111,7 @@ func (a *App) deleteProviderLocked(id string) error {
 			next.Settings.GatewayProtocol = ""
 		}
 	}
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return err
 	}
 	a.data = next
@@ -986,7 +1133,7 @@ func (a *App) activateProviderLocked(id string) error {
 		next.syncSettingsFromProvider(*p)
 		next.Connection = nil
 	}
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return err
 	}
 	a.data = next
@@ -1009,7 +1156,10 @@ func writeJSONFile(file string, value any) error {
 	}
 	return os.Rename(temp.Name(), file)
 }
-func (a *App) saveLocked() error { return writeJSONFile(filepath.Join(a.dir, "data.json"), a.data) }
+func (a *App) saveLocked() error {
+	a.markFTDirty()
+	return a.persistLocked(a.data)
+}
 func (d *data) findSeat(code string) *seat {
 	for i := range d.Seats {
 		if d.Seats[i].Code == code {
@@ -1062,7 +1212,7 @@ func (a *App) createSeatLocked(name, role, model string) (*seat, error) {
 	next.Seats = slices.Clone(next.Seats)
 	created := seat{identity: identity{name, "/avatars/custom.svg"}, Code: code, Role: role, Provider: "gateway", Model: ptr(model), Present: true}
 	next.Seats = append(next.Seats, created)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return nil, err
 	}
 	a.data = next
@@ -1099,7 +1249,7 @@ func (a *App) deleteSeatLocked(code string) error {
 	if next.Settings.IntegratorSeat == code {
 		next.Settings.IntegratorSeat = ""
 	}
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return err
 	}
 	a.data = next
@@ -1180,12 +1330,12 @@ func (a *App) stateLocked() any {
 	for i := range d.Providers {
 		d.Providers[i].APIKey = ""
 	}
-	// Tampilan klien hanya memuat pesan ruang aktif; pesan ruang lain tetap
-	// tersimpan dan bisa dibuka lewat pengalih ruang.
+	// Tampilan klien hanya memuat pesan ruang aktif pada branch aktif
+	// (fitur 14); pesan ruang/branch lain tetap tersimpan.
 	if active := d.activeRoom(); active != nil {
 		filtered := make([]*message, 0, len(d.Messages))
 		for _, m := range d.Messages {
-			if m.RoomID == active.ID {
+			if m.RoomID == active.ID && m.branchID() == active.activeBranch() {
 				filtered = append(filtered, m)
 			}
 		}
@@ -1204,9 +1354,13 @@ func (a *App) stateLocked() any {
 	}
 	d.Settings.APIKey = masked
 	// Rahasia aplikasi tidak pernah keluar lewat state: hash PIN, token
-	// pekerja, dan log audit tool (diakses lewat endpoint khusus).
+	// pekerja, token API eksternal, token bot Telegram, dan log audit
+	// tool (diakses lewat endpoint khusus).
 	hasPin := d.Settings.PINHash != ""
+	hasTelegramToken := d.Settings.TelegramBotToken != ""
 	d.Settings.PINHash = ""
+	d.Settings.APIToken = ""
+	d.Settings.TelegramBotToken = ""
 	d.WorkerToken = ""
 	d.ToolLog = nil
 	present := 0
@@ -1226,8 +1380,9 @@ func (a *App) stateLocked() any {
 		Rooms []map[string]any `json:"rooms"`
 		Settings  struct {
 			settings
-			HasAPIKey bool `json:"hasApiKey"`
-			HasPin    bool `json:"hasPin"`
+			HasAPIKey        bool `json:"hasApiKey"`
+			HasPin           bool `json:"hasPin"`
+			HasTelegramToken bool `json:"hasTelegramToken"`
 		} `json:"settings"`
 		Presence struct {
 			Present int `json:"present"`
@@ -1237,9 +1392,10 @@ func (a *App) stateLocked() any {
 		Reactions        map[string]any `json:"reactions"`
 	}{d, views, a.roomViewsLocked(), struct {
 		settings
-		HasAPIKey bool `json:"hasApiKey"`
-		HasPin    bool `json:"hasPin"`
-	}{d.Settings, len(key) > 0, hasPin}, struct {
+		HasAPIKey        bool `json:"hasApiKey"`
+		HasPin           bool `json:"hasPin"`
+		HasTelegramToken bool `json:"hasTelegramToken"`
+	}{d.Settings, len(key) > 0, hasPin, hasTelegramToken}, struct {
 		Present int `json:"present"`
 		Total   int `json:"total"`
 	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.reactionsStatsLocked()}
@@ -1263,6 +1419,11 @@ type settingsUpdate struct {
 		DisabledTools  *[]string `json:"disabledTools"`
 		Memory         *string   `json:"memory"`
 		Skills         *[]string `json:"skills"`
+		AutoMemory     *bool     `json:"autoMemory"`
+		DailyBudgetUSD *float64  `json:"dailyBudgetUsd"`
+		ModelChat      *string   `json:"modelChat"`
+		ModelTools     *string   `json:"modelTools"`
+		ModelSummary   *string   `json:"modelSummary"`
 	} `json:"seats"`
 	Settings *struct {
 		BaseURL         *string `json:"baseUrl"`
@@ -1283,6 +1444,14 @@ type settingsUpdate struct {
 		ResponseCacheEnabled *bool   `json:"responseCacheEnabled"`
 		ChainReplies         *bool   `json:"chainReplies"`
 		Density              *string `json:"density"`
+		NativeToolsEnabled   *bool   `json:"nativeToolsEnabled"`
+		LoadBalanceProviders *bool   `json:"loadBalanceProviders"`
+		ParallelMode         *bool   `json:"parallelMode"`
+		WebhookURL           *string `json:"webhookUrl"`
+		WebhookEnabled       *bool   `json:"webhookEnabled"`
+		TelegramBotToken     *string `json:"telegramBotToken"`
+		TelegramChatID       *string `json:"telegramChatId"`
+		TelegramEnabled      *bool   `json:"telegramEnabled"`
 		ClearAPIKey          bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
@@ -1415,6 +1584,33 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 				}
 				s.Skills = skills
 			}
+			if patch.AutoMemory != nil {
+				enabled := *patch.AutoMemory
+				s.AutoMemory = &enabled
+			}
+			if patch.DailyBudgetUSD != nil {
+				if *patch.DailyBudgetUSD < 0 || *patch.DailyBudgetUSD > 100000 {
+					return problem(400, "Budget harian kursi harus antara 0 dan 100000 USD.")
+				}
+				s.DailyBudgetUSD = *patch.DailyBudgetUSD
+			}
+			for _, taskModel := range []struct {
+				value *string
+				dest  *string
+				label string
+			}{
+				{patch.ModelChat, &s.ModelChat, "Model chat"},
+				{patch.ModelTools, &s.ModelTools, "Model tools"},
+				{patch.ModelSummary, &s.ModelSummary, "Model ringkasan"},
+			} {
+				if taskModel.value == nil {
+					continue
+				}
+				if jsLength(*taskModel.value) > 200 || badSetting.MatchString(*taskModel.value) {
+					return problem(400, taskModel.label+" tidak valid.")
+				}
+				*taskModel.dest = strings.TrimSpace(*taskModel.value)
+			}
 		}
 		seen := map[string]bool{}
 		for _, s := range next.Seats {
@@ -1494,6 +1690,52 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 				return problem(400, "Kepadatan tampilan harus normal atau compact.")
 			}
 			next.Settings.Density = density
+		}
+		if patch.NativeToolsEnabled != nil {
+			enabled := *patch.NativeToolsEnabled
+			next.Settings.NativeToolsEnabled = &enabled
+		}
+		if patch.LoadBalanceProviders != nil {
+			enabled := *patch.LoadBalanceProviders
+			next.Settings.LoadBalanceProviders = &enabled
+		}
+		if patch.ParallelMode != nil {
+			enabled := *patch.ParallelMode
+			next.Settings.ParallelMode = &enabled
+		}
+		if patch.WebhookURL != nil {
+			webhookURL := strings.TrimSpace(*patch.WebhookURL)
+			if webhookURL != "" {
+				if err := validateWebhookURL(webhookURL); err != nil {
+					return err
+				}
+			}
+			next.Settings.WebhookURL = webhookURL
+		}
+		if patch.WebhookEnabled != nil {
+			enabled := *patch.WebhookEnabled
+			next.Settings.WebhookEnabled = &enabled
+		}
+		if patch.TelegramBotToken != nil && *patch.TelegramBotToken != "" {
+			token := strings.TrimSpace(*patch.TelegramBotToken)
+			if jsLength(token) > 200 || badSetting.MatchString(token) {
+				return problem(400, "Token bot Telegram tidak valid.")
+			}
+			if !strings.HasPrefix(token, "••••") {
+				next.Settings.TelegramBotToken = token
+				a.rememberKeyLocked(token)
+			}
+		}
+		if patch.TelegramChatID != nil {
+			chatID := strings.TrimSpace(*patch.TelegramChatID)
+			if jsLength(chatID) > 64 || badSetting.MatchString(chatID) {
+				return problem(400, "Chat ID Telegram tidak valid.")
+			}
+			next.Settings.TelegramChatID = chatID
+		}
+		if patch.TelegramEnabled != nil {
+			enabled := *patch.TelegramEnabled
+			next.Settings.TelegramEnabled = &enabled
 		}
 		if patch.IntegratorSeat != nil {
 			code := strings.TrimSpace(*patch.IntegratorSeat)
@@ -1582,7 +1824,7 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		next.Connection = nil
 	}
 	a.rememberKeyLocked(next.Settings.APIKey)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return err
 	}
 	a.data = next

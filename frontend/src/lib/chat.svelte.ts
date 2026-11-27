@@ -244,6 +244,18 @@ export function createChat(hooks: ChatHooks = {}) {
     await mutate(`/api/message/${message.id}/fork`, {});
   }
 
+  async function branchMessage(message: Message) {
+    await mutate(`/api/message/${message.id}/branch`, {});
+  }
+
+  async function switchBranch(roomId: string, branchId: string) {
+    await mutate(`/api/rooms/${roomId}/branch`, { branchId });
+  }
+
+  async function setMessageTags(message: Message, tags: string[]) {
+    await mutate(`/api/message/${message.id}/tags`, { tags });
+  }
+
   async function startDebate(seatA: string, seatB: string, topic: string) {
     await mutate('/api/debate', { seatA, seatB, topic, roomId: current?.activeRoomId ?? '' });
   }
@@ -302,7 +314,7 @@ export function createChat(hooks: ChatHooks = {}) {
 
   function scheduleSearch(q: string, filters?: SearchFilters) {
     clearTimeout(searchTimer);
-    const hasFilters = Boolean(filters && (filters.seat || filters.room || filters.from || filters.to || filters.hasImage || filters.includeArchived));
+    const hasFilters = Boolean(filters && (filters.seat || filters.room || filters.from || filters.to || filters.hasImage || filters.includeArchived || filters.tag));
     if (!q && !hasFilters) { serverResults = []; return; }
     searchTimer = setTimeout(async () => {
       try {
@@ -313,6 +325,7 @@ export function createChat(hooks: ChatHooks = {}) {
         if (filters?.to) params.set('to', filters.to);
         if (filters?.hasImage) params.set('hasImage', '1');
         if (filters?.includeArchived) params.set('includeArchived', '1');
+        if (filters?.tag) params.set('tag', filters.tag);
         const out = await api<{ results: SearchResult[] }>(`/api/search?${params.toString()}`);
         serverResults = out.results;
       } catch { /* pencarian lokal di ruang aktif tetap jalan */ }
@@ -357,6 +370,9 @@ export function createChat(hooks: ChatHooks = {}) {
     regenerateMessage,
     rerunMessage,
     forkMessage,
+    branchMessage,
+    switchBranch,
+    setMessageTags,
     startDebate,
     listScheduled,
     createScheduled,

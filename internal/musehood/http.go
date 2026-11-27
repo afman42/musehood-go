@@ -31,6 +31,8 @@ type Options struct {
 	TrustedHosts string
 	PollInterval time.Duration
 	MuseWait     time.Duration
+	// Version adalah versi aplikasi (dari ldflags) untuk cek update.
+	Version string
 }
 type App struct {
 	dir             string
@@ -60,6 +62,30 @@ type App struct {
 	cacheHits       int64
 	healthMu        sync.Mutex
 	health          map[string]providerHealth
+	// budgetNoted menandai catatan budget "sekali per pekerjaan" yang
+	// sudah ditampilkan (fitur 5), kunci "jobID|kodeKursi".
+	budgetNoted map[string]bool
+	// breakerMu/breakers adalah circuit breaker per host provider
+	// (fitur 7), hanya di memori.
+	breakerMu sync.Mutex
+	breakers  map[string]*circuitBreaker
+	// parallelRemaining menghitung langkah paralel yang belum selesai
+	// per pekerjaan (fitur 15).
+	parallelRemaining map[*job]int
+	// loginMu/loginFails adalah rate limit masuk PIN per IP (fitur 28),
+	// hanya di memori.
+	loginMu    sync.Mutex
+	loginFails map[string]*loginAttempt
+	// ftMu/ftIndex/ftDirty adalah indeks full-text pesan (fitur 35),
+	// hanya di memori; dibangun ulang malas saat kotor.
+	ftMu    sync.Mutex
+	ftIndex map[string]map[string]bool
+	ftDirty bool
+	// store adalah backend penyimpanan data (fitur 34); nil berarti
+	// berkas JSON langsung (App yang dibuat di tes).
+	store dataStore
+	// version adalah versi aplikasi untuk cek update (fitur 45).
+	version string
 }
 type apiError struct {
 	status  int
@@ -93,7 +119,11 @@ func New(opts Options) (*App, error) {
 			return nil, err
 		}
 	}
-	d, err := loadData(opts.DataDir)
+	store, err := openStore(opts.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	d, err := store.load()
 	if err != nil {
 		return nil, err
 	}
@@ -104,8 +134,8 @@ func New(opts Options) (*App, error) {
 		}
 		d.WorkerToken = hex.EncodeToString(raw)
 	}
-	a := &App{dir: opts.DataDir, frontend: opts.Frontend, data: d, running: make(map[*job]context.CancelFunc), museWait: opts.MuseWait,
-		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth),
+	a := &App{dir: opts.DataDir, frontend: opts.Frontend, data: d, store: store, version: opts.Version, running: make(map[*job]context.CancelFunc), museWait: opts.MuseWait,
+		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth), budgetNoted: map[string]bool{}, breakers: map[string]*circuitBreaker{}, loginFails: map[string]*loginAttempt{}, ftDirty: true,
 		hosts: map[string]bool{"127.0.0.1": true, "localhost": true, "::1": true},
 		client: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 || !validHTTPURL(req.URL) {
@@ -143,6 +173,10 @@ func New(opts Options) (*App, error) {
 	a.csp = "default-src 'self'; " + scripts + "; style-src 'self'; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 	a.rememberKeyLocked(d.Settings.APIKey)
 	a.rememberKeyLocked(d.Settings.PINHash)
+	// APIToken sengaja TIDAK didaftarkan sebagai rahasia redaksi: token
+	// harus bisa ditampilkan sekali oleh endpoint regenerate (fitur 42).
+	// Bidang ini tetap dikosongkan di state dan cadangan.
+	a.rememberKeyLocked(d.Settings.TelegramBotToken)
 	a.rememberKeyLocked(d.WorkerToken)
 	for _, p := range d.Providers {
 		a.rememberKeyLocked(p.APIKey)
@@ -178,6 +212,8 @@ func New(opts Options) (*App, error) {
 	// Pemeriksaan kesehatan provider berkala (fitur 6). Pemeriksaan pertama
 	// menunggu satu interval agar start aplikasi tidak memukul gateway.
 	a.wg.Go(a.healthLoop)
+	// Jembatan Telegram (fitur 43): loop long-poll yang diam bila nonaktif.
+	a.wg.Go(a.telegramLoop)
 	return a, nil
 }
 func (a *App) Close() {
@@ -327,7 +363,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	path := r.URL.Path
 	var want string
 	switch path {
-	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools", "/api/tool-log", "/api/personas":
+	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools", "/api/tool-log", "/api/personas", "/api/update/check":
 		want = http.MethodGet
 	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled", "/api/templates":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -335,12 +371,14 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 		}
 		want = r.Method
-	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote", "/api/login", "/api/logout", "/api/pin", "/api/debate", "/api/skills/install":
+	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote", "/api/login", "/api/logout", "/api/pin", "/api/debate", "/api/skills/install", "/api/update/apply", "/api/external-token/regenerate", "/api/external/message":
 		want = http.MethodPost
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
 			want = http.MethodPost
 		} else if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/persona") && r.Method == http.MethodPost {
+			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/clone") && r.Method == http.MethodPost {
 			want = http.MethodPost
 		} else if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			want = http.MethodDelete
@@ -356,7 +394,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					w.Header().Set("Allow", "POST, DELETE")
 					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 				}
-			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive") && r.Method == http.MethodPost {
+			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive" || parts[1] == "branch") && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
@@ -430,6 +468,28 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		return a.login(w, r)
 	case "/api/logout":
 		return a.logout(w, r)
+	case "/api/external-token/regenerate":
+		return a.respondLocked(200, func() (any, error) {
+			token, err := a.regenerateExternalTokenLocked()
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"token": token}, nil
+		})
+	case "/api/external/message":
+		return a.externalMessage(w, r)
+	case "/api/update/check":
+		out, err := a.updateCheck(r.Context())
+		if err != nil {
+			return 0, nil, err
+		}
+		return 200, mustJSON(out), nil
+	case "/api/update/apply":
+		out, err := a.updateApply(r.Context())
+		if err != nil {
+			return 0, nil, err
+		}
+		return 200, mustJSON(out), nil
 	case "/api/pin":
 		var body struct {
 			PIN    string `json:"pin"`
@@ -535,7 +595,13 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		}
 		return a.respondLocked(201, func() (any, error) { return a.createScheduledLocked(input) })
 	case "/api/skills":
-		return a.respondLocked(200, func() (any, error) { return map[string]any{"skills": a.loadSkills()}, nil })
+		return a.respondLocked(200, func() (any, error) {
+			skills := a.loadSkills()
+			for i := range skills {
+				skills[i].Usage = a.data.SkillUsage[skills[i].Name]
+			}
+			return map[string]any{"skills": skills}, nil
+		})
 	case "/api/tools":
 		return a.respondLocked(200, func() (any, error) {
 			builtin := make([]string, 0, len(builtinToolNames))
@@ -575,6 +641,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			To:            query.Get("to"),
 			HasImage:        query.Get("hasImage") == "1",
 			IncludeArchived: query.Get("includeArchived") == "1",
+			Tag:             query.Get("tag"),
 		}
 		return a.respondLocked(200, func() (any, error) { return a.searchLocked(query.Get("q"), filters), nil })
 	case "/api/vote":
@@ -755,6 +822,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					return a.jobResponseLocked(j), nil
 				})
 			}
+			if len(parts) == 2 && parts[1] == "branch" {
+				var body struct {
+					BranchID string `json:"branchId"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.switchBranchLocked(parts[0], body.BranchID) })
+			}
 			if len(parts) == 1 {
 				if r.Method == http.MethodDelete {
 					return a.respondLocked(200, func() (any, error) { return a.deleteRoomLocked(parts[0]) })
@@ -841,6 +917,16 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 				return 0, nil, err
 			}
 			return a.respondLocked(200, func() (any, error) { return a.applyPersonaLocked(code, body.PersonaID) })
+		}
+		if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/clone") {
+			code := strings.TrimSuffix(strings.TrimPrefix(path, "/api/seats/"), "/clone")
+			return a.respondLocked(201, func() (any, error) {
+				clone, err := a.cloneSeatLocked(code)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"seat": clone}, nil
+			})
 		}
 		if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			code := strings.TrimPrefix(path, "/api/seats/")

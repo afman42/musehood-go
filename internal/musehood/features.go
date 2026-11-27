@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -12,20 +12,67 @@ import (
 // --- Ruang (multi-room) ---
 
 type roomInput struct {
-	Name      *string   `json:"name"`
-	SeatCodes *[]string `json:"seatCodes"`
-	SeatOrder *[]string `json:"seatOrder"`
-	Pinned    *bool     `json:"pinned"`
+	Name          *string   `json:"name"`
+	SeatCodes     *[]string `json:"seatCodes"`
+	SeatOrder     *[]string `json:"seatOrder"`
+	Pinned        *bool     `json:"pinned"`
+	Icon          *string   `json:"icon"`
+	Color         *string   `json:"color"`
+	DisabledTools *[]string `json:"disabledTools"`
+}
+
+var roomColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// validateRoomIconColor memvalidasi ikon (maks 8 rune) dan warna
+// (#rrggbb) ruang (fitur 19).
+func validateRoomIconColor(icon, color string) error {
+	if len([]rune(strings.TrimSpace(icon))) > 8 {
+		return problem(400, "Ikon ruang maksimal 8 karakter.")
+	}
+	if color != "" && !roomColorPattern.MatchString(color) {
+		return problem(400, "Warna ruang harus berformat #rrggbb.")
+	}
+	return nil
+}
+
+// validateRoomDisabledTools memvalidasi daftar tool nonaktif ruang
+// (fitur 25).
+func validateRoomDisabledTools(tools []string) ([]string, error) {
+	if len(tools) > 60 {
+		return nil, problem(400, "Terlalu banyak tool dinonaktifkan.")
+	}
+	out := []string{}
+	for _, name := range tools {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if !customToolNamePattern.MatchString(name) {
+			return nil, problem(400, "Nama tool tidak valid.")
+		}
+		out = append(out, name)
+	}
+	return out, nil
 }
 
 func (a *App) roomViewsLocked() []map[string]any {
 	views := []map[string]any{}
 	for _, r := range a.data.Rooms {
 		count := 0
+		branchCounts := map[string]int{}
+		branchOrder := []string{}
 		for _, m := range a.data.Messages {
 			if m.RoomID == r.ID {
 				count++
+				if branchCounts[m.branchID()] == 0 {
+					branchOrder = append(branchOrder, m.branchID())
+				}
+				branchCounts[m.branchID()]++
 			}
+		}
+		branches := make([]map[string]any, 0, len(branchOrder))
+		for _, id := range branchOrder {
+			branches = append(branches, map[string]any{"id": id, "messageCount": branchCounts[id]})
 		}
 		codes := r.SeatCodes
 		if codes == nil {
@@ -35,7 +82,7 @@ func (a *App) roomViewsLocked() []map[string]any {
 		if order == nil {
 			order = []string{}
 		}
-		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived, "summary": r.Summary, "summaryCount": r.SummaryCount})
+		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived, "summary": r.Summary, "summaryCount": r.SummaryCount, "activeBranch": r.activeBranch(), "branches": branches, "icon": r.Icon, "color": r.Color, "disabledTools": r.DisabledTools})
 	}
 	return views
 }
@@ -83,7 +130,24 @@ func (a *App) createRoomLocked(input roomInput) (any, error) {
 			return nil, err
 		}
 	}
-	r := room{ID: newRoomID(), Name: name, CreatedAt: now(), SeatCodes: codes, SeatOrder: order}
+	icon, color := "", ""
+	if input.Icon != nil {
+		icon = strings.TrimSpace(*input.Icon)
+	}
+	if input.Color != nil {
+		color = strings.TrimSpace(*input.Color)
+	}
+	if err := validateRoomIconColor(icon, color); err != nil {
+		return nil, err
+	}
+	disabledTools := []string{}
+	if input.DisabledTools != nil {
+		disabledTools, err = validateRoomDisabledTools(*input.DisabledTools)
+		if err != nil {
+			return nil, err
+		}
+	}
+	r := room{ID: newRoomID(), Name: name, CreatedAt: now(), SeatCodes: codes, SeatOrder: order, Icon: icon, Color: color, DisabledTools: disabledTools}
 	previous := a.data
 	a.data.Rooms = append(a.data.Rooms, r)
 	a.data.ActiveRoomID = r.ID
@@ -124,6 +188,22 @@ func (a *App) updateRoomLocked(id string, input roomInput) (any, error) {
 	}
 	if input.Pinned != nil {
 		next.Pinned = *input.Pinned
+	}
+	if input.Icon != nil {
+		next.Icon = strings.TrimSpace(*input.Icon)
+	}
+	if input.Color != nil {
+		next.Color = strings.TrimSpace(*input.Color)
+	}
+	if err := validateRoomIconColor(next.Icon, next.Color); err != nil {
+		return nil, err
+	}
+	if input.DisabledTools != nil {
+		tools, err := validateRoomDisabledTools(*input.DisabledTools)
+		if err != nil {
+			return nil, err
+		}
+		next.DisabledTools = tools
 	}
 	*r = next
 	if err := a.saveLocked(); err != nil {
@@ -299,7 +379,7 @@ func (a *App) applyPresetLocked(id string) (any, error) {
 		}
 		seen[name] = true
 	}
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return nil, err
 	}
 	a.data = next
@@ -337,10 +417,11 @@ type searchFilters struct {
 	To              string // YYYY-MM-DD inklusif
 	HasImage        bool
 	IncludeArchived bool // sertakan ruang arsip (fitur 18)
+	Tag             string // filter tag pesan (fitur 17)
 }
 
 func (f searchFilters) active() bool {
-	return f.Seat != "" || f.Room != "" || f.From != "" || f.To != "" || f.HasImage || f.IncludeArchived
+	return f.Seat != "" || f.Room != "" || f.From != "" || f.To != "" || f.HasImage || f.IncludeArchived || f.Tag != ""
 }
 
 func (a *App) searchLocked(q string, f searchFilters) any {
@@ -349,9 +430,23 @@ func (a *App) searchLocked(q string, f searchFilters) any {
 	if q == "" && !f.active() {
 		return map[string]any{"results": results}
 	}
+	// Indeks full-text (fitur 35): kandidat dari indeks digabung dengan
+	// kecocokan frasa substring agar perilaku lama tidak hilang.
+	var candidates map[string]bool
+	indexApplies := false
+	if q != "" {
+		candidates, indexApplies = a.ftCandidatesLocked(q)
+	}
 	for _, m := range a.data.Messages {
-		if q != "" && !strings.Contains(strings.ToLower(m.Text), q) {
-			continue
+		if q != "" {
+			phrase := strings.Contains(strings.ToLower(m.Text), q)
+			if indexApplies {
+				if !candidates[m.ID] && !phrase {
+					continue
+				}
+			} else if !phrase {
+				continue
+			}
 		}
 		if f.Seat == "owner" && m.AuthorType != "owner" {
 			continue
@@ -374,6 +469,18 @@ func (a *App) searchLocked(q string, f searchFilters) any {
 		}
 		if f.HasImage && m.ImageURL == "" && (m.Attachment == nil || !strings.HasPrefix(m.Attachment.Mime, "image/")) {
 			continue
+		}
+		if f.Tag != "" {
+			found := false
+			for _, tag := range m.Tags {
+				if strings.EqualFold(tag, f.Tag) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
 		}
 		if !f.IncludeArchived {
 			if r := a.data.findRoom(m.RoomID); r != nil && r.Archived {
@@ -415,6 +522,8 @@ func (a *App) backup(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Settings.APIKey = ""
 	d.Settings.PINHash = ""
+	d.Settings.APIToken = ""
+	d.Settings.TelegramBotToken = ""
 	d.WorkerToken = ""
 	raw, err := json.MarshalIndent(a.safeLocked(d), "", "  ")
 	a.mu.Unlock()

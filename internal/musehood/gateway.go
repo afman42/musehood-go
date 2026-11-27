@@ -157,47 +157,56 @@ func (a *App) gateway(ctx context.Context, cfg settings, route string, body any)
 	}
 	base := strings.TrimSuffix(strings.TrimRight(cfg.BaseURL, "/"), "/v1")
 	method := http.MethodGet
-	var input io.Reader
+	var payload []byte
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
 		method = http.MethodPost
-		input = bytes.NewReader(raw)
+		payload = raw
 	}
-	req, err := http.NewRequestWithContext(ctx, method, base+"/v1/"+route, input)
-	if err != nil {
-		return nil, problem(502, "Koneksi gateway gagal: "+err.Error())
-	}
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	req.Header.Set("Accept", "application/json, text/event-stream, text/plain")
-	// WAF sebagian provider (mis. EdgeOne di api.hcnsec.cn) memblokir
-	// User-Agent bawaan Go ("Go-http-client/1.1") dengan HTTP 567.
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	res, err := a.client.Do(req)
-	if err != nil {
-		return nil, problem(502, "Koneksi gateway gagal: "+err.Error())
-	}
-	defer res.Body.Close()
-	raw, large, err := limitedRead(res.Body, gatewayLimit)
-	if large {
-		return nil, problem(502, fmt.Sprintf("HTTP %d: Respons gateway melebihi 20 MB.", res.StatusCode))
-	}
-	if err != nil {
-		return nil, problem(502, fmt.Sprintf("HTTP %d: Gagal membaca respons gateway: %v", res.StatusCode, err))
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		status := res.StatusCode
-		if status < 400 || status > 599 {
-			status = 502
+	target := base + "/v1/" + route
+	// Circuit breaker + retry (fitur 7 & 8): satu percobaan membangun
+	// request baru agar body bisa dikirim ulang.
+	return a.runGatewayAttempts(ctx, target, func() gatewayAttempt {
+		var input io.Reader
+		if payload != nil {
+			input = bytes.NewReader(payload)
 		}
-		return nil, problem(status, fmt.Sprintf("HTTP %d: %s", res.StatusCode, raw))
-	}
-	return raw, nil
+		req, err := http.NewRequestWithContext(ctx, method, target, input)
+		if err != nil {
+			return gatewayAttempt{err: problem(502, "Koneksi gateway gagal: "+err.Error())}
+		}
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		req.Header.Set("Accept", "application/json, text/event-stream, text/plain")
+		// WAF sebagian provider (mis. EdgeOne di api.hcnsec.cn) memblokir
+		// User-Agent bawaan Go ("Go-http-client/1.1") dengan HTTP 567.
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		res, err := a.client.Do(req)
+		if err != nil {
+			return gatewayAttempt{err: problem(502, "Koneksi gateway gagal: "+err.Error())}
+		}
+		defer res.Body.Close()
+		raw, large, err := limitedRead(res.Body, gatewayLimit)
+		if large {
+			return gatewayAttempt{status: res.StatusCode, err: problem(502, fmt.Sprintf("HTTP %d: Respons gateway melebihi 20 MB.", res.StatusCode))}
+		}
+		if err != nil {
+			return gatewayAttempt{status: res.StatusCode, err: problem(502, fmt.Sprintf("HTTP %d: Gagal membaca respons gateway: %v", res.StatusCode, err))}
+		}
+		if res.StatusCode < 200 || res.StatusCode >= 300 {
+			status := res.StatusCode
+			if status < 400 || status > 599 {
+				status = 502
+			}
+			return gatewayAttempt{status: res.StatusCode, retryAfter: parseRetryAfter(res), err: problem(status, fmt.Sprintf("HTTP %d: %s", res.StatusCode, raw))}
+		}
+		return gatewayAttempt{raw: raw, status: res.StatusCode}
+	})
 }
 func (a *App) models(ctx context.Context, cfg settings) ([]string, error) {
 	return a.protocolModels(ctx, cfg)
@@ -262,6 +271,11 @@ func (a *App) recordStat(s seat, cfg settings, model string, ok bool, latency ti
 		st.PromptTokens += promptTokens
 		st.CompletionTokens += completionTokens
 		st.LastAt = now()
+	}
+	// Pemakaian harian per kursi untuk budget (fitur 5); hanya panggilan
+	// sukses yang membawa token yang dihitung biayanya.
+	if ok && (promptTokens > 0 || completionTokens > 0) {
+		a.recordDailyUsageLocked(s.Code, cfg, promptTokens, completionTokens)
 	}
 }
 
