@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import Settings from '../../lib/Settings.svelte';
   import Toast from '../../lib/Toast.svelte';
   import RoomBar from '../../lib/RoomBar.svelte';
   import SearchBar from '../../lib/SearchBar.svelte';
@@ -8,33 +7,95 @@
   import PinnedBar from '../../lib/PinnedBar.svelte';
   import MessageBubble from '../../lib/MessageBubble.svelte';
   import Composer from '../../lib/Composer.svelte';
-  import MentionDialog from '../../lib/MentionDialog.svelte';
-  import SeatInfoDialog from '../../lib/SeatInfoDialog.svelte';
-  import ScheduleDialog from '../../lib/ScheduleDialog.svelte';
-  import DebateDialog from '../../lib/DebateDialog.svelte';
-  import ABTestDialog from '../../lib/ABTestDialog.svelte';
-  import ShortcutHelpDialog from '../../lib/ShortcutHelpDialog.svelte';
   import { shortcutAction } from '../../lib/shortcuts';
   import { parseSlashCommand, slashMessageText, SLASH_HELP_TEXT } from '../../lib/slash';
   import { nextRating } from '../../lib/rating';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
-  import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
   import { errorText } from '../../lib/api';
-  import { emptySearchFilters, type Attachment, type Message, type SearchFilters, type SearchResult } from '../../lib/types';
+  import { emptySearchFilters, type Attachment, type Message, type SearchFilters, type SearchResult, type Seat } from '../../lib/types';
+  // Komponen berat (panel Pengaturan + dialog) dimuat malas lewat dynamic
+  // import agar tidak masuk muatan awal (code splitting). Impor tipe saja
+  // di sini — tidak menghasilkan kode runtime.
+  import type SettingsType from '../../lib/Settings.svelte';
+  import type MentionDialogType from '../../lib/MentionDialog.svelte';
+  import type SeatInfoDialogType from '../../lib/SeatInfoDialog.svelte';
+  import type ScheduleDialogType from '../../lib/ScheduleDialog.svelte';
+  import type DebateDialogType from '../../lib/DebateDialog.svelte';
+  import type ABTestDialogType from '../../lib/ABTestDialog.svelte';
+  import type ShortcutHelpDialogType from '../../lib/ShortcutHelpDialog.svelte';
+  import type RoomDialogType from '../../lib/RoomDialog.svelte';
 
   // Referensi DOM.
   let messages: HTMLElement;
-  let settingsPanel = $state<ReturnType<typeof Settings>>();
-  let mentionDialog = $state<ReturnType<typeof MentionDialog>>();
-  let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialog>>();
-  let scheduleDialog = $state<ReturnType<typeof ScheduleDialog>>();
-  let debateDialog = $state<ReturnType<typeof DebateDialog>>();
-  let abDialog = $state<ReturnType<typeof ABTestDialog>>();
-  let shortcutHelp = $state<ReturnType<typeof ShortcutHelpDialog>>();
-  let roomDialog = $state<ReturnType<typeof RoomDialog>>();
+  let settingsPanel = $state<ReturnType<typeof SettingsType>>();
+  let mentionDialog = $state<ReturnType<typeof MentionDialogType>>();
+  let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialogType>>();
+  let scheduleDialog = $state<ReturnType<typeof ScheduleDialogType>>();
+  let debateDialog = $state<ReturnType<typeof DebateDialogType>>();
+  let abDialog = $state<ReturnType<typeof ABTestDialogType>>();
+  let shortcutHelp = $state<ReturnType<typeof ShortcutHelpDialogType>>();
+  let roomDialog = $state<ReturnType<typeof RoomDialogType>>();
   let composer = $state<ReturnType<typeof Composer>>();
   let searchBar = $state<ReturnType<typeof SearchBar>>();
+
+  // Pemegang komponen malas: undefined sampai pertama kali dibutuhkan.
+  let Settings = $state.raw<typeof SettingsType | undefined>(undefined);
+  let MentionDialog = $state.raw<typeof MentionDialogType | undefined>(undefined);
+  let SeatInfoDialog = $state.raw<typeof SeatInfoDialogType | undefined>(undefined);
+  let ScheduleDialog = $state.raw<typeof ScheduleDialogType | undefined>(undefined);
+  let DebateDialog = $state.raw<typeof DebateDialogType | undefined>(undefined);
+  let ABTestDialog = $state.raw<typeof ABTestDialogType | undefined>(undefined);
+  let ShortcutHelpDialog = $state.raw<typeof ShortcutHelpDialogType | undefined>(undefined);
+  let RoomDialog = $state.raw<typeof RoomDialogType | undefined>(undefined);
+
+  async function openSettings() {
+    Settings ??= (await import('../../lib/Settings.svelte')).default;
+    await tick();
+    settingsPanel?.open();
+  }
+
+  async function openMention() {
+    MentionDialog ??= (await import('../../lib/MentionDialog.svelte')).default;
+    await tick();
+    mentionDialog?.open();
+  }
+
+  async function openSeatInfo(seat: Seat) {
+    SeatInfoDialog ??= (await import('../../lib/SeatInfoDialog.svelte')).default;
+    await tick();
+    seatInfoDialog?.open(seat);
+  }
+
+  async function openSchedule() {
+    ScheduleDialog ??= (await import('../../lib/ScheduleDialog.svelte')).default;
+    await tick();
+    scheduleDialog?.open(text);
+  }
+
+  async function openDebate() {
+    DebateDialog ??= (await import('../../lib/DebateDialog.svelte')).default;
+    await tick();
+    debateDialog?.open();
+  }
+
+  async function openABTest() {
+    ABTestDialog ??= (await import('../../lib/ABTestDialog.svelte')).default;
+    await tick();
+    abDialog?.open();
+  }
+
+  async function openShortcutHelp() {
+    ShortcutHelpDialog ??= (await import('../../lib/ShortcutHelpDialog.svelte')).default;
+    await tick();
+    shortcutHelp?.open();
+  }
+
+  async function openRoomDialog() {
+    RoomDialog ??= (await import('../../lib/RoomDialog.svelte')).default;
+    await tick();
+    roomDialog?.open();
+  }
   let imageInput: HTMLInputElement;
   let fileInput: HTMLInputElement;
 
@@ -146,7 +207,7 @@
       document.querySelector<HTMLDialogElement>('dialog[open]')?.close();
     } else if (action === 'help') {
       event.preventDefault();
-      shortcutHelp?.open();
+      void openShortcutHelp();
     } else if (action.startsWith('room')) {
       const rooms = (current?.rooms ?? []).filter((room) => !room.archived).sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
       const room = rooms[Number(action.slice(4)) - 1];
@@ -454,13 +515,13 @@
       <button id="darkToggle" class="icon-button" type="button" aria-label="Mode gelap" title="Mode gelap/terang" onclick={() => current && chat.mutate('/api/settings', { settings: { darkMode: !current.settings.darkMode } }).catch(e => chat.notify(errorText(e), true))}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.5A8.5 8.5 0 0 1 10.5 4 8.5 8.5 0 1 0 20 13.5Z"/></svg>
       </button>
-      <button id="openSettings" class="icon-button" type="button" aria-label="Pengaturan grup" title="Pengaturan grup" onclick={() => settingsPanel?.open()}>
+      <button id="openSettings" class="icon-button" type="button" aria-label="Pengaturan grup" title="Pengaturan grup" onclick={() => void openSettings()}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.7 3-.6 2.2-2 .9L5 5.5 2.8 9.3l1.6 1.6v2.2l-1.6 1.6L5 18.5l2.1-.6 2 .9.6 2.2h4.6l.6-2.2 2-.9 2.1.6 2.2-3.8-1.6-1.6v-2.2l1.6-1.6L19 5.5l-2.1.6-2-.9L14.3 3Z"/><circle cx="12" cy="12" r="3.2"/></svg>
       </button>
     </div>
   </header>
   {#if current && current.rooms.length > 0}
-    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => roomDialog?.open()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} onTogglePin={(room) => chat.mutate(`/api/rooms/${room.id}`, { pinned: !room.pinned }).catch((e) => chat.notify(errorText(e), true))} />
+    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => void openRoomDialog()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} onTogglePin={(room) => chat.mutate(`/api/rooms/${room.id}`, { pinned: !room.pinned }).catch((e) => chat.notify(errorText(e), true))} />
   {/if}
   {#if searchOpen}
     <SearchBar bind:this={searchBar} bind:query bind:filters={searchFilters} seats={current?.seats ?? []} rooms={current?.rooms ?? []} matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}
@@ -472,7 +533,7 @@
   {/if}
   <SeatStrip seats={chat.roomSeats} onMention={(seat) => composer?.insertMention(seat.name)} />
   {#if current && !chat.connectionReady}
-    <button id="connectionNotice" class="connection-notice" type="button" onclick={() => settingsPanel?.open()}><span class="notice-dot"></span><span>Hubungkan gateway melalui Pengaturan untuk mengaktifkan enam kursi AI.</span><span aria-hidden="true">›</span></button>
+    <button id="connectionNotice" class="connection-notice" type="button" onclick={() => void openSettings()}><span class="notice-dot"></span><span>Hubungkan gateway melalui Pengaturan untuk mengaktifkan enam kursi AI.</span><span aria-hidden="true">›</span></button>
   {/if}
   {#if chat.pinnedMessages.length}
     <PinnedBar pinned={chat.pinnedMessages} ownerName={current?.owner.name} seats={current?.seats ?? []} onJump={jumpToQuote} />
@@ -529,7 +590,7 @@
           onDelete={() => removeMessage(message)}
           onJumpQuote={jumpToQuote}
           onImageLoad={scrollForImage}
-          onMentionClick={(mentioned) => seatInfoDialog?.open(mentioned)}
+          onMentionClick={(mentioned) => void openSeatInfo(mentioned)}
           onRegenerate={() => regenerateMessage(message)}
           onRerun={() => rerunMessage(message)}
           onFork={() => forkMessage(message)}
@@ -575,24 +636,40 @@
     participants={current?.rooms.find((room) => room.id === current.activeRoomId)?.participants ?? []}
     ownerName={current?.owner.name ?? ''} bind:author
     onSend={send} onProgress={progress} onVote={startVote}
-    onOpenMention={() => { if (current) mentionDialog?.open(); }}
+    onOpenMention={() => { if (current) void openMention(); }}
     onImagePrompt={() => composer?.setText(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}
     onUploadImage={() => imageInput.click()} onUploadFile={() => fileInput.click()}
     onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null}
-    onSchedule={() => scheduleDialog?.open(text)}
-    onDebate={() => debateDialog?.open()}
-    onABTest={() => abDialog?.open()} />
+    onSchedule={() => void openSchedule()}
+    onDebate={() => void openDebate()}
+    onABTest={() => void openABTest()} />
 </main>
 {/if}
 
-<Settings bind:this={settingsPanel} current={chat.current} refresh={chat.refresh} mutate={chat.mutate} notify={chat.notify} notice={chat.notice} />
-<MentionDialog bind:this={mentionDialog} seats={chat.roomSeats} notice={chat.notice} onPick={(seat) => composer?.insertMention(seat.name)} />
-<SeatInfoDialog bind:this={seatInfoDialog} onMention={(seat) => composer?.insertMention(seat.name)} />
-<ScheduleDialog bind:this={scheduleDialog} listScheduled={chat.listScheduled} createScheduled={chat.createScheduled} updateScheduled={chat.updateScheduled} deleteScheduled={chat.deleteScheduled} notify={chat.notify} roomId={current?.activeRoomId ?? ''} />
-<RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
-<DebateDialog bind:this={debateDialog} seats={current?.seats ?? []} notice={chat.notice} onStart={startDebate} />
-<ABTestDialog bind:this={abDialog} current={chat.current} notice={chat.notice} onStart={startABTest} />
-<ShortcutHelpDialog bind:this={shortcutHelp} />
+{#if Settings}
+  <Settings bind:this={settingsPanel} current={chat.current} refresh={chat.refresh} mutate={chat.mutate} notify={chat.notify} notice={chat.notice} />
+{/if}
+{#if MentionDialog}
+  <MentionDialog bind:this={mentionDialog} seats={chat.roomSeats} notice={chat.notice} onPick={(seat) => composer?.insertMention(seat.name)} />
+{/if}
+{#if SeatInfoDialog}
+  <SeatInfoDialog bind:this={seatInfoDialog} onMention={(seat) => composer?.insertMention(seat.name)} />
+{/if}
+{#if ScheduleDialog}
+  <ScheduleDialog bind:this={scheduleDialog} listScheduled={chat.listScheduled} createScheduled={chat.createScheduled} updateScheduled={chat.updateScheduled} deleteScheduled={chat.deleteScheduled} notify={chat.notify} roomId={current?.activeRoomId ?? ''} />
+{/if}
+{#if RoomDialog}
+  <RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
+{/if}
+{#if DebateDialog}
+  <DebateDialog bind:this={debateDialog} seats={current?.seats ?? []} notice={chat.notice} onStart={startDebate} />
+{/if}
+{#if ABTestDialog}
+  <ABTestDialog bind:this={abDialog} current={chat.current} notice={chat.notice} onStart={startABTest} />
+{/if}
+{#if ShortcutHelpDialog}
+  <ShortcutHelpDialog bind:this={shortcutHelp} />
+{/if}
 <Toast notice={chat.notice} target={null} />
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>
 <input id="chatFileInput" type="file" hidden bind:this={fileInput} onchange={chooseFile}>

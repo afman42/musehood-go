@@ -32,13 +32,16 @@ function bundleSize(dir) {
 try {
   await configureMockProvider(app.url, gateway.url);
 
-  // Anggaran ukuran bundle (hasil build frontend).
-  const bytes = bundleSize(join(repo, 'frontend', 'build'));
-  const kb = Math.round(bytes / 1024);
-  report.check(`ukuran bundle JS+CSS ${kb} KB < 350 KB`, kb < 350);
-
   // Timing navigasi + long tasks pada pemuatan pertama.
+  // Sekalian kumpulkan aset JS+CSS yang benar-benar diunduh pada
+  // pemuatan pertama untuk anggaran muatan AWAL: chunk malas
+  // (Pengaturan/dialog) tidak dihitung karena baru dimuat saat dibuka.
+  const initialAssets = new Set();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  page.on('response', res => {
+    const url = res.url();
+    if (/\.(js|css)(\?|$)/.test(url)) initialAssets.add(new URL(url).pathname);
+  });
   await page.addInitScript(() => {
     window.__longTasks = [];
     new PerformanceObserver(list => {
@@ -48,6 +51,17 @@ try {
   const navStart = Date.now();
   await page.goto(app.url, { waitUntil: 'load' });
   await page.getByText('Pemilik Arman - Admin Muse - Hadir 8/8').waitFor();
+
+  // Anggaran ukuran muatan awal (bukan total semua chunk): jumlah byte
+  // file JS+CSS di frontend/build yang diunduh browser di atas.
+  let initialBytes = 0;
+  for (const pathname of initialAssets) {
+    try { initialBytes += statSync(join(repo, 'frontend', 'build', pathname)).size; } catch { /* aset non-file */ }
+  }
+  const initialKb = Math.round(initialBytes / 1024);
+  report.check(`muatan awal JS+CSS ${initialKb} KB < 350 KB`, initialKb < 350);
+  const totalKb = Math.round(bundleSize(join(repo, 'frontend', 'build')) / 1024);
+  console.log(`  [perf] muatan awal ${initialKb} KB dari ${initialAssets.size} aset; total semua chunk JS+CSS ${totalKb} KB (termasuk chunk malas)`);
   const interactiveMs = Date.now() - navStart;
   const timing = await page.evaluate(() => {
     const nav = performance.getEntriesByType('navigation')[0];
