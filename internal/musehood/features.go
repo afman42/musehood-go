@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -380,7 +379,7 @@ func (a *App) applyPresetLocked(id string) (any, error) {
 		}
 		seen[name] = true
 	}
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return nil, err
 	}
 	a.data = next
@@ -431,9 +430,23 @@ func (a *App) searchLocked(q string, f searchFilters) any {
 	if q == "" && !f.active() {
 		return map[string]any{"results": results}
 	}
+	// Indeks full-text (fitur 35): kandidat dari indeks digabung dengan
+	// kecocokan frasa substring agar perilaku lama tidak hilang.
+	var candidates map[string]bool
+	indexApplies := false
+	if q != "" {
+		candidates, indexApplies = a.ftCandidatesLocked(q)
+	}
 	for _, m := range a.data.Messages {
-		if q != "" && !strings.Contains(strings.ToLower(m.Text), q) {
-			continue
+		if q != "" {
+			phrase := strings.Contains(strings.ToLower(m.Text), q)
+			if indexApplies {
+				if !candidates[m.ID] && !phrase {
+					continue
+				}
+			} else if !phrase {
+				continue
+			}
 		}
 		if f.Seat == "owner" && m.AuthorType != "owner" {
 			continue

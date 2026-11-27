@@ -230,7 +230,10 @@ func TestStressPINLoginAttempts(t *testing.T) {
 	}
 	start := time.Now()
 	for i := 0; i < 50; i++ {
-		status, _, raw := doRaw(t, "POST", base+"/api/login", object{"pin": fmt.Sprintf("salah-%d", i)}, nil)
+		// IP berbeda per percobaan agar tidak kena rate limit per IP
+		// (fitur 28); perilaku blokir diuji di TestLoginRateLimitAndAudit.
+		from := map[string]string{"X-Forwarded-For": fmt.Sprintf("198.51.100.%d", i+1)}
+		status, _, raw := doRaw(t, "POST", base+"/api/login", object{"pin": fmt.Sprintf("salah-%d", i)}, from)
 		if status != 401 {
 			t.Fatalf("percobaan %d: mau 401, dapat %d %s", i, status, raw)
 		}

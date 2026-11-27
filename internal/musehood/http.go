@@ -70,6 +70,20 @@ type App struct {
 	// parallelRemaining menghitung langkah paralel yang belum selesai
 	// per pekerjaan (fitur 15).
 	parallelRemaining map[*job]int
+	// loginMu/loginFails adalah rate limit masuk PIN per IP (fitur 28),
+	// hanya di memori.
+	loginMu    sync.Mutex
+	loginFails map[string]*loginAttempt
+	// ftMu/ftIndex/ftDirty adalah indeks full-text pesan (fitur 35),
+	// hanya di memori; dibangun ulang malas saat kotor.
+	ftMu    sync.Mutex
+	ftIndex map[string]map[string]bool
+	ftDirty bool
+	// store adalah backend penyimpanan data (fitur 34); nil berarti
+	// berkas JSON langsung (App yang dibuat di tes).
+	store dataStore
+	// version adalah versi aplikasi untuk cek update (fitur 45).
+	version string
 }
 type apiError struct {
 	status  int
@@ -103,7 +117,11 @@ func New(opts Options) (*App, error) {
 			return nil, err
 		}
 	}
-	d, err := loadData(opts.DataDir)
+	store, err := openStore(opts.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	d, err := store.load()
 	if err != nil {
 		return nil, err
 	}
@@ -114,8 +132,8 @@ func New(opts Options) (*App, error) {
 		}
 		d.WorkerToken = hex.EncodeToString(raw)
 	}
-	a := &App{dir: opts.DataDir, frontend: opts.Frontend, data: d, running: make(map[*job]context.CancelFunc), museWait: opts.MuseWait,
-		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth), budgetNoted: map[string]bool{}, breakers: map[string]*circuitBreaker{},
+	a := &App{dir: opts.DataDir, frontend: opts.Frontend, data: d, store: store, running: make(map[*job]context.CancelFunc), museWait: opts.MuseWait,
+		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth), budgetNoted: map[string]bool{}, breakers: map[string]*circuitBreaker{}, loginFails: map[string]*loginAttempt{}, ftDirty: true,
 		hosts: map[string]bool{"127.0.0.1": true, "localhost": true, "::1": true},
 		client: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 || !validHTTPURL(req.URL) {

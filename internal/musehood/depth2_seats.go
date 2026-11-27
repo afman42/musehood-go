@@ -6,7 +6,6 @@ package musehood
 import (
 	"fmt"
 	"log"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -125,7 +124,7 @@ func (a *App) cloneSeatLocked(code string) (*seat, error) {
 	clone.Skills = slices.Clone(clone.Skills)
 	next := a.data
 	next.Seats = append(slices.Clone(next.Seats), clone)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return nil, err
 	}
 	a.data = next

@@ -52,4 +52,13 @@
       <button class="secondary-button" type="button" disabled={busy} onclick={logout}>Keluar (logout)</button>
     {/if}
   </div>
+  {#if current?.loginLog?.length}
+    <h4>Audit masuk terakhir</h4>
+    <ul class="login-log">
+      {#each [...current.loginLog].slice(-10).reverse() as entry (entry.time + entry.ip)}
+        <li>{entry.success ? '✅' : '⛔'} {new Date(entry.time).toLocaleString()} — {entry.ip}</li>
+      {/each}
+    </ul>
+    <p class="hint">5 kegagalan dari satu IP dalam 5 menit memblokir IP itu selama 5 menit.</p>
+  {/if}
 </fieldset>

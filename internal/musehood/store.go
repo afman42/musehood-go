@@ -520,25 +520,36 @@ func uuid() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
+// defaultData adalah data awal untuk instalasi baru.
+func defaultData() data {
+	d := data{Version: 1, Group: identity{"Musehood", "/avatars/group.svg"}, Owner: owner{identity{"Arman", "/avatars/owner.svg"}, true}, Settings: settings{RoundRobin: true, ReviewLevel: "Sedang"}, Messages: []*message{}, Jobs: []*job{}, Rooms: []room{{ID: defaultRoomID, Name: "Utama", CreatedAt: now()}}, ActiveRoomID: defaultRoomID}
+	for _, def := range defaultSeats {
+		s := seat{identity: identity{def.name, "/avatars/" + strings.ToLower(def.code) + ".svg"}, Code: def.code, Role: def.role, Provider: "gateway", Model: ptr(""), Present: true}
+		if s.Code == "MUSE" {
+			s.Provider = "muse"
+			s.Model = nil
+		}
+		d.Seats = append(d.Seats, s)
+	}
+	d.migrateProviders()
+	return d
+}
+
 func loadData(dir string) (data, error) {
-	var d data
 	raw, err := os.ReadFile(filepath.Join(dir, "data.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		d = data{Version: 1, Group: identity{"Musehood", "/avatars/group.svg"}, Owner: owner{identity{"Arman", "/avatars/owner.svg"}, true}, Settings: settings{RoundRobin: true, ReviewLevel: "Sedang"}, Messages: []*message{}, Jobs: []*job{}, Rooms: []room{{ID: defaultRoomID, Name: "Utama", CreatedAt: now()}}, ActiveRoomID: defaultRoomID}
-		for _, def := range defaultSeats {
-			s := seat{identity: identity{def.name, "/avatars/" + strings.ToLower(def.code) + ".svg"}, Code: def.code, Role: def.role, Provider: "gateway", Model: ptr(""), Present: true}
-			if s.Code == "MUSE" {
-				s.Provider = "muse"
-				s.Model = nil
-			}
-			d.Seats = append(d.Seats, s)
-		}
-		d.migrateProviders()
-		return d, nil
+		return defaultData(), nil
 	}
 	if err != nil {
-		return d, err
+		return data{}, err
 	}
+	return parseData(raw)
+}
+
+// parseData memvalidasi dan memigrasi blob JSON data (dipakai backend
+// JSON dan SQLite, fitur 34).
+func parseData(raw []byte) (data, error) {
+	var d data
 	var structure struct {
 		Settings *settings `json:"settings"`
 	}
@@ -986,7 +997,7 @@ func (a *App) createProviderLocked(input providerInput) (gatewayProviderView, er
 		next.Connection = nil
 	}
 	a.rememberKeyLocked(key)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return gatewayProviderView{}, err
 	}
 	a.data = next
@@ -1066,7 +1077,7 @@ func (a *App) updateProviderLocked(id string, input providerInput) (gatewayProvi
 		next.Connection = nil
 	}
 	a.rememberKeyLocked(p.APIKey)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return gatewayProviderView{}, err
 	}
 	a.data = next
@@ -1100,7 +1111,7 @@ func (a *App) deleteProviderLocked(id string) error {
 			next.Settings.GatewayProtocol = ""
 		}
 	}
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return err
 	}
 	a.data = next
@@ -1122,7 +1133,7 @@ func (a *App) activateProviderLocked(id string) error {
 		next.syncSettingsFromProvider(*p)
 		next.Connection = nil
 	}
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return err
 	}
 	a.data = next
@@ -1145,7 +1156,10 @@ func writeJSONFile(file string, value any) error {
 	}
 	return os.Rename(temp.Name(), file)
 }
-func (a *App) saveLocked() error { return writeJSONFile(filepath.Join(a.dir, "data.json"), a.data) }
+func (a *App) saveLocked() error {
+	a.markFTDirty()
+	return a.persistLocked(a.data)
+}
 func (d *data) findSeat(code string) *seat {
 	for i := range d.Seats {
 		if d.Seats[i].Code == code {
@@ -1198,7 +1212,7 @@ func (a *App) createSeatLocked(name, role, model string) (*seat, error) {
 	next.Seats = slices.Clone(next.Seats)
 	created := seat{identity: identity{name, "/avatars/custom.svg"}, Code: code, Role: role, Provider: "gateway", Model: ptr(model), Present: true}
 	next.Seats = append(next.Seats, created)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return nil, err
 	}
 	a.data = next
@@ -1235,7 +1249,7 @@ func (a *App) deleteSeatLocked(code string) error {
 	if next.Settings.IntegratorSeat == code {
 		next.Settings.IntegratorSeat = ""
 	}
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return err
 	}
 	a.data = next
@@ -1810,7 +1824,7 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		next.Connection = nil
 	}
 	a.rememberKeyLocked(next.Settings.APIKey)
-	if err := writeJSONFile(filepath.Join(a.dir, "data.json"), next); err != nil {
+	if err := a.persistLocked(next); err != nil {
 		return err
 	}
 	a.data = next
