@@ -228,6 +228,37 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) (int, json.RawMessa
 	return 200, mustJSON(map[string]bool{"ok": true}), nil
 }
 
+// setPIN memasang/mengganti/menghapus PIN lalu menerbitkan cookie
+// sesi baru untuk sesi ini (token sesi diturunkan dari hash PIN,
+// jadi tanpa cookie baru pengguna langsung terkunci 401 sesudah
+// memasang PIN pertamanya). Sesi lain tetap tidak berlaku karena
+// hash berubah — itu memang disengaja.
+func (a *App) setPIN(w http.ResponseWriter, r *http.Request) (int, json.RawMessage, error) {
+	var body struct {
+		PIN    string `json:"pin"`
+		OldPIN string `json:"oldPin"`
+	}
+	if err := readObject(w, r, &body); err != nil {
+		return 0, nil, err
+	}
+	a.mu.Lock()
+	err := a.setPINLocked(body.PIN, body.OldPIN)
+	pinHash := a.data.Settings.PINHash
+	a.mu.Unlock()
+	if err != nil {
+		return 0, nil, err
+	}
+	if pinHash != "" {
+		expiry := time.Now().Add(sessionLifetime)
+		http.SetCookie(w, &http.Cookie{
+			Name: sessionCookieName, Value: makeSessionToken(pinHash, expiry),
+			Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
+			MaxAge: int(sessionLifetime.Seconds()), Expires: expiry,
+		})
+	}
+	return 200, mustJSON(map[string]any{"ok": true, "hasPin": pinHash != ""}), nil
+}
+
 // setPINLocked memasang, mengganti, atau menghapus PIN. Bila PIN sudah
 // aktif, PIN lama wajib benar. PIN kosong berarti menghapus PIN.
 // Pemanggil wajib memegang a.mu.

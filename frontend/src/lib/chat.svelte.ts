@@ -1,5 +1,5 @@
 import { api, apiDelete, errorText } from './api';
-import type { Attachment, Message, Notice, OllamaModel, PromptChain, RolePreset, RoomDocument, ScheduledMessage, SearchFilters, SearchResult, State } from './types';
+import type { Attachment, Message, Notice, OllamaModel, PromptChain, RolePreset, Room, RoomDocument, ScheduledMessage, SearchFilters, SearchResult, State } from './types';
 
 export const OUTBOX_KEY = 'musehood-outbox';
 
@@ -47,9 +47,21 @@ export function unreadCount(room: { id: string; messageCount?: number }): number
 
 const FONT_SCALES: Record<string, string> = { S: '0.9', M: '1', L: '1.15' };
 
+// Pilihan tema optimistis: tombol tema membalik kelas `dark` seketika,
+// sebelum POST + refresh selesai. Selama pilihan ini belum tercermin di
+// state server, applyTheme tidak boleh membalikkannya kembali — polling
+// yang membawa settings lama akan membuat tema berkedip.
+let pendingDark: boolean | null = null;
+
+function effectiveDark(settings: State['settings']): boolean {
+  const theme = settings.theme ?? (settings.darkMode ? 'dark' : 'light');
+  return theme === 'dark' || (theme === 'auto' && typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
 function applyTheme(result: State) {
-  const theme = result.settings.theme ?? (result.settings.darkMode ? 'dark' : 'light');
-  const dark = theme === 'dark' || (theme === 'auto' && typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const serverDark = effectiveDark(result.settings);
+  if (pendingDark !== null && serverDark === pendingDark) pendingDark = null;
+  const dark = pendingDark ?? serverDark;
   document.documentElement.classList.toggle('dark', dark);
   document.documentElement.classList.toggle('density-compact', result.settings.density === 'compact');
   document.documentElement.style?.setProperty('--font-scale', FONT_SCALES[result.settings.fontSize ?? 'M'] ?? '1');
@@ -89,6 +101,9 @@ export function createChat(hooks: ChatHooks = {}) {
   // render ulang itu memblokir thread utama ratusan ms dan membuat
   // ketikan di composer terasa berat).
   let stateSignature = '';
+  // Signature JSON daftar kursi terakhir; dipakai refresh() untuk
+  // memutuskan apakah array pesan/kursi lama bisa dipakai ulang.
+  let lastSeatKey = '';
   const notifiedIds = new Set<string>();
   let notificationsPrimed = false;
 
@@ -149,6 +164,28 @@ export function createChat(hooks: ChatHooks = {}) {
     const signature = JSON.stringify(result);
     if (signature !== stateSignature) {
       stateSignature = signature;
+      // Bila isi pesan & kursi tidak berubah (mis. hanya settings yang
+      // berubah, seperti ganti tema), pakai ulang referensi array lama
+      // agar Svelte tidak me-render ulang ratusan bubble — render ulang
+      // itu memblokir thread utama ratusan ms pada ruang besar dan
+      // membuat klik tombol terasa lambat.
+      const seatKey = JSON.stringify(result.seats);
+      if (current && !changed && seatKey === lastSeatKey) {
+        result = { ...result, messages: current.messages, seats: current.seats };
+      } else if (current) {
+        // Pesan berubah sebagian (mis. satu rating/pin/reaksi, atau
+        // satu balasan streaming): pakai ulang objek pesan lama yang
+        // isinya identik agar bubble lain tidak ikut dirender ulang.
+        const prevById = new Map(current.messages.map(m => [m.id, m]));
+        result = {
+          ...result,
+          messages: result.messages.map(m => {
+            const prev = prevById.get(m.id);
+            return prev && JSON.stringify(prev) === JSON.stringify(m) ? prev : m;
+          })
+        };
+      }
+      lastSeatKey = seatKey;
       current = result;
     }
     maybeNotify(result);
@@ -160,6 +197,54 @@ export function createChat(hooks: ChatHooks = {}) {
   async function mutate(route: string, body: object) {
     await api(route, body);
     await refresh();
+  }
+
+  // Pembaruan optimistis untuk aksi toggle kecil (rating, pin pesan,
+  // reaksi, pin ruang, hapus pesan, pilih pemenang A/B): UI berubah
+  // SEKETIKA, server menyusul di latar belakang. Tanpa ini klik
+  // terasa lambat karena harus menunggu POST + GET /api/state (di
+  // tunnel publik bisa >1 detik). Bila server menolak, keadaan
+  // dipaksa dimuat ulang dari server agar tidak menyimpang.
+  function patchMessageLocal(id: string, patch: Partial<Message>) {
+    if (!current) return;
+    current = { ...current, messages: current.messages.map(m => m.id === id ? { ...m, ...patch } : m) };
+  }
+
+  function patchRoomLocal(id: string, patch: Partial<Room>) {
+    if (!current?.rooms) return;
+    current = { ...current, rooms: current.rooms.map(r => r.id === id ? { ...r, ...patch } : r) };
+  }
+
+  async function optimistic(route: string, body: object, apply: () => void) {
+    apply();
+    try {
+      await api(route, body);
+      await refresh();
+    } catch (error) {
+      stateSignature = '';
+      await refresh().catch(() => { /* keadaan server tetap dimuat polling berikutnya */ });
+      throw error;
+    }
+  }
+
+  // Ganti tema secara optimistis: kelas `dark` dibalik SEKETIKA agar
+  // terasa instan, lalu disimpan ke server di latar belakang. Tanpa
+  // ini, tema baru berubah setelah POST + GET /api/state selesai
+  // (di tunnel publik bisa >1 detik) dan halaman membeku selama
+  // render ulang. darkMode dan theme ditulis bersama agar tombol
+  // selalu berpengaruh walau tema pernah diatur lewat Pengaturan.
+  async function toggleTheme() {
+    if (!current) return;
+    const target = !(pendingDark ?? effectiveDark(current.settings));
+    pendingDark = target;
+    document.documentElement.classList.toggle('dark', target);
+    try {
+      await mutate('/api/settings', { settings: { darkMode: target, theme: target ? 'dark' : 'light' } });
+    } catch (error) {
+      pendingDark = null;
+      if (current) applyTheme(current);
+      throw error;
+    }
   }
 
   async function login(pin: string) {
@@ -290,15 +375,34 @@ export function createChat(hooks: ChatHooks = {}) {
   }
 
   async function togglePin(message: Message) {
-    await mutate(`/api/message/${message.id}/pin`, {});
+    await optimistic(`/api/message/${message.id}/pin`, {}, () => patchMessageLocal(message.id, { pinned: !message.pinned }));
   }
 
   async function toggleReact(message: Message, emoji: string) {
-    await mutate(`/api/message/${message.id}/react`, { emoji });
+    await optimistic(`/api/message/${message.id}/react`, { emoji }, () => {
+      const list = [...(message.reactions ?? [])];
+      const i = list.findIndex(r => r.emoji === emoji);
+      if (i >= 0 && list[i].byOwner) {
+        if (list[i].count <= 1) list.splice(i, 1);
+        else list[i] = { ...list[i], count: list[i].count - 1, byOwner: false };
+      } else if (i >= 0) {
+        list[i] = { ...list[i], count: list[i].count + 1, byOwner: true };
+      } else {
+        list.push({ emoji, count: 1, byOwner: true });
+      }
+      patchMessageLocal(message.id, { reactions: list });
+    });
   }
 
   async function removeMessage(message: Message) {
-    await mutate(`/api/message/${message.id}/delete`, {});
+    await optimistic(`/api/message/${message.id}/delete`, {}, () => {
+      if (!current) return;
+      current = { ...current, messages: current.messages.filter(m => m.id !== message.id) };
+    });
+  }
+
+  async function toggleRoomPin(room: Room) {
+    await optimistic(`/api/rooms/${room.id}`, { pinned: !room.pinned }, () => patchRoomLocal(room.id, { pinned: !room.pinned }));
   }
 
   async function saveEdit(id: string, text: string) {
@@ -418,7 +522,7 @@ export function createChat(hooks: ChatHooks = {}) {
   // --- Fitur batch 3 ---
 
   async function rateMessage(message: Message, rating: number) {
-    await mutate(`/api/message/${message.id}/rate`, { rating });
+    await optimistic(`/api/message/${message.id}/rate`, { rating }, () => patchMessageLocal(message.id, { rating }));
   }
 
   async function startABTest(text: string, modelA: string, modelB: string) {
@@ -426,7 +530,10 @@ export function createChat(hooks: ChatHooks = {}) {
   }
 
   async function pickABWinner(group: string, messageId: string) {
-    await mutate(`/api/abtest/${group}/pick`, { messageId });
+    await optimistic(`/api/abtest/${group}/pick`, { messageId }, () => {
+      if (!current) return;
+      current = { ...current, messages: current.messages.map(m => m.abGroup === group ? { ...m, abWinner: m.id === messageId } : m) };
+    });
   }
 
   async function createChain(name: string, steps: Array<{ seatCode: string; instruction: string }>): Promise<PromptChain> {
@@ -506,6 +613,7 @@ export function createChat(hooks: ChatHooks = {}) {
     notify,
     refresh,
     mutate,
+    toggleTheme,
     startPolling,
     sendMessage,
     summarizeRoom,
@@ -516,6 +624,7 @@ export function createChat(hooks: ChatHooks = {}) {
     togglePin,
     toggleReact,
     removeMessage,
+    toggleRoomPin,
     saveEdit,
     regenerateMessage,
     rerunMessage,

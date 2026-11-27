@@ -520,19 +520,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		}
 		return 200, mustJSON(out), nil
 	case "/api/pin":
-		var body struct {
-			PIN    string `json:"pin"`
-			OldPIN string `json:"oldPin"`
-		}
-		if err := readObject(w, r, &body); err != nil {
-			return 0, nil, err
-		}
-		return a.respondLocked(200, func() (any, error) {
-			if err := a.setPINLocked(body.PIN, body.OldPIN); err != nil {
-				return nil, err
-			}
-			return map[string]any{"ok": true, "hasPin": a.data.Settings.PINHash != ""}, nil
-		})
+		return a.setPIN(w, r)
 	case "/api/skills/install":
 		var body struct {
 			URL       string `json:"url"`

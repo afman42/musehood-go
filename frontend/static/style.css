@@ -442,3 +442,16 @@ html.dark .chain-step{border-color:#3a4a3f}
 .chain-run{display:flex;gap:8px;align-items:center;margin-top:6px}
 .chain-run input{flex:1;min-width:0}
 .ollama-model-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:4px 0}
+
+/* Indikator muatan dialog malas (chunk diunduh saat pertama dibuka) */
+.dialog-loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#19382b33;backdrop-filter:blur(2px);z-index:60}
+.dialog-loading-card{display:flex;align-items:center;gap:12px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:14px 20px;font-size:13px;font-weight:650;box-shadow:0 12px 40px #153e2833}
+.dialog-loading .spinner{width:24px;height:24px;flex-shrink:0;border-radius:50%;border:3px solid var(--line);border-top-color:var(--green);animation:dialog-spin .7s linear infinite}
+@keyframes dialog-spin{to{transform:rotate(360deg)}}
+
+/* CATATAN: content-visibility:auto pada .message PERNAH dicoba
+   (render awal lebih ringan) tetapi dicabut: membuka dialog modal
+   dengan ribuan pesan jadi ~3 detik lebih lambat karena browser
+   harus merender konten yang dilewati, dan tes visual jadi tidak
+   deterministik. Kecepatan tema/render dijaga lewat pemakaian
+   ulang objek pesan + cache parse Markdown di chat.svelte.ts. */

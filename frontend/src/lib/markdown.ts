@@ -29,7 +29,22 @@ function startsBlock(line: string): boolean {
   return FENCE.test(line) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || UL_ITEM.test(line) || OL_ITEM.test(line);
 }
 
+// Cache hasil parse per teks: bubble yang sama tidak di-parse ulang
+// setiap render. Hasil parse diperlakukan sebagai immutable oleh
+// perender, jadi aman dipakai bersama.
+const parseCache = new Map<string, Block[]>();
+const PARSE_CACHE_MAX = 1000;
+
 export function parseMarkdown(text: string): Block[] {
+  const hit = parseCache.get(text);
+  if (hit) return hit;
+  const blocks = parseMarkdownUncached(text);
+  if (parseCache.size >= PARSE_CACHE_MAX) parseCache.clear();
+  parseCache.set(text, blocks);
+  return blocks;
+}
+
+function parseMarkdownUncached(text: string): Block[] {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const blocks: Block[] = [];
   let i = 0;

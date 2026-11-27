@@ -66,10 +66,15 @@ func TestPINLoginFlow(t *testing.T) {
 		t.Fatalf("state tanpa PIN = %d", status)
 	}
 
-	// Pasang PIN.
-	status, _, raw := doRaw(t, "POST", base+"/api/pin", object{"pin": "1234"}, nil)
+	// Pasang PIN: respons wajib membawa cookie sesi agar sesi ini
+	// tidak langsung terkunci 401 (token sesi diturunkan dari hash).
+	status, pinHeader, raw := doRaw(t, "POST", base+"/api/pin", object{"pin": "1234"}, nil)
 	if status != 200 {
 		t.Fatalf("set PIN = %d %s", status, raw)
+	}
+	pinCookie := sessionCookie(t, pinHeader)
+	if status, _, raw := doRaw(t, "GET", base+"/api/state", nil, map[string]string{"Cookie": pinCookie}); status != 200 {
+		t.Fatalf("state dengan cookie dari set PIN = %d %s", status, raw)
 	}
 
 	// Tanpa cookie: ditolak 401 "PIN diperlukan".

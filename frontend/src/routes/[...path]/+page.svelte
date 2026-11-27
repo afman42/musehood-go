@@ -49,52 +49,85 @@
   let ShortcutHelpDialog = $state.raw<typeof ShortcutHelpDialogType | undefined>(undefined);
   let RoomDialog = $state.raw<typeof RoomDialogType | undefined>(undefined);
 
+  // Indikator muatan dialog malas: chunk dialog (terutama Pengaturan
+  // 82 KB) diunduh saat pertama dibuka; lewat tunnel publik itu bisa
+  // >1 detik tanpa umpan balik. Spinner ditampilkan hanya bila muatan
+  // melewati 150 ms agar buka-ulang yang sudah hangat tidak berkedip.
+  let loadingDialog = $state<string | null>(null);
+  let loadingTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function withDialogLoading<T>(name: string, load: () => Promise<T>): Promise<T> {
+    loadingTimer = setTimeout(() => { loadingDialog = name; }, 150);
+    try {
+      return await load();
+    } finally {
+      clearTimeout(loadingTimer);
+      loadingDialog = null;
+    }
+  }
+
   async function openSettings() {
-    Settings ??= (await import('../../lib/Settings.svelte')).default;
-    await tick();
-    settingsPanel?.open();
+    await withDialogLoading('Pengaturan', async () => {
+      Settings ??= (await import('../../lib/Settings.svelte')).default;
+      await tick();
+      await settingsPanel?.open();
+    });
   }
 
   async function openMention() {
-    MentionDialog ??= (await import('../../lib/MentionDialog.svelte')).default;
-    await tick();
-    mentionDialog?.open();
+    await withDialogLoading('Mention', async () => {
+      MentionDialog ??= (await import('../../lib/MentionDialog.svelte')).default;
+      await tick();
+      mentionDialog?.open();
+    });
   }
 
   async function openSeatInfo(seat: Seat) {
-    SeatInfoDialog ??= (await import('../../lib/SeatInfoDialog.svelte')).default;
-    await tick();
-    seatInfoDialog?.open(seat);
+    await withDialogLoading('Info kursi', async () => {
+      SeatInfoDialog ??= (await import('../../lib/SeatInfoDialog.svelte')).default;
+      await tick();
+      seatInfoDialog?.open(seat);
+    });
   }
 
   async function openSchedule() {
-    ScheduleDialog ??= (await import('../../lib/ScheduleDialog.svelte')).default;
-    await tick();
-    scheduleDialog?.open(text);
+    await withDialogLoading('Jadwal', async () => {
+      ScheduleDialog ??= (await import('../../lib/ScheduleDialog.svelte')).default;
+      await tick();
+      scheduleDialog?.open(text);
+    });
   }
 
   async function openDebate() {
-    DebateDialog ??= (await import('../../lib/DebateDialog.svelte')).default;
-    await tick();
-    debateDialog?.open();
+    await withDialogLoading('Debat', async () => {
+      DebateDialog ??= (await import('../../lib/DebateDialog.svelte')).default;
+      await tick();
+      debateDialog?.open();
+    });
   }
 
   async function openABTest() {
-    ABTestDialog ??= (await import('../../lib/ABTestDialog.svelte')).default;
-    await tick();
-    abDialog?.open();
+    await withDialogLoading('Uji A/B', async () => {
+      ABTestDialog ??= (await import('../../lib/ABTestDialog.svelte')).default;
+      await tick();
+      abDialog?.open();
+    });
   }
 
   async function openShortcutHelp() {
-    ShortcutHelpDialog ??= (await import('../../lib/ShortcutHelpDialog.svelte')).default;
-    await tick();
-    shortcutHelp?.open();
+    await withDialogLoading('Bantuan shortcut', async () => {
+      ShortcutHelpDialog ??= (await import('../../lib/ShortcutHelpDialog.svelte')).default;
+      await tick();
+      shortcutHelp?.open();
+    });
   }
 
   async function openRoomDialog() {
-    RoomDialog ??= (await import('../../lib/RoomDialog.svelte')).default;
-    await tick();
-    roomDialog?.open();
+    await withDialogLoading('Ruang', async () => {
+      RoomDialog ??= (await import('../../lib/RoomDialog.svelte')).default;
+      await tick();
+      roomDialog?.open();
+    });
   }
   let imageInput: HTMLInputElement;
   let fileInput: HTMLInputElement;
@@ -186,6 +219,25 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => { /* PWA opsional */ });
     }
+    // Prefetch chunk dialog malas saat browser idle agar klik pertama
+    // instan, tanpa membebani muatan awal (bukan preload di index.html).
+    // Hanya modulnya yang diunduh — komponen tidak di-instantiate, jadi
+    // tidak ada fetch/API yang terpicu sebelum dialog benar-benar dibuka.
+    const prefetchDialogs = () => {
+      const conn = (navigator as { connection?: { saveData?: boolean } }).connection;
+      if (conn?.saveData) return;
+      void import('../../lib/Settings.svelte').catch(() => {});
+      void import('../../lib/MentionDialog.svelte').catch(() => {});
+      void import('../../lib/SeatInfoDialog.svelte').catch(() => {});
+      void import('../../lib/ScheduleDialog.svelte').catch(() => {});
+      void import('../../lib/DebateDialog.svelte').catch(() => {});
+      void import('../../lib/ABTestDialog.svelte').catch(() => {});
+      void import('../../lib/ShortcutHelpDialog.svelte').catch(() => {});
+      void import('../../lib/RoomDialog.svelte').catch(() => {});
+    };
+    const ric = (window as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback;
+    if (ric) ric(prefetchDialogs, { timeout: 5000 });
+    else setTimeout(prefetchDialogs, 2500);
   });
 
   function handleShortcut(event: KeyboardEvent) {
@@ -299,7 +351,14 @@
     if (!current || id === current.activeRoomId) return;
     try {
       forceScroll = true;
-      await chat.activateRoom(id);
+      // Indikator "Memuat ruang…" bila perpindahan >150 ms (jaringan
+      // tunnel + render ruang besar bisa terasa membeku tanpa umpan
+      // balik); tunggu dua frame agar overlay tidak hilang sebelum
+      // ruang baru sempat terlukis.
+      await withDialogLoading('ruang', async () => {
+        await chat.activateRoom(id);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      });
       replyTo = undefined;
     } catch (error) { chat.notify(errorText(error), true); }
   }
@@ -309,7 +368,10 @@
     if (!trimmed) { chat.notify('Nama ruang wajib diisi.', true); return; }
     try {
       forceScroll = true;
-      await chat.createRoom(trimmed, seatCodes);
+      await withDialogLoading('ruang', async () => {
+        await chat.createRoom(trimmed, seatCodes);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      });
       roomDialog?.close();
       chat.notify(`Ruang ${trimmed} dibuat.`);
     } catch (error) { chat.notify(errorText(error), true); }
@@ -358,7 +420,13 @@
   }
 
   async function forkMessage(message: Message) {
-    try { await chat.forkMessage(message); chat.notify('Ruang fork dibuat dan dibuka.'); }
+    try {
+      await withDialogLoading('ruang', async () => {
+        await chat.forkMessage(message);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      });
+      chat.notify('Ruang fork dibuat dan dibuka.');
+    }
     catch (error) { chat.notify(errorText(error), true); }
   }
 
@@ -512,16 +580,16 @@
       <button id="searchToggle" class="icon-button" type="button" aria-label="Cari pesan" title="Cari pesan" onclick={toggleSearch}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
       </button>
-      <button id="darkToggle" class="icon-button" type="button" aria-label="Mode gelap" title="Mode gelap/terang" onclick={() => current && chat.mutate('/api/settings', { settings: { darkMode: !current.settings.darkMode } }).catch(e => chat.notify(errorText(e), true))}>
+      <button id="darkToggle" class="icon-button" type="button" aria-label="Mode gelap" title="Mode gelap/terang" onclick={() => chat.toggleTheme().catch(e => chat.notify(errorText(e), true))}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.5A8.5 8.5 0 0 1 10.5 4 8.5 8.5 0 1 0 20 13.5Z"/></svg>
       </button>
-      <button id="openSettings" class="icon-button" type="button" aria-label="Pengaturan grup" title="Pengaturan grup" onclick={() => void openSettings()}>
+      <button id="openSettings" class="icon-button" type="button" aria-label="Pengaturan grup" title="Pengaturan grup" aria-busy={loadingDialog === 'Pengaturan'} onclick={() => void openSettings()}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.7 3-.6 2.2-2 .9L5 5.5 2.8 9.3l1.6 1.6v2.2l-1.6 1.6L5 18.5l2.1-.6 2 .9.6 2.2h4.6l.6-2.2 2-.9 2.1.6 2.2-3.8-1.6-1.6v-2.2l1.6-1.6L19 5.5l-2.1.6-2-.9L14.3 3Z"/><circle cx="12" cy="12" r="3.2"/></svg>
       </button>
     </div>
   </header>
   {#if current && current.rooms.length > 0}
-    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => void openRoomDialog()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} onTogglePin={(room) => chat.mutate(`/api/rooms/${room.id}`, { pinned: !room.pinned }).catch((e) => chat.notify(errorText(e), true))} />
+    <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => void openRoomDialog()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} onTogglePin={(room) => chat.toggleRoomPin(room).catch((e) => chat.notify(errorText(e), true))} />
   {/if}
   {#if searchOpen}
     <SearchBar bind:this={searchBar} bind:query bind:filters={searchFilters} seats={current?.seats ?? []} rooms={current?.rooms ?? []} matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}
@@ -644,6 +712,15 @@
     onDebate={() => void openDebate()}
     onABTest={() => void openABTest()} />
 </main>
+{/if}
+
+{#if loadingDialog}
+  <div class="dialog-loading" role="status" aria-live="polite">
+    <span class="dialog-loading-card">
+      <span class="spinner" aria-hidden="true"></span>
+      <span>Memuat {loadingDialog}…</span>
+    </span>
+  </div>
 {/if}
 
 {#if Settings}
