@@ -195,3 +195,34 @@ Tes: `internal/musehood/seat_custom_test.go` (`TestSeatRoleProviderModelPatch`, 
 Tiap provider gateway kini punya field `alias` opsional (maks 40 karakter, tanpa spasi/`@`/`/`) sebagai label pembeda. Alias tampil di daftar provider dan menjadi awalan nama model di daftar model (Fetch Models, hasil Tes Models, dan tag model koneksi provider aktif), mis. `xc/gpt-6.1-sol` — agar model bernama sama dari provider lain mudah dibedakan. Alias hanya tampilan: nama model yang dikirim ke gateway tetap apa adanya, dan pencocokan model kursi dengan daftar gateway tetap memakai nama mentah. Alias dapat diisi saat tambah provider, diubah, atau dikosongkan lewat edit; tampil di view provider (`alias`, dihilangkan bila kosong) dan bertahan setelah reload.
 
 Tes: `TestProviderAlias` di `internal/musehood/providers_test.go`.
+
+## Pengetesan berat (27 Nov 2026)
+
+Perintah pemilik: test berat UI/UX + backend menyeluruh. Semua tes baru hijau; bug yang ditemukan diperbaiki + diuji ulang.
+
+### Backend (`internal/musehood/heavy_*_test.go`, +22 fungsi → total 308)
+
+- `heavy_concurrency_test.go` (6): 100 POST pesan bersamaan (semua 202, tanpa hilang/duplikat), 50 operasi campuran bersamaan, 200 ruang, 5000 pesan (`/api/state` ±180 ms, `/api/search` ±86 ms), 50 dokumen RAG (batas 10/ruang ditegakkan), rantai 6 langkah + A/B dua sisi, pesan 20.000 karakter + emoji/RTL. Subset konkurensi lulus `-race` bersih.
+- `heavy_security_test.go` (9): fuzz sweep 31 endpoint × 23 payload (JSON rusak, tipe salah, string 300 KB, null byte) — tidak pernah 500; path traversal ID → 4xx; SSRF (metadata IP, DNS rebinding, host campuran) ditolak; brute-force PIN → 429 + LoginLog; restore jahat (PIN/token asing diabaikan, 1000 kursi tidak 500); upload abuse (6 MB, PDF rusak, nama traversal); sandbox tool (metakarakter shell, traversal, 101 KB); redaksi secret di state/backup/export/tool-log/stats; token eksternal salah → 401; approval timeout (var diperpendek 300 ms) gagal rapi tanpa deadlock; 30 login salah bersamaan → 429 tanpa 500.
+- `heavy_tools_test.go` (1 fungsi, 65 kasus = semua tool builtin): tiap tool dipanggil dengan argumen valid + invalid; jaringan dimock (RoundTripper palsu); tool ber-approval diuji sampai gerbang approval.
+- `heavy_data_test.go` (5): SQLite 1000 pesan roundtrip (simpan 13,7 ms, muat 4,3 ms), migrasi JSON→SQLite data besar, `data.db` rusak → error jelas, restart di tengah job (job selesai, tidak menggantung), sapu method salah di 54 route → 404/405/401, tidak pernah 5xx.
+
+Perubahan produksi (testability, perilaku sama): `approvalTimeout` const → var; klien HTTP unduhan jadi var `downloadHTTPClient`.
+
+### Frontend (`tests/frontend-*-heavy.mjs`)
+
+- `frontend-e2e-heavy.mjs` (26 PASS): alur penuh — mention + streaming, tool call → approval → kartu tool, rating + statistik, pin, voting, edit, branch, A/B dialog, rantai 3 langkah, dokumen upload/hapus, peserta ruang, /slash, offline → antrean → terkirim, ekspor Markdown, PIN + rate limit.
+- `frontend-heavy-stress.mjs` (16 PASS): render 3000 pesan ±6–6,8 dtk, long task terburuk ±53–62 ms saat scroll+polling, ketik 15 karakter ±1,5–2,9 dtk, 50 ruang (ganti ruang ±165–192 ms), pesan 20.000 karakter, tabel Markdown tidak crash, kode >20.000 karakter tampil tanpa highlight, dialog A/B tanpa overflow 360/768/1440 px, emulasi iPhone 13.
+- `frontend-a11y-heavy.mjs` (16 PASS): axe di 5 permukaan × 2 tema + keyboard (Tab, fokus terlihat, Enter, aria-live, Esc + fokus kembali), label rating.
+- `frontend-visual-heavy.mjs` (8 baseline baru): dialog A/B, panel Rantai, banner offline, kartu rating — terang + gelap, stabil 0,000%.
+
+### Bug ditemukan + diperbaiki
+
+- Kontras warna (axe serious): `.eyebrow`/`.field-hint`/placeholder memakai warna tetap yang gagal di tema gelap (2,79:1) → `var(--muted)`; `.danger-text` → `var(--red)`; `.typing-status` terang 3,44:1 → `var(--muted)`; tombol utama tema gelap teks putih di atas hijau terang (2,12:1) → teks gelap. Baseline visual lama diperbarui mengikuti warna baru.
+- `tests/live-e2e.mjs` masih mengharapkan edit pesan = 200; perilaku sekarang 202 + regenerasi — ekspektasi diperbarui (bukan bug produk).
+
+### Tidak bisa diuji (jujur)
+
+- Firefox/WebKit: unduhan browser diblokir runtime (403) — cross-browser hanya Chromium multi-viewport + emulasi iPhone 13.
+- Timeout approval 180 detik asli diuji lewat var yang diperpendek (jalur kode sama).
+- `frontend-perf.mjs`: ukuran bundle JS+CSS 349,79 KB membulat 350 → gagal ambang `< 350 KB` (sudah di ambang sejak fitur depth3, bukan dari perubahan ini).

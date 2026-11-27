@@ -227,9 +227,15 @@ async function main() {
       const q = await pending('chat');
       await api(APP, 'POST', `/api/queue/muse/${q.id}`, { text: 'balasan kursi' }, 200);
       const m = await finish(23);
-      const ownerID = m[21].id, seatID = m[22].id;
-      await api(APP, 'POST', `/api/message/${ownerID}/edit`, { text: 'sudah diedit' }, 200);
-      check('edit pesan pemilik ok', true);
+      const ownerID = m[21].id;
+      await api(APP, 'POST', `/api/message/${ownerID}/edit`, { text: 'sudah diedit' }, 202);
+      check('edit pesan pemilik ok (202, regenerasi)', true);
+      // Edit menghapus pesan sesudahnya dan membuat job baru: balasan
+      // kursi lama hilang, balasan baru dibuat ulang (lewat antrean).
+      const qRegen = await pending('chat');
+      await api(APP, 'POST', `/api/queue/muse/${qRegen.id}`, { text: 'balasan kursi regenerasi' }, 200);
+      const mRegen = await finish(23);
+      const seatID = mRegen[22].id;
       await api(APP, 'POST', `/api/message/${seatID}/edit`, { text: 'tidak boleh' }, 403);
       check('edit pesan kursi ditolak 403', true);
       await api(APP, 'POST', `/api/message/${ownerID}/react`, { emoji: '👍' }, 200);

@@ -524,6 +524,10 @@ const browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 
 var toolHTTPClient = &http.Client{Timeout: 25 * time.Second}
 
+// downloadHTTPClient dipakai unduhan file (batas lebih longgar); var agar
+// tes dapat menggantinya dengan transport palsu.
+var downloadHTTPClient = &http.Client{Timeout: 60 * time.Second}
+
 func toolGet(ctx context.Context, rawURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -652,7 +656,10 @@ func parseDDGResults(body string) string {
 // --- Tool coding (run_code) dengan sandbox + persetujuan pemilik ---
 
 const codeTimeout = 10 * time.Second
-const approvalTimeout = 180 * time.Second
+
+// approvalTimeout adalah batas menunggu persetujuan pemilik; var agar tes
+// dapat memperpendeknya.
+var approvalTimeout = 180 * time.Second
 
 // dangerousCodePatterns mendeteksi kode yang memerlukan persetujuan
 // pemilik sebelum dijalankan (pola seperti deteksi perintah berbahaya
@@ -952,8 +959,7 @@ func (a *App) downloadToSandbox(ctx context.Context, rawURL, name string) string
 		return "Error: URL tidak valid."
 	}
 	req.Header.Set("User-Agent", browserUserAgent)
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := downloadHTTPClient.Do(req)
 	if err != nil {
 		return "Error: unduhan gagal: " + err.Error()
 	}
