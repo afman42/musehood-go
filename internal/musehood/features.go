@@ -477,13 +477,12 @@ func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 			incoming.Settings.APIKey = old.APIKey
 		}
 	}
-	// PIN dan token pekerja tidak ikut cadangan; pertahankan yang aktif.
-	if incoming.Settings.PINHash == "" {
-		incoming.Settings.PINHash = a.data.Settings.PINHash
-	}
-	if incoming.WorkerToken == "" {
-		incoming.WorkerToken = a.data.WorkerToken
-	}
+	// PIN dan token pekerja tidak ikut cadangan (backup selalu
+	// mengosongkannya); yang aktif di mesin ini selalu dipertahankan agar
+	// file restore yang disusun manual tidak bisa mengunci pemilik keluar
+	// atau mengganti token pekerja.
+	incoming.Settings.PINHash = a.data.Settings.PINHash
+	incoming.WorkerToken = a.data.WorkerToken
 	incoming.migrateRooms()
 	incoming.migrateProviders()
 	// Pekerjaan yang belum selesai dari cadangan tidak punya file antrean di
