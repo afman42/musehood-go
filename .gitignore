@@ -27,3 +27,4 @@ dist-build-*.log
 release-*.log
 /data.json.bak-*
 /frontend/tests/unit/.tmp/
+/worker-token.txt
