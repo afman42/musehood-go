@@ -968,6 +968,11 @@ func (a *App) deleteProviderLocked(id string) error {
 		return err
 	}
 	a.data = next
+	// Bersihkan catatan health in-memory provider yang dihapus agar peta
+	// tidak menumpuk entri yatim.
+	a.healthMu.Lock()
+	delete(a.health, id)
+	a.healthMu.Unlock()
 	return nil
 }
 
