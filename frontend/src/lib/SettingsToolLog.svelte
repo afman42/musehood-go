@@ -38,7 +38,7 @@
   <legend>Log Audit Tool</legend>
   <p class="hint">100 pemakaian tool terakhir oleh kursi (server menyimpan maksimal 500 entri).</p>
   <div class="settings-actions">
-    <button type="button" onclick={load}>Segarkan</button>
+    <button class="secondary-button" type="button" onclick={load}>Segarkan</button>
   </div>
   {#if entries.length}
     <div class="table-scroll">

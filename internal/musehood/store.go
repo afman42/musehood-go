@@ -1221,6 +1221,9 @@ func (a *App) stateLocked() any {
 	return struct {
 		data
 		Providers []gatewayProviderView `json:"providers"`
+		// Rooms menimpa field data.Rooms agar state menyertakan
+		// messageCount per ruang (badge belum dibaca di bilah ruang).
+		Rooms []map[string]any `json:"rooms"`
 		Settings  struct {
 			settings
 			HasAPIKey bool `json:"hasApiKey"`
@@ -1232,7 +1235,7 @@ func (a *App) stateLocked() any {
 		} `json:"presence"`
 		PendingApprovals []approval     `json:"pendingApprovals"`
 		Reactions        map[string]any `json:"reactions"`
-	}{d, views, struct {
+	}{d, views, a.roomViewsLocked(), struct {
 		settings
 		HasAPIKey bool `json:"hasApiKey"`
 		HasPin    bool `json:"hasPin"`

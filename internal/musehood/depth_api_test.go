@@ -246,3 +246,54 @@ func TestAPIStateRequiresPINExact(t *testing.T) {
 		t.Fatalf("halaman utama harus 200 walau PIN aktif, dapat %d", res.StatusCode)
 	}
 }
+
+// Regresi: /api/state harus menyertakan messageCount per ruang agar
+// badge belum dibaca di bilah ruang frontend bisa bekerja (sebelumnya
+// rooms di state berasal dari struct penyimpanan tanpa hitungan pesan,
+// sehingga badge tidak pernah tampil).
+func TestAPIStateRoomsIncludeMessageCount(t *testing.T) {
+	f := setup(t, nil)
+	created := f.api("POST", "/api/rooms", object{"name": "Ruang Hitung", "seatCodes": []string{"M01"}}, 201)
+	roomID, _ := created["id"].(string)
+	if roomID == "" {
+		// Respons buat ruang bisa berbentuk {rooms:[...]}; ambil dari state.
+		state := f.api("GET", "/api/state", nil, 200)
+		for _, raw := range state["rooms"].([]any) {
+			if room := raw.(map[string]any); room["name"] == "Ruang Hitung" {
+				roomID, _ = room["id"].(string)
+			}
+		}
+	}
+	if roomID == "" {
+		t.Fatal("ruang Ruang Hitung tidak ditemukan")
+	}
+	f.api("POST", "/api/message", object{"text": "@Plamo hitung badge", "roomId": roomID}, 202)
+	f.finish(2)
+	state := f.api("GET", "/api/state", nil, 200)
+	rooms, ok := state["rooms"].([]any)
+	if !ok || len(rooms) < 2 {
+		t.Fatalf("rooms state tidak berbentuk daftar: %v", state["rooms"])
+	}
+	var counted map[string]any
+	for _, raw := range rooms {
+		room := raw.(map[string]any)
+		if _, has := room["messageCount"]; !has {
+			t.Fatalf("ruang %v tanpa messageCount di state", room["name"])
+		}
+		if room["id"] == roomID {
+			counted = room
+		}
+	}
+	if counted == nil {
+		t.Fatal("ruang baru tidak ada di state")
+	}
+	if got := counted["messageCount"]; got != float64(2) {
+		t.Fatalf("messageCount ruang baru = %v, mau 2 (pesan pemilik + balasan)", got)
+	}
+	if _, has := counted["archived"]; !has {
+		t.Fatal("ruang di state tanpa field archived")
+	}
+	if _, has := counted["active"]; !has {
+		t.Fatal("ruang di state tanpa field active")
+	}
+}
