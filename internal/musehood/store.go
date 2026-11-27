@@ -158,6 +158,29 @@ type settings struct {
 	ChainReplies *bool `json:"chainReplies,omitempty"`
 	// Density adalah kepadatan tampilan: "normal" atau "compact".
 	Density string `json:"density,omitempty"`
+	// NativeToolsEnabled mengizinkan tool-calling native OpenAI
+	// (tools[] + tool_calls) untuk protokol openai (fitur 10).
+	// Nil berarti aktif; kegagalan jalur native jatuh ke protokol teks.
+	NativeToolsEnabled *bool `json:"nativeToolsEnabled,omitempty"`
+	// LoadBalanceProviders mengizinkan percobaan provider lain dengan
+	// model bernama sama bila provider kursi gagal total (fitur 12).
+	// Nil berarti MATI.
+	LoadBalanceProviders *bool `json:"loadBalanceProviders,omitempty"`
+	// ParallelMode membuat kursi-kursi satu putaran diskusi berjalan
+	// konkuren (fitur 15). Nil berarti MATI.
+	ParallelMode *bool `json:"parallelMode,omitempty"`
+	// WebhookURL/WebhookEnabled adalah webhook keluar saat balasan
+	// kursi selesai (fitur 41). Nil berarti MATI.
+	WebhookURL     string `json:"webhookUrl,omitempty"`
+	WebhookEnabled *bool  `json:"webhookEnabled,omitempty"`
+	// APIToken adalah token API eksternal (fitur 42). Tidak pernah
+	// dikirim ke klien lewat state; hanya ditampilkan sekali saat dibuat.
+	APIToken string `json:"apiToken,omitempty"`
+	// TelegramBotToken/TelegramChatID/TelegramEnabled adalah jembatan
+	// Telegram (fitur 43). Token tidak pernah tampil di state.
+	TelegramBotToken string `json:"telegramBotToken,omitempty"`
+	TelegramChatID   string `json:"telegramChatId,omitempty"`
+	TelegramEnabled  *bool  `json:"telegramEnabled,omitempty"`
 }
 
 func (s settings) responseCacheOn() bool {
@@ -182,6 +205,26 @@ func (s settings) codeToolOn() bool {
 
 func (s settings) skillsOn() bool {
 	return s.SkillsEnabled == nil || *s.SkillsEnabled
+}
+
+func (s settings) nativeToolsOn() bool {
+	return s.NativeToolsEnabled == nil || *s.NativeToolsEnabled
+}
+
+func (s settings) loadBalanceOn() bool {
+	return s.LoadBalanceProviders != nil && *s.LoadBalanceProviders
+}
+
+func (s settings) parallelOn() bool {
+	return s.ParallelMode != nil && *s.ParallelMode
+}
+
+func (s settings) webhookOn() bool {
+	return s.WebhookEnabled != nil && *s.WebhookEnabled && strings.TrimSpace(s.WebhookURL) != ""
+}
+
+func (s settings) telegramOn() bool {
+	return s.TelegramEnabled != nil && *s.TelegramEnabled && s.TelegramBotToken != "" && s.TelegramChatID != ""
 }
 
 // gatewayProvider adalah satu konfigurasi gateway kustom yang tersimpan.
@@ -1264,9 +1307,13 @@ func (a *App) stateLocked() any {
 	}
 	d.Settings.APIKey = masked
 	// Rahasia aplikasi tidak pernah keluar lewat state: hash PIN, token
-	// pekerja, dan log audit tool (diakses lewat endpoint khusus).
+	// pekerja, token API eksternal, token bot Telegram, dan log audit
+	// tool (diakses lewat endpoint khusus).
 	hasPin := d.Settings.PINHash != ""
+	hasTelegramToken := d.Settings.TelegramBotToken != ""
 	d.Settings.PINHash = ""
+	d.Settings.APIToken = ""
+	d.Settings.TelegramBotToken = ""
 	d.WorkerToken = ""
 	d.ToolLog = nil
 	present := 0
@@ -1286,8 +1333,9 @@ func (a *App) stateLocked() any {
 		Rooms []map[string]any `json:"rooms"`
 		Settings  struct {
 			settings
-			HasAPIKey bool `json:"hasApiKey"`
-			HasPin    bool `json:"hasPin"`
+			HasAPIKey        bool `json:"hasApiKey"`
+			HasPin           bool `json:"hasPin"`
+			HasTelegramToken bool `json:"hasTelegramToken"`
 		} `json:"settings"`
 		Presence struct {
 			Present int `json:"present"`
@@ -1297,9 +1345,10 @@ func (a *App) stateLocked() any {
 		Reactions        map[string]any `json:"reactions"`
 	}{d, views, a.roomViewsLocked(), struct {
 		settings
-		HasAPIKey bool `json:"hasApiKey"`
-		HasPin    bool `json:"hasPin"`
-	}{d.Settings, len(key) > 0, hasPin}, struct {
+		HasAPIKey        bool `json:"hasApiKey"`
+		HasPin           bool `json:"hasPin"`
+		HasTelegramToken bool `json:"hasTelegramToken"`
+	}{d.Settings, len(key) > 0, hasPin, hasTelegramToken}, struct {
 		Present int `json:"present"`
 		Total   int `json:"total"`
 	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.reactionsStatsLocked()}
@@ -1348,6 +1397,14 @@ type settingsUpdate struct {
 		ResponseCacheEnabled *bool   `json:"responseCacheEnabled"`
 		ChainReplies         *bool   `json:"chainReplies"`
 		Density              *string `json:"density"`
+		NativeToolsEnabled   *bool   `json:"nativeToolsEnabled"`
+		LoadBalanceProviders *bool   `json:"loadBalanceProviders"`
+		ParallelMode         *bool   `json:"parallelMode"`
+		WebhookURL           *string `json:"webhookUrl"`
+		WebhookEnabled       *bool   `json:"webhookEnabled"`
+		TelegramBotToken     *string `json:"telegramBotToken"`
+		TelegramChatID       *string `json:"telegramChatId"`
+		TelegramEnabled      *bool   `json:"telegramEnabled"`
 		ClearAPIKey          bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
@@ -1586,6 +1643,52 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 				return problem(400, "Kepadatan tampilan harus normal atau compact.")
 			}
 			next.Settings.Density = density
+		}
+		if patch.NativeToolsEnabled != nil {
+			enabled := *patch.NativeToolsEnabled
+			next.Settings.NativeToolsEnabled = &enabled
+		}
+		if patch.LoadBalanceProviders != nil {
+			enabled := *patch.LoadBalanceProviders
+			next.Settings.LoadBalanceProviders = &enabled
+		}
+		if patch.ParallelMode != nil {
+			enabled := *patch.ParallelMode
+			next.Settings.ParallelMode = &enabled
+		}
+		if patch.WebhookURL != nil {
+			webhookURL := strings.TrimSpace(*patch.WebhookURL)
+			if webhookURL != "" {
+				if err := validateWebhookURL(webhookURL); err != nil {
+					return err
+				}
+			}
+			next.Settings.WebhookURL = webhookURL
+		}
+		if patch.WebhookEnabled != nil {
+			enabled := *patch.WebhookEnabled
+			next.Settings.WebhookEnabled = &enabled
+		}
+		if patch.TelegramBotToken != nil && *patch.TelegramBotToken != "" {
+			token := strings.TrimSpace(*patch.TelegramBotToken)
+			if jsLength(token) > 200 || badSetting.MatchString(token) {
+				return problem(400, "Token bot Telegram tidak valid.")
+			}
+			if !strings.HasPrefix(token, "••••") {
+				next.Settings.TelegramBotToken = token
+				a.rememberKeyLocked(token)
+			}
+		}
+		if patch.TelegramChatID != nil {
+			chatID := strings.TrimSpace(*patch.TelegramChatID)
+			if jsLength(chatID) > 64 || badSetting.MatchString(chatID) {
+				return problem(400, "Chat ID Telegram tidak valid.")
+			}
+			next.Settings.TelegramChatID = chatID
+		}
+		if patch.TelegramEnabled != nil {
+			enabled := *patch.TelegramEnabled
+			next.Settings.TelegramEnabled = &enabled
 		}
 		if patch.IntegratorSeat != nil {
 			code := strings.TrimSpace(*patch.IntegratorSeat)

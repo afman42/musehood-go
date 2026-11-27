@@ -16,6 +16,18 @@ import (
 // respons baris demi baris ke onLine (untuk SSE/NDJSON). Error provider
 // dikembalikan apa adanya seperti gatewayDo.
 func (a *App) gatewayStream(ctx context.Context, target string, body any, headers map[string]string, onLine func(string)) error {
+	// Circuit breaker (fitur 7) juga berlaku untuk streaming; retry tidak
+	// dipakai di sini karena chatStream jatuh ke chat biasa bila gagal.
+	key := breakerKeyForURL(target)
+	if err := a.breakerAllow(key); err != nil {
+		return err
+	}
+	err := a.gatewayStreamInner(ctx, target, body, headers, onLine)
+	a.breakerRecord(key, err)
+	return err
+}
+
+func (a *App) gatewayStreamInner(ctx context.Context, target string, body any, headers map[string]string, onLine func(string)) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return err

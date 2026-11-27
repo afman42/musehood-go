@@ -16,6 +16,9 @@ type providerHealth struct {
 	LatencyMs int64  `json:"latencyMs"`
 	CheckedAt string `json:"checkedAt"`
 	Error     string `json:"error,omitempty"`
+	// Circuit adalah status circuit breaker provider (fitur 7):
+	// "closed", "open", atau "half-open".
+	Circuit string `json:"circuit,omitempty"`
 }
 
 const healthCheckInterval = 5 * time.Minute
@@ -62,13 +65,15 @@ func (a *App) healthLoop() {
 	}
 }
 
-// overlayHealth menyalin hasil kesehatan terakhir ke tampilan provider.
+// overlayHealth menyalin hasil kesehatan terakhir ke tampilan provider,
+// termasuk status circuit breaker (fitur 7) dari BaseURL provider.
 func (a *App) overlayHealth(views []gatewayProviderView) {
 	a.healthMu.Lock()
 	defer a.healthMu.Unlock()
 	for i := range views {
 		if h, ok := a.health[views[i].ID]; ok {
 			health := h
+			health.Circuit = a.breakerState(views[i].BaseURL)
 			views[i].Health = &health
 		}
 	}

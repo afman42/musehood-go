@@ -75,6 +75,10 @@ const dict: Record<string, Record<Locale, string>> = {
   modelSummaryPh: { id: 'Model ringkasan & memori otomatis (kosong = model utama)', en: 'Summary & auto-memory model (empty = main model)' },
   taskModelsHint: { id: 'Boleh berformat alias/model. Model tugas dipakai lebih dulu; bila gagal, rantai fallback tetap dicoba.', en: 'May use alias/model format. The task model is tried first; on failure the fallback chain still applies.' },
   cloneSeat: { id: 'Kloning kursi ini', en: 'Clone this seat' },
+  nativeTools: { id: 'Tool-calling native (OpenAI)', en: 'Native tool-calling (OpenAI)' },
+  nativeToolsHint: { id: 'Untuk protokol openai, tool dikirim sebagai tools[] dan tool_calls dibaca dari respons. Bila provider menolak, otomatis jatuh ke protokol teks. Non-streaming.', en: 'For the openai protocol, tools are sent as tools[] and tool_calls are read from the response. If the provider rejects them, it falls back to the text protocol. Non-streaming.' },
+  loadBalance: { id: 'Load balancing antar provider', en: 'Load balancing across providers' },
+  loadBalanceHint: { id: 'Bila provider kursi gagal total (setelah retry dan fallback), provider lain dengan model bernama sama dicoba berurutan.', en: 'When a seat\'s provider fails completely (after retries and fallbacks), other providers with the same model name are tried in order.' },
 };
 
 function loadLocale(): Locale {

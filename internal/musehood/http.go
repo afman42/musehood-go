@@ -63,6 +63,10 @@ type App struct {
 	// budgetNoted menandai catatan budget "sekali per pekerjaan" yang
 	// sudah ditampilkan (fitur 5), kunci "jobID|kodeKursi".
 	budgetNoted map[string]bool
+	// breakerMu/breakers adalah circuit breaker per host provider
+	// (fitur 7), hanya di memori.
+	breakerMu sync.Mutex
+	breakers  map[string]*circuitBreaker
 }
 type apiError struct {
 	status  int
@@ -108,7 +112,7 @@ func New(opts Options) (*App, error) {
 		d.WorkerToken = hex.EncodeToString(raw)
 	}
 	a := &App{dir: opts.DataDir, frontend: opts.Frontend, data: d, running: make(map[*job]context.CancelFunc), museWait: opts.MuseWait,
-		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth), budgetNoted: map[string]bool{},
+		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth), budgetNoted: map[string]bool{}, breakers: map[string]*circuitBreaker{},
 		hosts: map[string]bool{"127.0.0.1": true, "localhost": true, "::1": true},
 		client: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 || !validHTTPURL(req.URL) {
@@ -146,6 +150,8 @@ func New(opts Options) (*App, error) {
 	a.csp = "default-src 'self'; " + scripts + "; style-src 'self'; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 	a.rememberKeyLocked(d.Settings.APIKey)
 	a.rememberKeyLocked(d.Settings.PINHash)
+	a.rememberKeyLocked(d.Settings.APIToken)
+	a.rememberKeyLocked(d.Settings.TelegramBotToken)
 	a.rememberKeyLocked(d.WorkerToken)
 	for _, p := range d.Providers {
 		a.rememberKeyLocked(p.APIKey)

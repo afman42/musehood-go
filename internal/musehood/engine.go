@@ -691,6 +691,27 @@ func (a *App) advanceLocked(j *job) {
 				fbMember.Model = &resolved
 				fallbacks = append(fallbacks, fallbackAttempt{fbCfg, fbMember})
 			}
+			// Load balancing (fitur 12): bila aktif, setelah model utama
+			// dan rantai fallback gagal total, coba provider lain dengan
+			// model bernama sama (urutan daftar provider, melewati
+			// provider yang sudah dicoba).
+			var lbAttempts []fallbackAttempt
+			if a.data.Settings.loadBalanceOn() && member.Model != nil {
+				tried := map[string]bool{cfg.BaseURL: true}
+				for _, fb := range fallbacks {
+					tried[fb.cfg.BaseURL] = true
+				}
+				for _, p := range a.data.Providers {
+					if tried[p.BaseURL] {
+						continue
+					}
+					tried[p.BaseURL] = true
+					lbMember := member
+					model := *member.Model
+					lbMember.Model = &model
+					lbAttempts = append(lbAttempts, fallbackAttempt{a.data.providerConfig(p), lbMember})
+				}
+			}
 			tools := a.data.Settings.toolsOn()
 			code := a.data.Settings.codeToolOn()
 			stream := a.data.Settings.streamingOn()
@@ -715,6 +736,14 @@ func (a *App) advanceLocked(j *job) {
 					}
 					if fbReply, fbErr := a.chatWithTools(ctx, fb.cfg, fb.member, history, tools, code, stream, onActivity, onDelta); fbErr == nil {
 						return fbReply, nil
+					}
+				}
+				for _, lb := range lbAttempts {
+					if err == nil {
+						break
+					}
+					if lbReply, lbErr := a.chatWithTools(ctx, lb.cfg, lb.member, history, tools, code, stream, onActivity, onDelta); lbErr == nil {
+						return lbReply, nil
 					}
 				}
 				return reply, err

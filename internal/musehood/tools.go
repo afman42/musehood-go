@@ -158,6 +158,15 @@ func toolResultOK(result string) bool {
 }
 
 func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history []gatewayMessage, tools, code, stream bool, onActivity func(toolName string), onDelta func(partial string)) (workerReply, error) {
+	// Tool-calling native (fitur 10): untuk protokol openai, kirim
+	// tools[] dan parse tool_calls. Bila provider menolak, jatuh ke
+	// protokol teks di bawah. Jalur native non-streaming, jadi hanya
+	// dipakai bila streaming tidak diminta.
+	if tools && !stream && protocolOf(cfg) == protoOpenAI && a.nativeToolsEnabled() {
+		if reply, ok, err := a.chatWithNativeTools(ctx, cfg, s, history, code, onActivity, onDelta); ok {
+			return reply, err
+		}
+	}
 	chatFn := a.chat
 	if stream {
 		chatFn = func(ctx context.Context, cfg settings, s seat, history []gatewayMessage) (string, error) {

@@ -15,6 +15,14 @@ export type Settings = {
   responseCacheEnabled?: boolean;
   chainReplies?: boolean;
   density?: string;
+  nativeToolsEnabled?: boolean;
+  loadBalanceProviders?: boolean;
+  parallelMode?: boolean;
+  webhookUrl?: string;
+  webhookEnabled?: boolean;
+  telegramChatId?: string;
+  telegramEnabled?: boolean;
+  hasTelegramToken?: boolean;
 };
 export type SkillDef = { name: string; description: string; source?: string };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
@@ -28,7 +36,7 @@ export type Message = {
 };
 export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
 export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; seatOrder?: string[]; messageCount?: number; pinned?: boolean; archived?: boolean; active?: boolean };
-export type ProviderHealth = { ok: boolean; latencyMs: number; checkedAt: string; error?: string };
+export type ProviderHealth = { ok: boolean; latencyMs: number; checkedAt: string; error?: string; circuit?: string };
 export type ToolLogEntry = { time: string; seatCode: string; seatName: string; tool: string; arg?: string; ok: boolean; durationMs: number };
 export type Persona = { id: string; name: string; role: string; prompt: string; disabledTools?: string[]; skills?: string[] };
 export type ReactionStats = { total: Record<string, number>; bySeat: Record<string, Record<string, number>> };
