@@ -27,7 +27,7 @@ export type Message = {
   toolCalls?: ToolCallRecord[];
 };
 export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
-export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; seatOrder?: string[]; messageCount?: number; pinned?: boolean; archived?: boolean };
+export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; seatOrder?: string[]; messageCount?: number; pinned?: boolean; archived?: boolean; active?: boolean };
 export type ProviderHealth = { ok: boolean; latencyMs: number; checkedAt: string; error?: string };
 export type ToolLogEntry = { time: string; seatCode: string; seatName: string; tool: string; arg?: string; ok: boolean; durationMs: number };
 export type Persona = { id: string; name: string; role: string; prompt: string; disabledTools?: string[]; skills?: string[] };

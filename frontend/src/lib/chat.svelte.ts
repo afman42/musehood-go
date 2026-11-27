@@ -278,7 +278,7 @@ export function createChat(hooks: ChatHooks = {}) {
 
   function scheduleSearch(q: string, filters?: SearchFilters) {
     clearTimeout(searchTimer);
-    const hasFilters = Boolean(filters && (filters.seat || filters.room || filters.from || filters.to || filters.hasImage));
+    const hasFilters = Boolean(filters && (filters.seat || filters.room || filters.from || filters.to || filters.hasImage || filters.includeArchived));
     if (!q && !hasFilters) { serverResults = []; return; }
     searchTimer = setTimeout(async () => {
       try {
@@ -288,6 +288,7 @@ export function createChat(hooks: ChatHooks = {}) {
         if (filters?.from) params.set('from', filters.from);
         if (filters?.to) params.set('to', filters.to);
         if (filters?.hasImage) params.set('hasImage', '1');
+        if (filters?.includeArchived) params.set('includeArchived', '1');
         const out = await api<{ results: SearchResult[] }>(`/api/search?${params.toString()}`);
         serverResults = out.results;
       } catch { /* pencarian lokal di ruang aktif tetap jalan */ }

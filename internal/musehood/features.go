@@ -14,6 +14,7 @@ import (
 type roomInput struct {
 	Name      *string   `json:"name"`
 	SeatCodes *[]string `json:"seatCodes"`
+	SeatOrder *[]string `json:"seatOrder"`
 	Pinned    *bool     `json:"pinned"`
 }
 
@@ -30,7 +31,11 @@ func (a *App) roomViewsLocked() []map[string]any {
 		if codes == nil {
 			codes = []string{}
 		}
-		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned})
+		order := r.SeatOrder
+		if order == nil {
+			order = []string{}
+		}
+		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived})
 	}
 	return views
 }
@@ -71,7 +76,14 @@ func (a *App) createRoomLocked(input roomInput) (any, error) {
 			return nil, err
 		}
 	}
-	r := room{ID: newRoomID(), Name: name, CreatedAt: now(), SeatCodes: codes}
+	order := []string{}
+	if input.SeatOrder != nil {
+		order, err = a.validateSeatCodesLocked(*input.SeatOrder)
+		if err != nil {
+			return nil, err
+		}
+	}
+	r := room{ID: newRoomID(), Name: name, CreatedAt: now(), SeatCodes: codes, SeatOrder: order}
 	previous := a.data
 	a.data.Rooms = append(a.data.Rooms, r)
 	a.data.ActiveRoomID = r.ID
@@ -103,6 +115,13 @@ func (a *App) updateRoomLocked(id string, input roomInput) (any, error) {
 		}
 		next.SeatCodes = codes
 	}
+	if input.SeatOrder != nil {
+		order, err := a.validateSeatCodesLocked(*input.SeatOrder)
+		if err != nil {
+			return nil, err
+		}
+		next.SeatOrder = order
+	}
 	if input.Pinned != nil {
 		next.Pinned = *input.Pinned
 	}
@@ -115,16 +134,38 @@ func (a *App) updateRoomLocked(id string, input roomInput) (any, error) {
 }
 
 func (a *App) activateRoomLocked(id string) (any, error) {
-	if a.data.findRoom(id) == nil {
+	r := a.data.findRoom(id)
+	if r == nil {
 		return nil, problem(404, "Ruang tidak ditemukan.")
 	}
 	previous := a.data
 	a.data.ActiveRoomID = id
+	// Mengaktifkan ruang arsip memulihkannya agar tetap terlihat di bilah ruang.
+	r.Archived = false
 	if err := a.saveLocked(); err != nil {
 		a.data = previous
 		return nil, err
 	}
 	return a.stateLocked(), nil
+}
+
+// archiveRoomLocked mengarsipkan atau memulihkan ruang (fitur 18).
+// Ruang aktif tidak dapat diarsipkan.
+func (a *App) archiveRoomLocked(id string, archived bool) (any, error) {
+	r := a.data.findRoom(id)
+	if r == nil {
+		return nil, problem(404, "Ruang tidak ditemukan.")
+	}
+	if archived && id == a.data.ActiveRoomID {
+		return nil, problem(400, "Ruang aktif tidak dapat diarsipkan.")
+	}
+	previous := a.data
+	r.Archived = archived
+	if err := a.saveLocked(); err != nil {
+		a.data = previous
+		return nil, err
+	}
+	return map[string]any{"rooms": a.roomViewsLocked(), "activeRoomId": a.data.ActiveRoomID}, nil
 }
 
 func (a *App) deleteRoomLocked(id string) (any, error) {
@@ -290,15 +331,16 @@ func (a *App) deletePresetLocked(id string) (any, error) {
 // --- Pencarian lintas ruang ---
 
 type searchFilters struct {
-	Seat     string // "" semua, "owner", atau kode kursi
-	Room     string // "" semua ruang
-	From     string // YYYY-MM-DD inklusif
-	To       string // YYYY-MM-DD inklusif
-	HasImage bool
+	Seat            string // "" semua, "owner", atau kode kursi
+	Room            string // "" semua ruang
+	From            string // YYYY-MM-DD inklusif
+	To              string // YYYY-MM-DD inklusif
+	HasImage        bool
+	IncludeArchived bool // sertakan ruang arsip (fitur 18)
 }
 
 func (f searchFilters) active() bool {
-	return f.Seat != "" || f.Room != "" || f.From != "" || f.To != "" || f.HasImage
+	return f.Seat != "" || f.Room != "" || f.From != "" || f.To != "" || f.HasImage || f.IncludeArchived
 }
 
 func (a *App) searchLocked(q string, f searchFilters) any {
@@ -332,6 +374,11 @@ func (a *App) searchLocked(q string, f searchFilters) any {
 		}
 		if f.HasImage && m.ImageURL == "" && (m.Attachment == nil || !strings.HasPrefix(m.Attachment.Mime, "image/")) {
 			continue
+		}
+		if !f.IncludeArchived {
+			if r := a.data.findRoom(m.RoomID); r != nil && r.Archived {
+				continue
+			}
 		}
 		roomName := ""
 		if r := a.data.findRoom(m.RoomID); r != nil {

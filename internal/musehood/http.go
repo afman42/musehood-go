@@ -340,6 +340,8 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
 			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/persona") && r.Method == http.MethodPost {
+			want = http.MethodPost
 		} else if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			want = http.MethodDelete
 		} else if strings.HasPrefix(path, "/api/rooms/") {
@@ -354,7 +356,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					w.Header().Set("Allow", "POST, DELETE")
 					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 				}
-			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize") && r.Method == http.MethodPost {
+			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive") && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
@@ -457,6 +459,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		return a.respondLocked(200, func() (any, error) {
 			return map[string]any{"name": name, "source": "lokal"}, nil
 		})
+	case "/api/personas":
+		return a.respondLocked(200, func() (any, error) {
+			return map[string]any{"personas": builtinPersonas}, nil
+		})
 	case "/api/state":
 		return a.respondLocked(200, func() (any, error) { return a.stateLocked(), nil })
 	case "/api/rooms":
@@ -546,11 +552,12 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	case "/api/search":
 		query := r.URL.Query()
 		filters := searchFilters{
-			Seat:     query.Get("seat"),
-			Room:     query.Get("room"),
-			From:     query.Get("from"),
-			To:       query.Get("to"),
-			HasImage: query.Get("hasImage") == "1",
+			Seat:            query.Get("seat"),
+			Room:            query.Get("room"),
+			From:            query.Get("from"),
+			To:            query.Get("to"),
+			HasImage:        query.Get("hasImage") == "1",
+			IncludeArchived: query.Get("includeArchived") == "1",
 		}
 		return a.respondLocked(200, func() (any, error) { return a.searchLocked(query.Get("q"), filters), nil })
 	case "/api/vote":
@@ -713,6 +720,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			if len(parts) == 2 && parts[1] == "activate" {
 				return a.respondLocked(200, func() (any, error) { return a.activateRoomLocked(parts[0]) })
 			}
+			if len(parts) == 2 && parts[1] == "archive" {
+				var body struct {
+					Archived bool `json:"archived"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.archiveRoomLocked(parts[0], body.Archived) })
+			}
 			if len(parts) == 2 && parts[1] == "summarize" {
 				return a.respondLocked(202, func() (any, error) {
 					j, err := a.summarizeRoomLocked(parts[0])
@@ -798,6 +814,16 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 				}
 				return a.respondLocked(200, func() (any, error) { return a.updateProviderLocked(parts[0], input) })
 			}
+		}
+		if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/persona") {
+			code := strings.TrimSuffix(strings.TrimPrefix(path, "/api/seats/"), "/persona")
+			var body struct {
+				PersonaID string `json:"personaId"`
+			}
+			if err := readObject(w, r, &body); err != nil {
+				return 0, nil, err
+			}
+			return a.respondLocked(200, func() (any, error) { return a.applyPersonaLocked(code, body.PersonaID) })
 		}
 		if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			code := strings.TrimPrefix(path, "/api/seats/")

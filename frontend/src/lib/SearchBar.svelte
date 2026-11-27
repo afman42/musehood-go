@@ -17,7 +17,7 @@
     onJumpResult: (result: SearchResult) => void;
   } = $props();
 
-  const filterActive = $derived(Boolean(filters.seat || filters.room || filters.from || filters.to || filters.hasImage));
+  const filterActive = $derived(Boolean(filters.seat || filters.room || filters.from || filters.to || filters.hasImage || filters.includeArchived));
 
   function clearFilters() {
     filters = emptySearchFilters();
@@ -57,6 +57,7 @@
     <label>Dari tanggal<input aria-label="Dari tanggal" type="date" bind:value={filters.from} onchange={onInput}></label>
     <label>Sampai tanggal<input aria-label="Sampai tanggal" type="date" bind:value={filters.to} onchange={onInput}></label>
     <label class="check-label"><input type="checkbox" bind:checked={filters.hasImage} onchange={onInput}> {t('hasImage')}</label>
+    <label class="check-label"><input type="checkbox" bind:checked={filters.includeArchived} onchange={onInput}> Sertakan arsip</label>
     {#if filterActive}<button class="text-button" type="button" onclick={clearFilters}>{t('clearFilters')}</button>{/if}
   </div>
 </details>

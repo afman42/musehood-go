@@ -2,7 +2,7 @@
   import { api, apiDelete, errorText } from './api';
   import AvatarButton from './AvatarButton.svelte';
   import SkillPicker from './SkillPicker.svelte';
-  import type { ModelTestResult, SeatEdit, SkillDef, State } from './types';
+  import type { ModelTestResult, Persona, SeatEdit, SkillDef, State } from './types';
 
   let { seats = $bindable([]), current, refresh, notify, onSync, onSave, saving, onChooseAvatar, skillsEnabled }: {
     seats?: SeatEdit[];
@@ -29,6 +29,26 @@
     skillsLoaded = true;
     void loadSkills();
   });
+
+  let personas = $state<Persona[]>([]);
+  let personasLoaded = false;
+  $effect(() => {
+    if (personasLoaded) return;
+    personasLoaded = true;
+    api<{ personas: Persona[] }>('/api/personas')
+      .then((out) => { personas = out.personas ?? []; })
+      .catch(() => { /* tanpa persona: dropdown disembunyikan */ });
+  });
+
+  async function applyPersona(code: string, personaId: string) {
+    if (!personaId) return;
+    try {
+      await api(`/api/seats/${code}/persona`, { personaId });
+      await refresh();
+      onSync();
+      notify('Persona diterapkan ke kursi.');
+    } catch (error) { notify(errorText(error), true); }
+  }
 
   let skillUrl = $state('');
   let skillOverwrite = $state(false);
@@ -139,6 +159,12 @@
             <p><span class="seat-code">{item.code}</span></p>
             <label>Nama tampil<input aria-label={`Nama tampil ${item.code}`} maxlength="40" required data-seat-name={item.code} bind:value={item.name}></label>
             <label>Peran<input aria-label={`Peran ${item.code}`} maxlength="80" required data-seat-role={item.code} bind:value={item.role}></label>
+            {#if personas.length}
+              <label>Persona preset<select aria-label={`Persona ${item.code}`} onchange={(e) => { const select = e.currentTarget; void applyPersona(item.code, select.value); select.value = ''; }}>
+                <option value="">Pilih persona…</option>
+                {#each personas as persona (persona.id)}<option value={persona.id}>{persona.name} — {persona.role}</option>{/each}
+              </select></label>
+            {/if}
             <label>Jalur jawaban<select aria-label={`Provider ${item.code}`} data-seat-provider={item.code} bind:value={item.provider}>
               <option value="muse">Muse (antrean file)</option>
               <option value="gateway">Gateway (model)</option>
