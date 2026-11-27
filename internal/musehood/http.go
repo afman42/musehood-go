@@ -459,6 +459,23 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		return a.respondLocked(200, func() (any, error) {
 			return map[string]any{"name": name, "source": "lokal"}, nil
 		})
+	case "/api/debate":
+		var body struct {
+			SeatA  string `json:"seatA"`
+			SeatB  string `json:"seatB"`
+			Topic  string `json:"topic"`
+			RoomID string `json:"roomId"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(202, func() (any, error) {
+			j, err := a.submitDebateLocked(body.SeatA, body.SeatB, body.Topic, body.RoomID)
+			if err != nil {
+				return nil, err
+			}
+			return a.jobResponseLocked(j), nil
+		})
 	case "/api/personas":
 		return a.respondLocked(200, func() (any, error) {
 			return map[string]any{"personas": builtinPersonas}, nil

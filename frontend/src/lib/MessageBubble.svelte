@@ -6,7 +6,7 @@
   let {
     message, seat, seats, own, name, avatar, quoted, quotedAuthorName,
     editing, editText = $bindable(''), reactOpen, emojis, query,
-    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick, onRegenerate,
+    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick, onRegenerate, onRerun, onFork, onExport,
   }: {
     message: Message;
     seat: Seat | undefined;
@@ -33,6 +33,9 @@
     onImageLoad: () => void;
     onMentionClick: (seat: Seat) => void;
     onRegenerate: () => void;
+    onRerun: () => void;
+    onFork: () => void;
+    onExport: () => void;
   } = $props();
 
   const clock = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -115,7 +118,10 @@
         </div>
         <button class="msg-action" class:pin-active={message.pinned} type="button" aria-label={message.pinned ? 'Lepas sematan' : 'Sematkan pesan'} title={message.pinned ? 'Lepas sematan' : 'Sematkan'} onclick={onPin}>📌</button>
         {#if own}<button class="msg-action" type="button" aria-label="Ubah pesan" title="Ubah" onclick={onEditStart}>✎</button>{/if}
+        {#if own}<button class="msg-action" type="button" aria-label="Jalankan ulang dari sini" title="Jalankan ulang dari sini" onclick={onRerun}>↻</button>{/if}
         {#if !own}<button class="msg-action" type="button" aria-label="Buat ulang balasan" title="Buat ulang balasan" onclick={onRegenerate}>↻</button>{/if}
+        <button class="msg-action" type="button" aria-label="Fork ke ruang baru" title="Fork ke ruang baru" onclick={onFork}>⑂</button>
+        <button class="msg-action" type="button" aria-label="Ekspor diskusi ini" title="Ekspor diskusi ini" onclick={onExport}>⬇</button>
         <button class="msg-action" type="button" aria-label="Hapus pesan" title="Hapus" onclick={onDelete}>🗑</button>
       </div>
     {/if}

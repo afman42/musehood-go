@@ -11,6 +11,7 @@
   import MentionDialog from '../../lib/MentionDialog.svelte';
   import SeatInfoDialog from '../../lib/SeatInfoDialog.svelte';
   import ScheduleDialog from '../../lib/ScheduleDialog.svelte';
+  import DebateDialog from '../../lib/DebateDialog.svelte';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
@@ -23,6 +24,7 @@
   let mentionDialog = $state<ReturnType<typeof MentionDialog>>();
   let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialog>>();
   let scheduleDialog = $state<ReturnType<typeof ScheduleDialog>>();
+  let debateDialog = $state<ReturnType<typeof DebateDialog>>();
   let roomDialog = $state<ReturnType<typeof RoomDialog>>();
   let composer = $state<ReturnType<typeof Composer>>();
   let searchBar = $state<ReturnType<typeof SearchBar>>();
@@ -50,7 +52,7 @@
   const current = $derived(chat.current);
 
   // State UI lokal.
-  const emojis = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+  const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏'];
   let text = $state('');
   let submitting = $state(false);
   let asking = $state(false);
@@ -221,6 +223,26 @@
   async function regenerateMessage(message: Message) {
     try { await chat.regenerateMessage(message); }
     catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  async function rerunMessage(message: Message) {
+    if (!window.confirm('Jalankan ulang dari pesan ini? Semua pesan sesudahnya di ruang ini akan dihapus dan diskusi dibuat ulang.')) return;
+    try { await chat.rerunMessage(message); chat.notify('Diskusi dijalankan ulang dari pesan ini.'); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  async function forkMessage(message: Message) {
+    try { await chat.forkMessage(message); chat.notify('Ruang fork dibuat dan dibuka.'); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  function exportDiscussion(message: Message) {
+    window.open(`/api/export?message=${message.id}&format=html`, '_blank');
+  }
+
+  async function startDebate(seatA: string, seatB: string, topic: string) {
+    await chat.startDebate(seatA, seatB, topic);
+    chat.notify('Debat dimulai.');
   }
 
   async function toggleReact(message: Message, emoji: string) {
@@ -401,6 +423,9 @@
           onImageLoad={scrollForImage}
           onMentionClick={(mentioned) => seatInfoDialog?.open(mentioned)}
           onRegenerate={() => regenerateMessage(message)}
+          onRerun={() => rerunMessage(message)}
+          onFork={() => forkMessage(message)}
+          onExport={() => exportDiscussion(message)}
         />
       {/each}
     {/if}
@@ -416,7 +441,8 @@
     onImagePrompt={() => composer?.setText(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}
     onUploadImage={() => imageInput.click()} onUploadFile={() => fileInput.click()}
     onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null}
-    onSchedule={() => scheduleDialog?.open(text)} />
+    onSchedule={() => scheduleDialog?.open(text)}
+    onDebate={() => debateDialog?.open()} />
 </main>
 {/if}
 
@@ -425,6 +451,7 @@
 <SeatInfoDialog bind:this={seatInfoDialog} onMention={(seat) => composer?.insertMention(seat.name)} />
 <ScheduleDialog bind:this={scheduleDialog} listScheduled={chat.listScheduled} createScheduled={chat.createScheduled} updateScheduled={chat.updateScheduled} deleteScheduled={chat.deleteScheduled} notify={chat.notify} roomId={current?.activeRoomId ?? ''} />
 <RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
+<DebateDialog bind:this={debateDialog} seats={current?.seats ?? []} notice={chat.notice} onStart={startDebate} />
 <Toast notice={chat.notice} target={null} />
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>
 <input id="chatFileInput" type="file" hidden bind:this={fileInput} onchange={chooseFile}>

@@ -238,6 +238,7 @@ type step struct {
 	MessageID string `json:"messageId,omitempty"`
 	QueueID   string `json:"queueId,omitempty"`
 	QueuedAt  string `json:"queuedAt,omitempty"`
+	Label     string `json:"label,omitempty"`
 }
 type job struct {
 	ID          string `json:"id"`
@@ -1224,7 +1225,8 @@ func (a *App) stateLocked() any {
 			Present int `json:"present"`
 			Total   int `json:"total"`
 		} `json:"presence"`
-		PendingApprovals []approval `json:"pendingApprovals"`
+		PendingApprovals []approval     `json:"pendingApprovals"`
+		Reactions        map[string]any `json:"reactions"`
 	}{d, views, struct {
 		settings
 		HasAPIKey bool `json:"hasApiKey"`
@@ -1232,7 +1234,7 @@ func (a *App) stateLocked() any {
 	}{d.Settings, len(key) > 0, hasPin}, struct {
 		Present int `json:"present"`
 		Total   int `json:"total"`
-	}{present, 1 + len(d.Seats)}, a.pendingApprovals()}
+	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.reactionsStatsLocked()}
 }
 
 type nameUpdate struct {

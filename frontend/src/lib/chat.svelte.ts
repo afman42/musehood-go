@@ -224,6 +224,18 @@ export function createChat(hooks: ChatHooks = {}) {
     await mutate(`/api/message/${message.id}/regenerate`, {});
   }
 
+  async function rerunMessage(message: Message) {
+    await mutate(`/api/message/${message.id}/rerun`, {});
+  }
+
+  async function forkMessage(message: Message) {
+    await mutate(`/api/message/${message.id}/fork`, {});
+  }
+
+  async function startDebate(seatA: string, seatB: string, topic: string) {
+    await mutate('/api/debate', { seatA, seatB, topic, roomId: current?.activeRoomId ?? '' });
+  }
+
   async function listScheduled(): Promise<ScheduledMessage[]> {
     const out = await api<{ scheduled: ScheduledMessage[] }>('/api/scheduled');
     return out.scheduled ?? [];
@@ -331,6 +343,9 @@ export function createChat(hooks: ChatHooks = {}) {
     removeMessage,
     saveEdit,
     regenerateMessage,
+    rerunMessage,
+    forkMessage,
+    startDebate,
     listScheduled,
     createScheduled,
     updateScheduled,
