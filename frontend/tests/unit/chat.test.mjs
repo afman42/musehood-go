@@ -92,7 +92,8 @@ test('refresh menerapkan state + derived', async () => {
   assert.deepEqual(chat.roomSeats.map(s => s.code), ['M02']); // seatCodes ruang aktif
   assert.deepEqual(chat.pinnedMessages.map(m => m.id), ['m1']);
   assert.equal(chat.connectionReady, true);
-  assert.deepEqual(darkToggles.at(-1), ['dark', true]);
+  assert.deepEqual(darkToggles.find(([name]) => name === 'dark'), ['dark', true]);
+  assert.deepEqual(darkToggles.find(([name]) => name === 'density-compact'), ['density-compact', false]);
   assert.equal(before, 1);
   assert.equal(after, 1);
   // Refresh kedua tanpa perubahan pesan: afterApply tidak dipanggil lagi.

@@ -12,7 +12,7 @@
     onTogglePin: (room: Room) => void;
   } = $props();
 
-  const ordered = $derived([...rooms].sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)));
+  const ordered = $derived(rooms.filter((room) => !room.archived).sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false)));
 </script>
 
 <nav class="room-bar" aria-label={t('rooms')}>

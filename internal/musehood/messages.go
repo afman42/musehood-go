@@ -13,9 +13,28 @@ import (
 	"time"
 )
 
-var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin|regenerate)$`)
+var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin|regenerate|rerun|fork)$`)
 
-var reactionEmojis = []string{"👍", "❤️", "😂", "😮", "😢", "🔥"}
+var reactionEmojis = []string{"👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👏"}
+
+// reactionsStatsLocked menghitung total reaksi per emoji dan per kursi
+// penerima (fitur 13).
+func (a *App) reactionsStatsLocked() map[string]any {
+	total := map[string]int{}
+	bySeat := map[string]map[string]int{}
+	for _, m := range a.data.Messages {
+		for _, r := range m.Reactions {
+			total[r.Emoji] += r.Count
+			if m.AuthorType == "seat" && m.Seat != "" {
+				if bySeat[m.Seat] == nil {
+					bySeat[m.Seat] = map[string]int{}
+				}
+				bySeat[m.Seat][r.Emoji] += r.Count
+			}
+		}
+	}
+	return map[string]any{"total": total, "bySeat": bySeat}
+}
 
 func messageAction(path string) (string, string, bool) {
 	m := messageActionRE.FindStringSubmatch(path)
@@ -76,8 +95,160 @@ func (a *App) messageAction(w http.ResponseWriter, r *http.Request, id, action s
 			}
 			return map[string]any{"jobId": j.ID}, nil
 		})
+	case "rerun":
+		return a.respondLocked(202, func() (any, error) {
+			j, err := a.rerunMessageLocked(id)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"jobId": j.ID}, nil
+		})
+	case "fork":
+		return a.respondLocked(200, func() (any, error) { return a.forkMessageLocked(id) })
 	}
 	return 0, nil, problem(404, "Rute tidak ditemukan.")
+}
+
+// rerunMessageLocked menjalankan ulang diskusi dari satu pesan pemilik
+// (fitur 11): semua pesan sesudahnya di ruang yang sama dihapus, pekerjaan
+// terkait dibatalkan, lalu pekerjaan baru dibuat dari teks pesan itu.
+func (a *App) rerunMessageLocked(id string) (*job, error) {
+	msg := a.findMessageLocked(id)
+	if msg == nil {
+		return nil, problem(404, "Pesan tidak ditemukan atau sudah dihapus.")
+	}
+	if msg.AuthorType != "owner" {
+		return nil, problem(403, "Hanya pesan pemilik yang bisa dijalankan ulang dari sini.")
+	}
+	idx := -1
+	for i, m := range a.data.Messages {
+		if m.ID == id {
+			idx = i
+			break
+		}
+	}
+	roomID := msg.RoomID
+	removedJobs := map[string]bool{}
+	if msg.JobID != "" {
+		removedJobs[msg.JobID] = true
+	}
+	for _, m := range a.data.Messages[idx+1:] {
+		if m.RoomID == roomID && m.JobID != "" {
+			removedJobs[m.JobID] = true
+		}
+	}
+	previous := a.data
+	keptMessages := make([]*message, 0, len(a.data.Messages))
+	for i, m := range a.data.Messages {
+		if i > idx && m.RoomID == roomID {
+			continue
+		}
+		keptMessages = append(keptMessages, m)
+	}
+	keptJobs := make([]*job, 0, len(a.data.Jobs))
+	removed := []*job{}
+	for _, j := range a.data.Jobs {
+		if removedJobs[j.ID] {
+			removed = append(removed, j)
+		} else {
+			keptJobs = append(keptJobs, j)
+		}
+	}
+	a.data.Messages = keptMessages
+	a.data.Jobs = keptJobs
+	if a.data.Task != nil && removedJobs[a.data.Task.JobID] {
+		a.data.Task = nil
+	}
+	r := a.data.findRoom(roomID)
+	if r == nil {
+		a.data = previous
+		return nil, problem(404, "Ruang pesan tidak ditemukan.")
+	}
+	kind, steps := a.routeLocked(msg.Text, r)
+	for i := range steps {
+		steps[i].Status = "pending"
+	}
+	j := &job{ID: uuid(), Prompt: msg.Text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps, RoomID: roomID}
+	a.data.Jobs = append(a.data.Jobs, j)
+	oldJobID := msg.JobID
+	msg.JobID = j.ID
+	if kind == "task" {
+		a.data.Task = &activeTask{JobID: j.ID, Title: taskPrefix.ReplaceAllString(msg.Text, ""), CurrentStep: ptr(steps[0].Seat), Status: "processing", CreatedAt: now(), RoomID: roomID}
+	}
+	if err := a.saveLocked(); err != nil {
+		a.data = previous
+		msg.JobID = oldJobID
+		return nil, err
+	}
+	queueIDs := map[string]bool{}
+	for _, old := range removed {
+		if cancel, ok := a.running[old]; ok {
+			cancel()
+			delete(a.running, old)
+		}
+		for _, s := range old.Steps {
+			if s.QueueID != "" {
+				queueIDs[s.QueueID] = true
+			}
+		}
+	}
+	_ = a.cancelQueueIDsLocked(queueIDs)
+	a.advanceLocked(j)
+	return j, nil
+}
+
+// forkMessageLocked membuat ruang baru berisi salinan pesan sampai pesan
+// yang dipilih (fitur 12), lalu menjadikannya ruang aktif.
+func (a *App) forkMessageLocked(id string) (any, error) {
+	msg := a.findMessageLocked(id)
+	if msg == nil {
+		return nil, problem(404, "Pesan tidak ditemukan atau sudah dihapus.")
+	}
+	src := a.data.findRoom(msg.RoomID)
+	if src == nil {
+		return nil, problem(404, "Ruang pesan tidak ditemukan.")
+	}
+	snippet := strings.TrimSpace(msg.Text)
+	if runes := []rune(snippet); len(runes) > 40 {
+		snippet = string(runes[:40]) + "…"
+	}
+	if snippet == "" {
+		snippet = src.Name
+	}
+	forked := room{ID: newRoomID(), Name: "Fork: " + snippet, CreatedAt: now(),
+		SeatCodes: slices.Clone(src.SeatCodes), SeatOrder: slices.Clone(src.SeatOrder)}
+	idMap := map[string]string{}
+	copied := []*message{}
+	for _, m := range a.data.Messages {
+		if m.RoomID != src.ID {
+			continue
+		}
+		cp := *m
+		cp.ID = uuid()
+		cp.RoomID = forked.ID
+		cp.JobID = ""
+		cp.QueueID = ""
+		cp.Reactions = slices.Clone(m.Reactions)
+		cp.ToolCalls = slices.Clone(m.ToolCalls)
+		cp.ToolsUsed = slices.Clone(m.ToolsUsed)
+		if m.ReplyTo != "" {
+			cp.ReplyTo = idMap[m.ReplyTo]
+		}
+		idMap[m.ID] = cp.ID
+		copied = append(copied, &cp)
+		if m.ID == id {
+			break
+		}
+	}
+	previous := a.data
+	a.data.Rooms = append(a.data.Rooms, forked)
+	a.data.Messages = append(a.data.Messages, copied...)
+	a.data.ActiveRoomID = forked.ID
+	if err := a.saveLocked(); err != nil {
+		a.data = previous
+		return nil, err
+	}
+	return map[string]any{"roomId": forked.ID}, nil
 }
 
 // regenerateMessageLocked menghapus balasan kursi dan menjalankannya ulang
@@ -321,6 +492,46 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 			roomMessages = append(roomMessages, m)
 		}
 	}
+	// Ekspor satu diskusi (fitur 16): pesan terpilih + semua pesan dalam
+	// pekerjaan yang sama; pesan pemilik tanpa jobId memakai balasan
+	// berikutnya sampai pesan pemilik berikutnya.
+	filenamePrefix := "riwayat-musehood"
+	if messageID := r.URL.Query().Get("message"); messageID != "" {
+		targetIdx := -1
+		for i, m := range roomMessages {
+			if m.ID == messageID {
+				targetIdx = i
+				break
+			}
+		}
+		if targetIdx < 0 {
+			a.mu.Unlock()
+			a.writeJSON(w, 0, nil, problem(400, "Pesan untuk ekspor tidak ditemukan."))
+			return
+		}
+		target := roomMessages[targetIdx]
+		filtered := []*message{}
+		switch {
+		case target.JobID != "":
+			for _, m := range roomMessages {
+				if m.JobID == target.JobID {
+					filtered = append(filtered, m)
+				}
+			}
+		case target.AuthorType == "owner":
+			filtered = append(filtered, target)
+			for _, m := range roomMessages[targetIdx+1:] {
+				if m.AuthorType == "owner" {
+					break
+				}
+				filtered = append(filtered, m)
+			}
+		default:
+			filtered = append(filtered, target)
+		}
+		roomMessages = filtered
+		filenamePrefix = "diskusi-musehood"
+	}
 	rawState, err := json.Marshal(a.safeLocked(a.stateLocked()))
 	rawMessages, merr := json.Marshal(a.safeLocked(roomMessages))
 	a.mu.Unlock()
@@ -359,7 +570,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 			a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
 			return
 		}
-		w.Header().Set("Content-Disposition", `attachment; filename="riwayat-musehood.json"`)
+		w.Header().Set("Content-Disposition", "attachment; filename=\"" + filenamePrefix + ".json\"")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Write(append(raw, '\n'))
 		return
@@ -391,7 +602,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 	messages, _ := stateMap["messages"].([]any)
 
 	if format == "html" {
-		w.Header().Set("Content-Disposition", `attachment; filename="riwayat-musehood.html"`)
+		w.Header().Set("Content-Disposition", "attachment; filename=\"" + filenamePrefix + ".html\"")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"utf-8\"><title>Riwayat %s — %s</title><style>body{font-family:system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;line-height:1.5}h2{border-bottom:1px solid #ccc;padding-bottom:.3rem}.msg{margin:1rem 0}.meta{color:#666;font-size:.85em}.err{color:#b00;white-space:pre-wrap}pre{white-space:pre-wrap;font:inherit}@media print{body{margin:0}}</style></head><body>", html.EscapeString(groupName), html.EscapeString(roomName))
@@ -429,7 +640,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Disposition", `attachment; filename="riwayat-musehood.md"`)
+	w.Header().Set("Content-Disposition", "attachment; filename=\"" + filenamePrefix + ".md\"")
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "# Riwayat %s — Ruang %s\n\n", groupName, roomName)

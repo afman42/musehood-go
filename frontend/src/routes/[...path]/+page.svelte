@@ -11,6 +11,9 @@
   import MentionDialog from '../../lib/MentionDialog.svelte';
   import SeatInfoDialog from '../../lib/SeatInfoDialog.svelte';
   import ScheduleDialog from '../../lib/ScheduleDialog.svelte';
+  import DebateDialog from '../../lib/DebateDialog.svelte';
+  import ShortcutHelpDialog from '../../lib/ShortcutHelpDialog.svelte';
+  import { shortcutAction } from '../../lib/shortcuts';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
@@ -23,6 +26,8 @@
   let mentionDialog = $state<ReturnType<typeof MentionDialog>>();
   let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialog>>();
   let scheduleDialog = $state<ReturnType<typeof ScheduleDialog>>();
+  let debateDialog = $state<ReturnType<typeof DebateDialog>>();
+  let shortcutHelp = $state<ReturnType<typeof ShortcutHelpDialog>>();
   let roomDialog = $state<ReturnType<typeof RoomDialog>>();
   let composer = $state<ReturnType<typeof Composer>>();
   let searchBar = $state<ReturnType<typeof SearchBar>>();
@@ -50,7 +55,7 @@
   const current = $derived(chat.current);
 
   // State UI lokal.
-  const emojis = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+  const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏'];
   let text = $state('');
   let submitting = $state(false);
   let asking = $state(false);
@@ -69,6 +74,8 @@
   let selectedTemplate = $state('');
   let query = $state('');
   let matchIndex = $state(0);
+  let pinInput = $state('');
+  let pinBusy = $state(false);
 
   const day = new Intl.DateTimeFormat('id-ID');
   const fullDay = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -111,6 +118,50 @@
       navigator.serviceWorker.register('/sw.js').catch(() => { /* PWA opsional */ });
     }
   });
+
+  function handleShortcut(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    const inInput = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable));
+    const action = shortcutAction(event, inInput);
+    if (!action) return;
+    if (action === 'search') {
+      event.preventDefault();
+      if (!searchOpen) toggleSearch();
+      else searchBar?.focus();
+    } else if (action === 'send') {
+      event.preventDefault();
+      composer?.submit();
+    } else if (action === 'focusComposer') {
+      event.preventDefault();
+      composer?.focus();
+    } else if (action === 'closeDialog') {
+      document.querySelector<HTMLDialogElement>('dialog[open]')?.close();
+    } else if (action === 'help') {
+      event.preventDefault();
+      shortcutHelp?.open();
+    } else if (action.startsWith('room')) {
+      const rooms = (current?.rooms ?? []).filter((room) => !room.archived).sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
+      const room = rooms[Number(action.slice(4)) - 1];
+      if (room) {
+        event.preventDefault();
+        switchRoom(room.id);
+      }
+    }
+  }
+
+  async function submitLogin(event: SubmitEvent) {
+    event.preventDefault();
+    if (pinBusy) return;
+    pinBusy = true;
+    try {
+      await chat.login(pinInput);
+      pinInput = '';
+    } catch (error) {
+      chat.notify(errorText(error), true);
+    } finally {
+      pinBusy = false;
+    }
+  }
 
   function scrollForImage() {
     if (messages.scrollHeight - messages.scrollTop - messages.clientHeight < 450) messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
@@ -207,6 +258,26 @@
     catch (error) { chat.notify(errorText(error), true); }
   }
 
+  async function rerunMessage(message: Message) {
+    if (!window.confirm('Jalankan ulang dari pesan ini? Semua pesan sesudahnya di ruang ini akan dihapus dan diskusi dibuat ulang.')) return;
+    try { await chat.rerunMessage(message); chat.notify('Diskusi dijalankan ulang dari pesan ini.'); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  async function forkMessage(message: Message) {
+    try { await chat.forkMessage(message); chat.notify('Ruang fork dibuat dan dibuka.'); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  function exportDiscussion(message: Message) {
+    window.open(`/api/export?message=${message.id}&format=html`, '_blank');
+  }
+
+  async function startDebate(seatA: string, seatB: string, topic: string) {
+    await chat.startDebate(seatA, seatB, topic);
+    chat.notify('Debat dimulai.');
+  }
+
   async function toggleReact(message: Message, emoji: string) {
     reactFor = '';
     try { await chat.toggleReact(message, emoji); }
@@ -291,7 +362,19 @@
 </script>
 
 <svelte:head><title>{current ? `${current.group.name} — Musehood` : 'Musehood — Grup multi-AI'}</title></svelte:head>
+<svelte:window onkeydown={handleShortcut} />
 
+{#if chat.pinRequired}
+  <main class="login-screen">
+    <form class="login-card" onsubmit={submitLogin}>
+      <p class="eyebrow">MUSEHOOD</p>
+      <h1>Masukkan PIN</h1>
+      <p>Grup ini dilindungi PIN aplikasi. Sesi masuk berlaku 7 hari.</p>
+      <label>PIN<input bind:value={pinInput} type="password" autocomplete="current-password" required maxlength="64" placeholder="PIN"></label>
+      <button class="primary-button" type="submit" disabled={pinBusy}>Masuk</button>
+    </form>
+  </main>
+{:else}
 <main class="app">
   <header class="group-header">
     <img id="groupAvatar" class="group-avatar" src={current?.group.avatar ?? '/avatars/group.svg'} alt={current ? `Foto grup ${current.group.name}` : 'Foto grup'} width="42" height="42">
@@ -374,6 +457,9 @@
           onImageLoad={scrollForImage}
           onMentionClick={(mentioned) => seatInfoDialog?.open(mentioned)}
           onRegenerate={() => regenerateMessage(message)}
+          onRerun={() => rerunMessage(message)}
+          onFork={() => forkMessage(message)}
+          onExport={() => exportDiscussion(message)}
         />
       {/each}
     {/if}
@@ -389,14 +475,18 @@
     onImagePrompt={() => composer?.setText(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}
     onUploadImage={() => imageInput.click()} onUploadFile={() => fileInput.click()}
     onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null}
-    onSchedule={() => scheduleDialog?.open(text)} />
+    onSchedule={() => scheduleDialog?.open(text)}
+    onDebate={() => debateDialog?.open()} />
 </main>
+{/if}
 
 <Settings bind:this={settingsPanel} current={chat.current} refresh={chat.refresh} mutate={chat.mutate} notify={chat.notify} notice={chat.notice} />
 <MentionDialog bind:this={mentionDialog} seats={chat.roomSeats} notice={chat.notice} onPick={(seat) => composer?.insertMention(seat.name)} />
 <SeatInfoDialog bind:this={seatInfoDialog} onMention={(seat) => composer?.insertMention(seat.name)} />
 <ScheduleDialog bind:this={scheduleDialog} listScheduled={chat.listScheduled} createScheduled={chat.createScheduled} updateScheduled={chat.updateScheduled} deleteScheduled={chat.deleteScheduled} notify={chat.notify} roomId={current?.activeRoomId ?? ''} />
 <RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
+<DebateDialog bind:this={debateDialog} seats={current?.seats ?? []} notice={chat.notice} onStart={startDebate} />
+<ShortcutHelpDialog bind:this={shortcutHelp} />
 <Toast notice={chat.notice} target={null} />
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>
 <input id="chatFileInput" type="file" hidden bind:this={fileInput} onchange={chooseFile}>

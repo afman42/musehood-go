@@ -22,6 +22,7 @@
   let {
     roundRobin = $bindable(true), reviewLevel = $bindable<ReviewLevel>('Sedang'),
     integratorSeat = $bindable('MUSE'), demoFallback = $bindable(false), toolsEnabled = $bindable(true), codeToolEnabled = $bindable(true), streamingEnabled = $bindable(true),
+    responseCacheEnabled = $bindable(false), chainReplies = $bindable(false), density = $bindable('normal'),
     theme = $bindable('light'), fontSize = $bindable('M'), seats,
   }: {
     roundRobin?: boolean;
@@ -31,6 +32,9 @@
     toolsEnabled?: boolean;
     codeToolEnabled?: boolean;
     streamingEnabled?: boolean;
+    responseCacheEnabled?: boolean;
+    chainReplies?: boolean;
+    density?: string;
     theme?: string;
     fontSize?: string;
     seats: SeatEdit[];
@@ -50,6 +54,9 @@
   <label class="toggle-row"><span><strong>Tool untuk kursi gateway</strong><small>Kursi gateway dapat memakai tool saat menjawab: pencarian web, mengambil halaman web, membaca/menulis/mengubah/mengunduh file di folder kerja (sandbox), membuat gambar, menyimpan catatan ke memori kursi, dan waktu sekarang. Menghapus file menunggu persetujuanmu. Maksimal 3 putaran tool per balasan.</small></span><input id="toolsEnabled" type="checkbox" role="switch" bind:checked={toolsEnabled}></label>
   <label class="toggle-row"><span><strong>Notifikasi browser</strong><small>Tampilkan notifikasi saat kursi selesai membalas dan tab aplikasi sedang tidak aktif. Izin notifikasi diminta dari browser perangkat ini.</small></span><input id="notifyEnabled" type="checkbox" role="switch" checked={notifyOn} onchange={toggleNotify}></label>
   <label class="toggle-row"><span><strong>Streaming balasan</strong><small>Teks balasan kursi gateway muncul bertahap selagi model menjawab. Bila gateway tidak mendukung streaming, aplikasi otomatis memakai cara biasa.</small></span><input id="streamingEnabled" type="checkbox" role="switch" bind:checked={streamingEnabled}></label>
+  <label class="toggle-row"><span><strong>Cache respons</strong><small>Balasan identik dari model yang sama dipakai ulang dari cache selama 10 menit tanpa memanggil gateway. Hanya berlaku untuk jalur non-streaming.</small></span><input id="responseCacheEnabled" type="checkbox" role="switch" bind:checked={responseCacheEnabled}></label>
+  <label class="toggle-row"><span><strong>Balasan berantai</strong><small>Pada diskusi bergilir, kursi berikutnya diminta menanggapi balasan kursi sebelumnya secara eksplisit (menyebut namanya) dan pesan ditautkan sebagai balasan.</small></span><input id="chainReplies" type="checkbox" role="switch" bind:checked={chainReplies}></label>
+  <label>Kepadatan tampilan<select id="densitySelect" bind:value={density}><option value="normal">Normal</option><option value="compact">Kompak</option></select></label>
   <label class="toggle-row"><span><strong>Tool coding (run_code & run_shell)</strong><small>Kursi gateway dapat menjalankan kode Python/JavaScript dan perintah shell di sandbox terisolasi (user nobody, tanpa jaringan, maks 10 detik). Kode berbahaya dan semua perintah shell menunggu persetujuanmu di banner chat sebelum dijalankan.</small></span><input id="codeToolEnabled" type="checkbox" role="switch" bind:checked={codeToolEnabled}></label>
   <label>{t('theme')}<select id="themeSelect" bind:value={theme}><option value="light">{t('themeLight')}</option><option value="dark">{t('themeDark')}</option><option value="auto">{t('themeAuto')}</option></select></label>
   <label>{t('fontSize')}<select id="fontSizeSelect" bind:value={fontSize}><option value="S">{t('fontSmall')}</option><option value="M">{t('fontMedium')}</option><option value="L">{t('fontLarge')}</option></select></label>

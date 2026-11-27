@@ -9,7 +9,7 @@
     replyTo, replyAuthorName, pendingImage, pendingFile,
     templates = [], selectedTemplate = $bindable(''),
     onSend, onProgress, onVote, onOpenMention, onImagePrompt, onUploadImage, onUploadFile,
-    onCancelReply, onCancelImage, onCancelFile, onSchedule,
+    onCancelReply, onCancelImage, onCancelFile, onSchedule, onDebate,
   }: {
     text?: string;
     submitting: boolean;
@@ -35,6 +35,7 @@
     onCancelImage: () => void;
     onCancelFile: () => void;
     onSchedule: () => void;
+    onDebate: () => void;
   } = $props();
 
   let input: HTMLTextAreaElement;
@@ -57,6 +58,10 @@
 
   export function focus() {
     input?.focus();
+  }
+
+  export function submit() {
+    composer?.requestSubmit();
   }
 
   export async function setText(value: string) {
@@ -112,6 +117,7 @@
     <button id="progressButton" class="action-chip" type="button" onclick={onProgress} disabled={asking}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10a7 7 0 1 0 2-5M3 3v4h4M10 6v4l3 2"/></svg>{t('progress').replace('📊 ', '')}</button>
     <button id="voteButton" class="action-chip" type="button" onclick={onVote} disabled={voting}>★ {voting ? 'Memulai voting…' : t('vote').replace('⭐ ', '')}</button>
     <button id="scheduleButton" class="action-chip" type="button" onclick={onSchedule}>{t('schedule')}</button>
+    <button id="debateButton" class="action-chip" type="button" onclick={onDebate}>⚖ Debat</button>
     {#if templates.length}
       <select id="templateSelect" class="template-select" aria-label="Template diskusi" bind:value={selectedTemplate}>
         <option value="">{t('noTemplate')}</option>

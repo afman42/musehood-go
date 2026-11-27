@@ -162,6 +162,58 @@ func (a *App) saveJobLocked() {
 		log.Print("Gagal menyimpan pekerjaan Musehood. Periksa penyimpanan lokal.")
 	}
 }
+// submitDebateLocked membuat pekerjaan debat dua kursi (fitur 15):
+// A pro → B kontra → A sanggahan → B sanggahan → integrator kesimpulan.
+func (a *App) submitDebateLocked(seatA, seatB, topic, roomID string) (*job, error) {
+	topic = strings.TrimSpace(topic)
+	if topic == "" || jsLength(topic) > 2000 {
+		return nil, problem(400, "Topik debat wajib diisi, maksimal 2.000 karakter.")
+	}
+	if seatA == seatB {
+		return nil, problem(400, "Dua kursi debat harus berbeda.")
+	}
+	aSeat := a.data.findSeat(seatA)
+	bSeat := a.data.findSeat(seatB)
+	if aSeat == nil || bSeat == nil {
+		return nil, problem(404, "Kursi debat tidak ditemukan.")
+	}
+	if aSeat.Provider != "gateway" || bSeat.Provider != "gateway" {
+		return nil, problem(400, "Kursi debat harus kursi gateway.")
+	}
+	r := a.data.activeRoom()
+	if roomID != "" {
+		r = a.data.findRoom(roomID)
+		if r == nil {
+			return nil, problem(400, "Ruang tidak ditemukan.")
+		}
+	}
+	if r == nil {
+		return nil, problem(500, "Ruang bawaan tidak tersedia.")
+	}
+	topic = a.redactLocked(topic)
+	steps := []step{
+		{Seat: seatA, Kind: "debate-pro", Label: "Debat — Pro"},
+		{Seat: seatB, Kind: "debate-contra", Label: "Debat — Kontra"},
+		{Seat: seatA, Kind: "debate-rebuttal", Label: "Debat — Sanggahan"},
+		{Seat: seatB, Kind: "debate-rebuttal", Label: "Debat — Sanggahan"},
+		{Seat: a.integratorSeat(), Kind: "debate-summary", Label: "Debat — Kesimpulan"},
+	}
+	for i := range steps {
+		steps[i].Status = "pending"
+	}
+	j := &job{ID: uuid(), Prompt: "Debat: " + topic, Kind: "debate", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID}
+	ownerText := fmt.Sprintf("Debat: %s (@%s vs @%s)", topic, aSeat.Name, bSeat.Name)
+	previous := a.data
+	a.data.Jobs = append(a.data.Jobs, j)
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: ownerText, Status: "completed", RoomID: r.ID})
+	if err := a.saveLocked(); err != nil {
+		a.data = previous
+		return nil, err
+	}
+	a.advanceLocked(j)
+	return j, nil
+}
+
 func (a *App) tickLocked() {
 	a.runSchedulesLocked()
 	a.autoCompactLocked()
@@ -185,16 +237,66 @@ func (a *App) messageLocked(j *job, s *step, member seat) *message {
 	if s.Kind == "vote" {
 		m.Label = voteLabel
 	}
+	if s.Label != "" {
+		m.Label = s.Label
+	}
 	s.MessageID = m.ID
 	s.Status = "running"
 	a.data.Messages = append(a.data.Messages, m)
 	a.saveJobLocked()
 	return m
 }
+// chainPrevLocked mengembalikan pesan kursi sebelumnya pada diskusi
+// bergilir bila balasan berantai aktif (fitur 14).
+func (a *App) chainPrevLocked(j *job) (*message, string, bool) {
+	if !a.data.Settings.chainRepliesOn() || j.Kind != "chat" || j.Index == 0 {
+		return nil, "", false
+	}
+	prev := &j.Steps[j.Index-1]
+	prevMsg := a.findMessageLocked(prev.MessageID)
+	if prevMsg == nil || prevMsg.AuthorType != "seat" {
+		return nil, "", false
+	}
+	name := prev.Seat
+	if s := a.data.findSeat(prev.Seat); s != nil {
+		name = s.Name
+	}
+	return prevMsg, name, true
+}
+
+func chainInstruction(prevName string) string {
+	return "Instruksi tambahan: tanggapi secara eksplisit balasan " + prevName + " sebelumnya (sebut namanya), lalu lanjutkan kontribusimu."
+}
+
+// debateInstruction adalah instruksi peran untuk tahap debat (fitur 15).
+func debateInstruction(kind, topic string) string {
+	switch kind {
+	case "debate-pro":
+		return "Kamu pihak PRO dalam debat ini. Argumenkan posisi mendukung topik berikut dengan argumen terkuatmu: " + topic
+	case "debate-contra":
+		return "Kamu pihak KONTRA dalam debat ini. Bantah argumen pihak pro sebelumnya dan argumenkan posisi menolak topik berikut: " + topic
+	case "debate-rebuttal":
+		return "Sanggah argumen lawan sebelumnya dan perkuat posisimu dalam debat tentang: " + topic
+	case "debate-summary":
+		return "Buat kesimpulan debat tentang \"" + topic + "\": rangkum argumen kedua pihak, nilai argumen yang terkuat, dan beri penilaian akhir yang seimbang."
+	}
+	return ""
+}
+
+func debateTopic(j *job) string {
+	return strings.TrimPrefix(j.Prompt, "Debat: ")
+}
+
 func (a *App) enqueueLocked(j *job, s *step, member seat, m *message) error {
 	q := queueRequest{ID: uuid(), Seat: member.Code, Kind: s.Kind, Prompt: a.systemPrompt(member, a.data) + "\n\n", Context: contextFor(a.data, j), CreatedAt: now()}
 	if s.Kind == "summary" {
 		q.Prompt += "Buat Hasil Akhir - Integrasi berdasarkan semua hasil tahap sebelumnya.\n"
+	}
+	if _, prevName, ok := a.chainPrevLocked(j); ok {
+		q.Prompt += chainInstruction(prevName) + "\n"
+	}
+	if strings.HasPrefix(s.Kind, "debate-") {
+		q.Prompt += debateInstruction(s.Kind, debateTopic(j)) + "\n"
 	}
 	q.Prompt += j.Prompt
 	if err := writeJSONFile(a.queuePath("requests", q.ID), a.safeLocked(q)); err != nil {
@@ -452,6 +554,11 @@ func (a *App) advanceLocked(j *job) {
 		s := &j.Steps[j.Index]
 		member := *a.data.findSeat(s.Seat)
 		m := a.messageLocked(j, s, member)
+		// Balasan berantai (fitur 14): tautkan pesan ini ke balasan kursi
+		// sebelumnya pada diskusi bergilir.
+		if prevMsg, _, ok := a.chainPrevLocked(j); ok && m.ReplyTo == "" {
+			m.ReplyTo = prevMsg.ID
+		}
 		if s.QueueID != "" {
 			raw, err := a.readWorkerReply(s.QueueID)
 			if err != nil {
@@ -523,6 +630,12 @@ func (a *App) advanceLocked(j *job) {
 			})
 		} else {
 			history := a.gatewayMessages(member, a.data, j)
+			if _, prevName, ok := a.chainPrevLocked(j); ok {
+				history = append(history, gatewayMessage{Role: "user", Content: chainInstruction(prevName)})
+			}
+			if strings.HasPrefix(s.Kind, "debate-") {
+				history = append(history, gatewayMessage{Role: "user", Content: debateInstruction(s.Kind, debateTopic(j))})
+			}
 			for i := range history {
 				history[i].Content = a.redactLocked(history[i].Content)
 			}

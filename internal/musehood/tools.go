@@ -112,7 +112,11 @@ func (a *App) buildToolInstructions(code bool, s seat) string {
 		if hint == "" {
 			hint = "sesuai deskripsi"
 		}
-		text += fmt.Sprintf("\n- %s: %s. Argumen: %s.", tool.Name, tool.Description, hint)
+		extra := ""
+		if tool.Type == "http_post" {
+			extra = " Memerlukan persetujuan pemilik."
+		}
+		text += fmt.Sprintf("\n- %s: %s. Argumen: %s.%s", tool.Name, tool.Description, hint, extra)
 	}
 	return text
 }
@@ -220,9 +224,35 @@ func (a *App) sandboxPath(name string) (string, error) {
 	return full, nil
 }
 
-// runTool menjalankan satu tool; nilai kedua adalah URL gambar bila tool
-// menghasilkan gambar (generate_image), selain itu kosong.
+// runTool menjalankan satu tool dan mencatatnya ke log audit tool;
+// nilai kedua adalah URL gambar bila tool menghasilkan gambar
+// (generate_image), selain itu kosong.
 func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg string, code bool) (string, string) {
+	start := time.Now()
+	result, image := a.runToolInner(ctx, cfg, s, name, arg, code)
+	a.recordToolLog(s, name, arg, result, time.Since(start))
+	return result, image
+}
+
+const maxToolLogEntries = 500
+
+// recordToolLog menambahkan satu entri audit pemakaian tool (maks 500,
+// FIFO). Seperti recordStat, penyimpanan ke disk terjadi pada save
+// berikutnya.
+func (a *App) recordToolLog(s seat, name, arg, result string, duration time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.data.ToolLog = append(a.data.ToolLog, toolLogEntry{
+		Time: now(), SeatCode: s.Code, SeatName: s.Name, Tool: name,
+		Arg: truncateRunes(arg, 200), OK: toolResultOK(result),
+		DurationMs: duration.Milliseconds(),
+	})
+	if len(a.data.ToolLog) > maxToolLogEntries {
+		a.data.ToolLog = a.data.ToolLog[len(a.data.ToolLog)-maxToolLogEntries:]
+	}
+}
+
+func (a *App) runToolInner(ctx context.Context, cfg settings, s seat, name, arg string, code bool) (string, string) {
 	if s.toolDisabled(name) {
 		return fmt.Sprintf("Tool %s dinonaktifkan untuk kursi ini oleh pemilik.", name), ""
 	}

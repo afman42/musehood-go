@@ -3,6 +3,21 @@
 
   let { current }: { current: State | undefined } = $props();
 
+  const reactionRows = $derived.by(() => {
+    const reactions = current?.reactions;
+    if (!reactions) return [];
+    return Object.entries(reactions.total)
+      .map(([emoji, count]) => ({
+        emoji,
+        count,
+        seats: Object.entries(reactions.bySeat)
+          .filter(([, perEmoji]) => perEmoji[emoji])
+          .map(([code, perEmoji]) => `${current?.seats.find((s) => s.code === code)?.name ?? code}: ${perEmoji[emoji]}`)
+          .join(' · '),
+      }))
+      .sort((a, b) => b.count - a.count);
+  });
+
   const rows = $derived.by(() => {
     const stats = current?.stats ?? {};
     return Object.entries(stats).map(([key, st]) => {
@@ -24,6 +39,15 @@
       <div class="stats-row stats-head" role="row"><span role="columnheader">Kursi / Model</span><span role="columnheader">Request</span><span role="columnheader">Berhasil</span><span role="columnheader">Gagal</span><span role="columnheader">Rata²</span><span role="columnheader">Token</span><span role="columnheader">Est. biaya</span></div>
       {#each rows as row (row.key)}
         <div class="stats-row" role="row"><span role="cell">{row.label}</span><span role="cell">{row.requests}</span><span role="cell">{row.success}</span><span role="cell">{row.failed}</span><span role="cell">{row.avgMs} mdtk</span><span role="cell">{row.promptTokens + row.completionTokens}</span><span role="cell">{row.estimatedCostUsd !== undefined ? `$${row.estimatedCostUsd.toFixed(4)}` : '—'}</span></div>
+      {/each}
+    </div>
+  {/if}
+  {#if reactionRows.length}
+    <h4>Reaksi</h4>
+    <div class="stats-table" role="table" aria-label="Statistik reaksi">
+      <div class="stats-row stats-head" role="row"><span role="columnheader">Emoji</span><span role="columnheader">Total</span><span role="columnheader">Per kursi penerima</span></div>
+      {#each reactionRows as row (row.emoji)}
+        <div class="stats-row" role="row"><span role="cell">{row.emoji}</span><span role="cell">{row.count}</span><span role="cell">{row.seats || '—'}</span></div>
       {/each}
     </div>
   {/if}

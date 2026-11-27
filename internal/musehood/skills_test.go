@@ -190,7 +190,7 @@ func TestCustomToolHTTPGet(t *testing.T) {
 	}))
 	defer server.Close()
 
-	tool := customTool{Name: "uji", Type: "http_get", URL: server.URL + "/{{kota}}", Params: []string{"kota"}}
+	tool := customTool{Name: "uji", Type: "http_get", URL: server.URL + "/{{kota}}", Params: []toolParam{{Name: "kota", Type: "string"}}}
 	finalURL := substituteParams(tool.URL, tool, "Pontianak", true)
 	text, err := fetchCustomURL(context.Background(), finalURL, "")
 	if err != nil || text != "cuaca untuk /Pontianak" {

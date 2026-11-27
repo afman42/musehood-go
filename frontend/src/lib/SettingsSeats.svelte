@@ -2,7 +2,7 @@
   import { api, apiDelete, errorText } from './api';
   import AvatarButton from './AvatarButton.svelte';
   import SkillPicker from './SkillPicker.svelte';
-  import type { ModelTestResult, SeatEdit, SkillDef, State } from './types';
+  import type { ModelTestResult, Persona, SeatEdit, SkillDef, State } from './types';
 
   let { seats = $bindable([]), current, refresh, notify, onSync, onSave, saving, onChooseAvatar, skillsEnabled }: {
     seats?: SeatEdit[];
@@ -18,13 +18,54 @@
 
   let availableSkills = $state<SkillDef[]>([]);
   let skillsLoaded = false;
+  async function loadSkills() {
+    try {
+      const out = await api<{ skills: SkillDef[] }>('/api/skills');
+      availableSkills = out.skills ?? [];
+    } catch { /* daftar kosong: picker tetap bisa nama manual */ }
+  }
   $effect(() => {
     if (skillsLoaded) return;
     skillsLoaded = true;
-    api<{ skills: SkillDef[] }>('/api/skills')
-      .then((out) => { availableSkills = out.skills ?? []; })
-      .catch(() => { /* daftar kosong: picker tetap bisa nama manual */ });
+    void loadSkills();
   });
+
+  let personas = $state<Persona[]>([]);
+  let personasLoaded = false;
+  $effect(() => {
+    if (personasLoaded) return;
+    personasLoaded = true;
+    api<{ personas: Persona[] }>('/api/personas')
+      .then((out) => { personas = out.personas ?? []; })
+      .catch(() => { /* tanpa persona: dropdown disembunyikan */ });
+  });
+
+  async function applyPersona(code: string, personaId: string) {
+    if (!personaId) return;
+    try {
+      await api(`/api/seats/${code}/persona`, { personaId });
+      await refresh();
+      onSync();
+      notify('Persona diterapkan ke kursi.');
+    } catch (error) { notify(errorText(error), true); }
+  }
+
+  let skillUrl = $state('');
+  let skillOverwrite = $state(false);
+  let installingSkill = $state(false);
+  async function installSkill() {
+    const url = skillUrl.trim();
+    if (!url || installingSkill) return;
+    installingSkill = true;
+    try {
+      const out = await api<{ name: string }>('/api/skills/install', { url, overwrite: skillOverwrite });
+      skillUrl = '';
+      skillOverwrite = false;
+      await loadSkills();
+      notify(`Skill "${out.name}" terpasang dan siap dipilih per kursi.`);
+    } catch (error) { notify(errorText(error), true); }
+    finally { installingSkill = false; }
+  }
 
   let allToolNames = $state<string[]>([]);
   let toolsLoaded = false;
@@ -99,6 +140,13 @@
 
 <section class="settings-section">
   <h3>Kursi AI</h3><p class="section-hint">Nama tampil, peran, jalur jawaban, dan model dapat diganti untuk semua kursi — termasuk kursi Admin dan Integrasi. Kode kursi bawaan tetap dan kursi bawaan tidak dapat dihapus. Kursi custom dapat ditambah dan dihapus di bawah.</p>
+  <div class="skill-install">
+    <h4>Pasang skill dari URL</h4>
+    <p class="field-hint">Tempel URL HTTPS ke file SKILL.md langsung atau URL repo git yang berisi SKILL.md. Skill terpasang muncul di pemilih skill tiap kursi.</p>
+    <label>URL skill<input aria-label="URL skill" type="url" placeholder="https://…/SKILL.md atau https://github.com/pemilik/repo" autocomplete="off" spellcheck="false" bind:value={skillUrl}></label>
+    <label class="toggle-row"><span><strong>Timpa bila sudah ada</strong><small>Skill dengan nama sama diganti isinya.</small></span><input type="checkbox" role="switch" bind:checked={skillOverwrite}></label>
+    <button class="secondary-button" type="button" onclick={installSkill} disabled={installingSkill || !skillUrl.trim()}>{installingSkill ? 'Memasang…' : 'Pasang Skill'}</button>
+  </div>
   <div id="seatSettings">
     {#each seats as item (item.code)}
       {@const member = current?.seats.find(seat => seat.code === item.code)}
@@ -111,6 +159,12 @@
             <p><span class="seat-code">{item.code}</span></p>
             <label>Nama tampil<input aria-label={`Nama tampil ${item.code}`} maxlength="40" required data-seat-name={item.code} bind:value={item.name}></label>
             <label>Peran<input aria-label={`Peran ${item.code}`} maxlength="80" required data-seat-role={item.code} bind:value={item.role}></label>
+            {#if personas.length}
+              <label>Persona preset<select aria-label={`Persona ${item.code}`} onchange={(e) => { const select = e.currentTarget; void applyPersona(item.code, select.value); select.value = ''; }}>
+                <option value="">Pilih persona…</option>
+                {#each personas as persona (persona.id)}<option value={persona.id}>{persona.name} — {persona.role}</option>{/each}
+              </select></label>
+            {/if}
             <label>Jalur jawaban<select aria-label={`Provider ${item.code}`} data-seat-provider={item.code} bind:value={item.provider}>
               <option value="muse">Muse (antrean file)</option>
               <option value="gateway">Gateway (model)</option>

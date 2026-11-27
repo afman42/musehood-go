@@ -114,6 +114,25 @@ type settings struct {
 	Theme string `json:"theme,omitempty"`
 	// FontSize adalah ukuran teks antarmuka: "S", "M", atau "L".
 	FontSize string `json:"fontSize,omitempty"`
+	// PINHash adalah hash PIN aplikasi dalam format "salt:hash" (hex).
+	// Kosong = PIN tidak aktif. Nilai ini tidak pernah dikirim ke klien.
+	PINHash string `json:"pinHash,omitempty"`
+	// ResponseCacheEnabled mengizinkan cache respons gateway untuk
+	// permintaan identik. Nil berarti MATI (kebalikan saklar lain).
+	ResponseCacheEnabled *bool `json:"responseCacheEnabled,omitempty"`
+	// ChainReplies membuat kursi berikutnya pada Diskusi Bergilir
+	// menanggapi balasan kursi sebelumnya secara eksplisit. Nil = MATI.
+	ChainReplies *bool `json:"chainReplies,omitempty"`
+	// Density adalah kepadatan tampilan: "normal" atau "compact".
+	Density string `json:"density,omitempty"`
+}
+
+func (s settings) responseCacheOn() bool {
+	return s.ResponseCacheEnabled != nil && *s.ResponseCacheEnabled
+}
+
+func (s settings) chainRepliesOn() bool {
+	return s.ChainReplies != nil && *s.ChainReplies
 }
 
 func (s settings) streamingOn() bool {
@@ -150,15 +169,16 @@ type gatewayProvider struct {
 
 // gatewayProviderView adalah tampilan aman satu provider untuk klien.
 type gatewayProviderView struct {
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	Alias            string  `json:"alias,omitempty"`
-	BaseURL          string  `json:"baseUrl"`
-	Protocol         string  `json:"protocol"`
-	HasAPIKey        bool    `json:"hasApiKey"`
-	Active           bool    `json:"active"`
-	PriceInputPer1M  float64 `json:"priceInputPer1M,omitempty"`
-	PriceOutputPer1M float64 `json:"priceOutputPer1M,omitempty"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Alias            string          `json:"alias,omitempty"`
+	BaseURL          string          `json:"baseUrl"`
+	Protocol         string          `json:"protocol"`
+	HasAPIKey        bool            `json:"hasApiKey"`
+	Active           bool            `json:"active"`
+	PriceInputPer1M  float64         `json:"priceInputPer1M,omitempty"`
+	PriceOutputPer1M float64         `json:"priceOutputPer1M,omitempty"`
+	Health           *providerHealth `json:"health,omitempty"`
 }
 type message struct {
 	ID         string      `json:"id"`
@@ -218,6 +238,7 @@ type step struct {
 	MessageID string `json:"messageId,omitempty"`
 	QueueID   string `json:"queueId,omitempty"`
 	QueuedAt  string `json:"queuedAt,omitempty"`
+	Label     string `json:"label,omitempty"`
 }
 type job struct {
 	ID          string `json:"id"`
@@ -257,6 +278,13 @@ type room struct {
 	SummaryCount int    `json:"summaryCount,omitempty"`
 	// Pinned menaruh ruang di urutan teratas daftar ruang.
 	Pinned bool `json:"pinned,omitempty"`
+	// SeatOrder adalah urutan bicara kustom ruang (kode kursi). Kosong =
+	// urutan kursi global. Kursi peserta yang tidak tercantum menyusul
+	// di belakang dalam urutan global.
+	SeatOrder []string `json:"seatOrder,omitempty"`
+	// Archived menyembunyikan ruang dari bilah ruang; ruang arsip tetap
+	// bisa dicari (dengan parameter khusus) dan dipulihkan dari Pengaturan.
+	Archived bool `json:"archived,omitempty"`
 }
 
 // presetSeat adalah salinan konfigurasi satu kursi di dalam preset.
@@ -318,6 +346,22 @@ type data struct {
 	Scheduled []scheduledMessage `json:"scheduled,omitempty"`
 	// Templates adalah preset pipeline diskusi.
 	Templates []discussionTemplate `json:"templates,omitempty"`
+	// WorkerToken adalah token acak untuk endpoint antrean pekerja Muse
+	// saat PIN aktif. Tidak pernah dikirim ke klien lewat API/state.
+	WorkerToken string `json:"workerToken,omitempty"`
+	// ToolLog adalah log audit pemakaian tool oleh kursi (maks 500 entri).
+	ToolLog []toolLogEntry `json:"toolLog,omitempty"`
+}
+
+// toolLogEntry adalah satu catatan audit pemakaian tool.
+type toolLogEntry struct {
+	Time       string `json:"time"`
+	SeatCode   string `json:"seatCode"`
+	SeatName   string `json:"seatName"`
+	Tool       string `json:"tool"`
+	Arg        string `json:"arg,omitempty"`
+	OK         bool   `json:"ok"`
+	DurationMs int64  `json:"durationMs"`
 }
 
 const defaultRoomID = "room-utama"
@@ -467,6 +511,13 @@ func (d *data) migrateRooms() {
 			}
 		}
 		r.SeatCodes = codes
+		order := make([]string, 0, len(r.SeatOrder))
+		for _, code := range r.SeatOrder {
+			if d.findSeat(code) != nil && !slices.Contains(order, code) {
+				order = append(order, code)
+			}
+		}
+		r.SeatOrder = order
 		rooms = append(rooms, r)
 	}
 	if len(rooms) == 0 {
@@ -475,6 +526,10 @@ func (d *data) migrateRooms() {
 	d.Rooms = rooms
 	if d.findRoom(d.ActiveRoomID) == nil {
 		d.ActiveRoomID = d.Rooms[0].ID
+	}
+	// Ruang aktif tidak boleh berstatus arsip.
+	if active := d.findRoom(d.ActiveRoomID); active != nil {
+		active.Archived = false
 	}
 	for _, m := range d.Messages {
 		if d.findRoom(m.RoomID) == nil {
@@ -518,13 +573,24 @@ func (d *data) activeRoom() *room {
 	return nil
 }
 
-// roomSeatCodes mengembalikan kode kursi peserta ruang dalam urutan kursi
-// global. SeatCodes kosong berarti semua kursi ikut.
+// roomSeatCodes mengembalikan kode kursi peserta ruang. Bila ruang punya
+// SeatOrder, urutan itu dipakai lebih dulu (hanya kursi peserta), lalu
+// kursi peserta lain yang belum tercantum menyusul dalam urutan global.
+// SeatCodes kosong berarti semua kursi ikut.
 func (d *data) roomSeatCodes(r *room) []string {
 	codes := []string{}
+	if r != nil {
+		for _, code := range r.SeatOrder {
+			if d.roomHasSeat(r, code) && !slices.Contains(codes, code) {
+				codes = append(codes, code)
+			}
+		}
+	}
 	for _, s := range d.Seats {
 		if r == nil || len(r.SeatCodes) == 0 || slices.Contains(r.SeatCodes, s.Code) {
-			codes = append(codes, s.Code)
+			if !slices.Contains(codes, s.Code) {
+				codes = append(codes, s.Code)
+			}
 		}
 	}
 	return codes
@@ -1104,6 +1170,7 @@ func (a *App) stateLocked() any {
 	// aman (hasApiKey/active) lewat field Providers di bawah. Tampilan
 	// dihitung SEBELUM key dikosongkan, supaya hasApiKey tetap benar.
 	views := d.providerViews()
+	a.overlayHealth(views)
 	d.Providers = slices.Clone(d.Providers)
 	for i := range d.Providers {
 		d.Providers[i].APIKey = ""
@@ -1131,6 +1198,12 @@ func (a *App) stateLocked() any {
 		}
 	}
 	d.Settings.APIKey = masked
+	// Rahasia aplikasi tidak pernah keluar lewat state: hash PIN, token
+	// pekerja, dan log audit tool (diakses lewat endpoint khusus).
+	hasPin := d.Settings.PINHash != ""
+	d.Settings.PINHash = ""
+	d.WorkerToken = ""
+	d.ToolLog = nil
 	present := 0
 	if d.Owner.Present {
 		present++
@@ -1146,19 +1219,22 @@ func (a *App) stateLocked() any {
 		Settings  struct {
 			settings
 			HasAPIKey bool `json:"hasApiKey"`
+			HasPin    bool `json:"hasPin"`
 		} `json:"settings"`
 		Presence struct {
 			Present int `json:"present"`
 			Total   int `json:"total"`
 		} `json:"presence"`
-		PendingApprovals []approval `json:"pendingApprovals"`
+		PendingApprovals []approval     `json:"pendingApprovals"`
+		Reactions        map[string]any `json:"reactions"`
 	}{d, views, struct {
 		settings
 		HasAPIKey bool `json:"hasApiKey"`
-	}{d.Settings, len(key) > 0}, struct {
+		HasPin    bool `json:"hasPin"`
+	}{d.Settings, len(key) > 0, hasPin}, struct {
 		Present int `json:"present"`
 		Total   int `json:"total"`
-	}{present, 1 + len(d.Seats)}, a.pendingApprovals()}
+	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.reactionsStatsLocked()}
 }
 
 type nameUpdate struct {
@@ -1192,11 +1268,14 @@ type settingsUpdate struct {
 		Theme           *string `json:"theme"`
 		FontSize        *string `json:"fontSize"`
 		IntegratorSeat  *string `json:"integratorSeat"`
-		ToolsEnabled     *bool   `json:"toolsEnabled"`
-		CodeToolEnabled  *bool   `json:"codeToolEnabled"`
-		StreamingEnabled *bool   `json:"streamingEnabled"`
-		SkillsEnabled   *bool   `json:"skillsEnabled"`
-		ClearAPIKey     bool    `json:"clearApiKey"`
+		ToolsEnabled         *bool   `json:"toolsEnabled"`
+		CodeToolEnabled      *bool   `json:"codeToolEnabled"`
+		StreamingEnabled     *bool   `json:"streamingEnabled"`
+		SkillsEnabled        *bool   `json:"skillsEnabled"`
+		ResponseCacheEnabled *bool   `json:"responseCacheEnabled"`
+		ChainReplies         *bool   `json:"chainReplies"`
+		Density              *string `json:"density"`
+		ClearAPIKey          bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
 
@@ -1392,6 +1471,21 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		if patch.StreamingEnabled != nil {
 			enabled := *patch.StreamingEnabled
 			next.Settings.StreamingEnabled = &enabled
+		}
+		if patch.ResponseCacheEnabled != nil {
+			enabled := *patch.ResponseCacheEnabled
+			next.Settings.ResponseCacheEnabled = &enabled
+		}
+		if patch.ChainReplies != nil {
+			enabled := *patch.ChainReplies
+			next.Settings.ChainReplies = &enabled
+		}
+		if patch.Density != nil {
+			density := strings.TrimSpace(*patch.Density)
+			if density != "normal" && density != "compact" {
+				return problem(400, "Kepadatan tampilan harus normal atau compact.")
+			}
+			next.Settings.Density = density
 		}
 		if patch.IntegratorSeat != nil {
 			code := strings.TrimSpace(*patch.IntegratorSeat)

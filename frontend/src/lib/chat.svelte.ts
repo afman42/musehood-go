@@ -32,6 +32,7 @@ function applyTheme(result: State) {
   const theme = result.settings.theme ?? (result.settings.darkMode ? 'dark' : 'light');
   const dark = theme === 'dark' || (theme === 'auto' && typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.classList.toggle('density-compact', result.settings.density === 'compact');
   document.documentElement.style?.setProperty('--font-scale', FONT_SCALES[result.settings.fontSize ?? 'M'] ?? '1');
 }
 
@@ -55,6 +56,7 @@ export type ChatHooks = {
 export function createChat(hooks: ChatHooks = {}) {
   let current = $state.raw<State>();
   let notice = $state<Notice>();
+  let pinRequired = $state(false);
   let serverResults = $state<SearchResult[]>([]);
   let timer: ReturnType<typeof setTimeout>;
   let searchTimer: ReturnType<typeof setTimeout>;
@@ -103,7 +105,15 @@ export function createChat(hooks: ChatHooks = {}) {
 
   async function refresh() {
     const request = ++requested;
-    const result = await api<State>('/api/state');
+    let result: State;
+    try {
+      result = await api<State>('/api/state');
+    } catch (error) {
+      // PIN aktif dan sesi belum masuk: tampilkan layar login, bukan error.
+      if (errorText(error) === 'PIN diperlukan') { pinRequired = true; return; }
+      throw error;
+    }
+    pinRequired = false;
     if (request < applied) return;
     applied = request;
     const nextKey = JSON.stringify([result.messages, result.owner, result.group, result.seats.map(s => [s.name, s.avatar])]);
@@ -120,6 +130,18 @@ export function createChat(hooks: ChatHooks = {}) {
   async function mutate(route: string, body: object) {
     await api(route, body);
     await refresh();
+  }
+
+  async function login(pin: string) {
+    await api('/api/login', { pin });
+    pinRequired = false;
+    await refresh();
+  }
+
+  async function logout() {
+    await api('/api/logout', {});
+    current = undefined;
+    pinRequired = true;
   }
 
   function startPolling() {
@@ -202,6 +224,18 @@ export function createChat(hooks: ChatHooks = {}) {
     await mutate(`/api/message/${message.id}/regenerate`, {});
   }
 
+  async function rerunMessage(message: Message) {
+    await mutate(`/api/message/${message.id}/rerun`, {});
+  }
+
+  async function forkMessage(message: Message) {
+    await mutate(`/api/message/${message.id}/fork`, {});
+  }
+
+  async function startDebate(seatA: string, seatB: string, topic: string) {
+    await mutate('/api/debate', { seatA, seatB, topic, roomId: current?.activeRoomId ?? '' });
+  }
+
   async function listScheduled(): Promise<ScheduledMessage[]> {
     const out = await api<{ scheduled: ScheduledMessage[] }>('/api/scheduled');
     return out.scheduled ?? [];
@@ -256,7 +290,7 @@ export function createChat(hooks: ChatHooks = {}) {
 
   function scheduleSearch(q: string, filters?: SearchFilters) {
     clearTimeout(searchTimer);
-    const hasFilters = Boolean(filters && (filters.seat || filters.room || filters.from || filters.to || filters.hasImage));
+    const hasFilters = Boolean(filters && (filters.seat || filters.room || filters.from || filters.to || filters.hasImage || filters.includeArchived));
     if (!q && !hasFilters) { serverResults = []; return; }
     searchTimer = setTimeout(async () => {
       try {
@@ -266,6 +300,7 @@ export function createChat(hooks: ChatHooks = {}) {
         if (filters?.from) params.set('from', filters.from);
         if (filters?.to) params.set('to', filters.to);
         if (filters?.hasImage) params.set('hasImage', '1');
+        if (filters?.includeArchived) params.set('includeArchived', '1');
         const out = await api<{ results: SearchResult[] }>(`/api/search?${params.toString()}`);
         serverResults = out.results;
       } catch { /* pencarian lokal di ruang aktif tetap jalan */ }
@@ -285,6 +320,9 @@ export function createChat(hooks: ChatHooks = {}) {
   return {
     get current() { return current; },
     get notice() { return notice; },
+    get pinRequired() { return pinRequired; },
+    login,
+    logout,
     get serverResults() { return serverResults; },
     get activeRoom() { return activeRoom; },
     get roomSeats() { return roomSeats; },
@@ -305,6 +343,9 @@ export function createChat(hooks: ChatHooks = {}) {
     removeMessage,
     saveEdit,
     regenerateMessage,
+    rerunMessage,
+    forkMessage,
+    startDebate,
     listScheduled,
     createScheduled,
     updateScheduled,
