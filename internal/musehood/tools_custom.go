@@ -52,6 +52,9 @@ var builtinToolNames = map[string]bool{
 	"csv_json": true, "generate_image": true, "memory_save": true, "current_time": true,
 	"run_code": true, "run_shell": true, "git": true, "screenshot_url": true,
 	"pdf_from_markdown": true, "summarize_url": true,
+	"translate_text": true, "ocr_image": true, "image_caption": true, "qr_code": true,
+	"rss_feed": true, "youtube_transcript": true, "currency_convert": true,
+	"text_to_speech": true, "http_post": true, "password_gen": true,
 }
 
 func (a *App) toolsDir() string {

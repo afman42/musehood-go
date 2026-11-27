@@ -62,6 +62,16 @@ Tool yang tersedia:
 - screenshot_url: ambil screenshot halaman web; gambar terlampir pada balasanmu. Argumen: URL lengkap (http/https).
 - summarize_url: ambil isi halaman web untuk kamu ringkas. Argumen: URL lengkap (http/https).
 - pdf_from_markdown: buat file PDF dari teks Markdown di folder kerja. Baris pertama argumen (opsional): nama file .pdf; baris berikutnya: isi Markdown.
+- translate_text: terjemahkan teks antar bahasa. Baris pertama argumen: pasangan bahasa sumber>tujuan (mis. id>en, en>id, id>ja); baris berikutnya: teks yang diterjemahkan (maks 500 karakter).
+- ocr_image: baca teks dari gambar di folder kerja (OCR). Argumen: nama file gambar.
+- image_caption: jelaskan isi gambar di folder kerja memakai model vision. Baris pertama argumen: nama file gambar; baris kedua (opsional): pertanyaan khusus tentang gambar.
+- qr_code: buat QR code dari teks/URL; gambar QR terlampir pada balasanmu. Argumen: teks atau URL (maks 500 karakter).
+- rss_feed: baca feed RSS/Atom. Baris pertama argumen: URL feed; baris kedua (opsional): jumlah item (1-10, bawaan 5).
+- youtube_transcript: ambil transkrip/caption video YouTube. Argumen: URL video atau ID video.
+- currency_convert: konversi mata uang dengan kurs terkini. Argumen: jumlah dan kode mata uang, mis. "100 USD IDR" (jumlah boleh dikosongkan = 1).
+- text_to_speech: ubah teks menjadi file audio WAV di folder kerja. Baris pertama argumen (opsional): lang=id atau lang=en; baris berikutnya: teks (maks 1000 karakter).
+- http_post: kirim permintaan POST JSON ke URL. Baris pertama argumen: URL; baris berikutnya: isi JSON. Memerlukan persetujuan pemilik.
+- password_gen: buat password acak kuat. Argumen (opsional): panjang 8-128 (bawaan 16), tambahkan "nosymbol" untuk tanpa simbol.
 
 Gunakan tool hanya bila benar-benar perlu (mis. butuh info terkini dari web atau isi file). Bila tidak perlu, jawab langsung tanpa blok tool.`
 
@@ -265,6 +275,26 @@ func (a *App) runTool(ctx context.Context, cfg settings, s seat, name, arg strin
 		return a.toolSummarizeURL(ctx, arg), ""
 	case "pdf_from_markdown":
 		return a.toolPDFFromMarkdown(arg), ""
+	case "translate_text":
+		return a.toolTranslateText(ctx, arg), ""
+	case "ocr_image":
+		return a.toolOCRImage(ctx, arg), ""
+	case "image_caption":
+		return a.toolImageCaption(ctx, cfg, s, arg), ""
+	case "qr_code":
+		return a.toolQRCode(ctx, arg)
+	case "rss_feed":
+		return a.toolRSSFeed(ctx, arg), ""
+	case "youtube_transcript":
+		return a.toolYouTubeTranscript(ctx, arg), ""
+	case "currency_convert":
+		return a.toolCurrencyConvert(ctx, arg), ""
+	case "text_to_speech":
+		return a.toolTextToSpeech(ctx, arg), ""
+	case "http_post":
+		return a.toolHTTPPost(ctx, s, arg), ""
+	case "password_gen":
+		return toolPasswordGen(arg), ""
 	case "run_code":
 		if !code {
 			return "Error: tool coding dimatikan di Pengaturan.", ""
