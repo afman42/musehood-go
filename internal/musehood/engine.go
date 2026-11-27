@@ -336,6 +336,8 @@ func (a *App) finishStepLocked(j *job, s *step, m *message) {
 		// AutoMemory menulis poin memori dari ringkasan ini.
 		a.autoMemoryAfterSummaryLocked(j.RoomID, m.Text)
 	}
+	// Webhook + Telegram (fitur 41 & 43).
+	a.notifyCompletedLocked(m)
 	m.StatusText = ""
 	j.Index++
 	j.Status = "processing"

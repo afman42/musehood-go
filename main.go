@@ -96,7 +96,7 @@ func run() error {
 	defer listener.Close()
 
 	app, err := musehood.New(musehood.Options{
-		DataDir: cfg.dataDir, Frontend: frontend, TrustedHosts: cfg.trustedHosts,
+		DataDir: cfg.dataDir, Frontend: frontend, TrustedHosts: cfg.trustedHosts, Version: version,
 	})
 	if err != nil {
 		return errors.New("periksa data.json, aset frontend, dan izin penyimpanan lokal")

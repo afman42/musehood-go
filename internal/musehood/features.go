@@ -522,6 +522,8 @@ func (a *App) backup(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Settings.APIKey = ""
 	d.Settings.PINHash = ""
+	d.Settings.APIToken = ""
+	d.Settings.TelegramBotToken = ""
 	d.WorkerToken = ""
 	raw, err := json.MarshalIndent(a.safeLocked(d), "", "  ")
 	a.mu.Unlock()

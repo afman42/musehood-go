@@ -222,6 +222,8 @@ func (a *App) parallelFinishLocked(j *job, s *step, m *message) {
 	if m.Error != "" && m.Text == "" && m.ImageURL == "" {
 		m.Status = "error"
 	}
+	// Webhook + Telegram (fitur 41 & 43).
+	a.notifyCompletedLocked(m)
 	m.StatusText = ""
 	a.parallelRemaining[j]--
 	if a.parallelRemaining[j] <= 0 {

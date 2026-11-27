@@ -82,6 +82,11 @@ func (a *App) authorizeAPI(r *http.Request) error {
 	if path == "/api/login" {
 		return nil
 	}
+	// API eksternal (fitur 42) memakai token Bearer sendiri sebagai
+	// kredensial, bukan cookie PIN.
+	if path == "/api/external/message" {
+		return nil
+	}
 	if path == "/api/queue/muse" || strings.HasPrefix(path, "/api/queue/muse/") {
 		given := r.Header.Get("X-Worker-Token")
 		if workerToken == "" || subtle.ConstantTimeCompare([]byte(given), []byte(workerToken)) != 1 {
