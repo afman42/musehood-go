@@ -51,9 +51,24 @@
     return () => clearInterval(timer);
   });
 
-  function resizeInput() {
+  // Tinggi textarea saat terakhir diterapkan + nilai teksnya. Resize
+  // hanya dilakukan bila tinggi memang perlu berubah: men-toggle
+  // height auto->px pada tiap ketikan memaksa layout ulang kontainer
+  // pesan (mahal pada ruang berisi ribuan pesan).
+  let appliedHeight = 0;
+  let appliedValue = '';
+  function resizeInput(force = false) {
+    const value = input.value;
+    const lineCount = (s: string) => s.split('\n').length;
+    const needsResize = force || appliedHeight === 0
+      || lineCount(value) !== lineCount(appliedValue)
+      || value.length < appliedValue.length
+      || input.scrollHeight > input.clientHeight + 1;
+    if (!needsResize) return;
     input.style.height = 'auto';
-    input.style.height = `${Math.min(input.scrollHeight, 130)}px`;
+    appliedHeight = Math.min(input.scrollHeight, 130);
+    input.style.height = `${appliedHeight}px`;
+    appliedValue = value;
   }
 
   export function focus() {
@@ -67,7 +82,7 @@
   export async function setText(value: string) {
     text = value;
     await tick();
-    resizeInput();
+    resizeInput(true);
     input.focus();
   }
 
