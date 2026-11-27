@@ -10,6 +10,7 @@
     const who = `${approval.seatName} (${approval.seatCode})`;
     if (approval.kind === 'shell') return `⚠ ${who} ingin menjalankan perintah shell:`;
     if (approval.kind === 'delete') return `⚠ ${who} ingin menghapus file:`;
+    if (approval.kind === 'http') return `⚠ ${who} ingin mengirim POST HTTP:`;
     return `⚠ ${who} ingin menjalankan kode ${approval.language ?? ''} yang terdeteksi berbahaya:`;
   }
 </script>
