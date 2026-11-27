@@ -73,11 +73,42 @@ Tool yang tersedia:
 - http_post: kirim permintaan POST JSON ke URL. Baris pertama argumen: URL; baris berikutnya: isi JSON. Memerlukan persetujuan pemilik.
 - password_gen: buat password acak kuat. Argumen (opsional): panjang 8-128 (bawaan 16), tambahkan "nosymbol" untuk tanpa simbol.
 
+Tool proyek coding bekerja pada proyek bernama. Awali argumen dengan baris "project:<nama>" untuk memilih proyek (tanpa itu dipakai proyek "default"). Path selalu relatif terhadap folder proyek.
+- create_project: buat proyek baru. Baris 1: nama proyek; baris 2: template (go, node, python, web).
+- list_tree: pohon folder proyek (kedalaman maks 6). Argumen: kosongkan.
+- read_file_lines: baca rentang baris file. Baris 1: path; baris 2: baris awal; baris 3: baris akhir (maks 500 baris).
+- move_file: pindah/ganti nama file (tidak menimpa). Baris 1: path sumber; baris 2: path tujuan.
+- copy_file: salin file (tidak menimpa). Baris 1: path sumber; baris 2: path tujuan.
+- mkdir: buat folder. Argumen: path folder.
+- search_code: cari regex (RE2) lintas proyek dengan 2 baris konteks. Argumen: pola regex.
+- find_files: cari file dengan pola glob, mis. "**/*.go". Argumen: pola glob.
+- apply_patch: terapkan unified diff format git (snapshot otomatis dibuat dulu; gagal = tidak ada file berubah). Argumen: isi diff.
+- edit_many: banyak edit sekaligus. Blok per file diawali "file:<path>", lalu pasangan <<<OLD>>>/<<<NEW>>> (snapshot otomatis dulu).
+- project_snapshot: kelola snapshot proyek. Argumen: "create [label]", "list", "restore <id>" (persetujuan pemilik), atau "delete <id>".
+- git_commit: commit semua perubahan proyek. Argumen: pesan commit. Memerlukan persetujuan pemilik.
+- git_branch: kelola branch proyek. Argumen: "list", "create <nama>", atau "checkout <nama>".
+- git_stash: stash proyek. Argumen: "push", "pop" (persetujuan pemilik), atau "list".
+- outline: daftar fungsi/kelas dalam file (Go/Python/JS/TS). Argumen: path file.
+- find_references: cari semua pemakaian simbol lintas proyek. Argumen: nama simbol.
+- dependency_graph: peta import proyek (internal vs eksternal). Argumen: kosongkan.
+- todo_scan: daftar TODO/FIXME/HACK/XXX proyek. Argumen: kosongkan.
+- complexity_report: LOC per file dan fungsi terpanjang. Argumen: kosongkan.
+- generate_tests: buat file tes kerangka untuk file sumber. Argumen: path file sumber.
+- export_project: ekspor proyek sebagai zip yang bisa diunduh. Argumen: kosongkan.
+- import_project: impor proyek dari zip di folder uploads. Argumen: nama file zip. Menimpa proyek lama memerlukan persetujuan pemilik.
+- env_file: kelola file .env proyek. Argumen: "list", "get <KUNCI>" (nilai ter-mask), "set <KUNCI>=<nilai>", atau "delete <KUNCI>".
+
 Gunakan tool hanya bila benar-benar perlu (mis. butuh info terkini dari web atau isi file). Bila tidak perlu, jawab langsung tanpa blok tool.`
 
 const codeToolInstruction = `
 - run_code: jalankan kode di sandbox terisolasi (tanpa jaringan, maks 10 detik). Baris pertama argumen: bahasa (python atau javascript); baris berikutnya: kode. Hasil stdout/stderr dikembalikan kepadamu. Kode yang terdeteksi berbahaya memerlukan persetujuan pemilik sebelum dijalankan.
-- run_shell: jalankan perintah shell sederhana di sandbox yang sama (mis. ls, cat, grep). Argumen: perintah shell. Selalu memerlukan persetujuan pemilik.`
+- run_shell: jalankan perintah shell sederhana di sandbox yang sama (mis. ls, cat, grep). Argumen: perintah shell. Selalu memerlukan persetujuan pemilik.
+- run_build: build proyek di sandbox (go build / npm run build / compileall Python, maks 120 detik). Argumen: kosongkan (atau awalan project:<nama>).
+- run_tests: jalankan tes proyek di sandbox (go test / npm test / pytest, maks 180 detik). Argumen: kosongkan (atau awalan project:<nama>).
+- run_lint: lint proyek (go vet + gofmt -l, py_compile + ruff, eslint bila terpasang). Argumen: kosongkan (atau awalan project:<nama>).
+- format_code: format kode proyek (gofmt, black/prettier bila tersedia). Argumen: kosongkan (atau awalan project:<nama>).
+- run_server: jalankan dev server proyek sebagai proses latar di 127.0.0.1. Argumen: perintah server (mis. "go run .", "npm start", "python3 -m http.server"), atau "status"/"stop". Satu server per proyek.
+- allowlist_shell: jalankan perintah aman tanpa persetujuan (ls, cat, head, tail, wc, pwd, echo, grep, find tanpa -exec, du, df, go/node/python3 --version, git status/log/diff) di folder proyek. Tanpa metakarakter shell.`
 
 func (a *App) buildToolInstructions(code bool, s seat) string {
 	text := toolInstructions
@@ -198,7 +229,7 @@ func (a *App) chatWithTools(ctx context.Context, cfg settings, s seat, history [
 		used = append(used, name)
 		calls = append(calls, toolCallRecord{
 			Name:   name,
-			Arg:    truncateRunes(arg, 300),
+			Arg:    truncateRunes(redactToolArg(name, arg), 300),
 			Result: truncateRunes(result, 600),
 			OK:     toolResultOK(result),
 		})
@@ -253,7 +284,7 @@ func (a *App) recordToolLog(s seat, name, arg, result string, duration time.Dura
 	defer a.mu.Unlock()
 	a.data.ToolLog = append(a.data.ToolLog, toolLogEntry{
 		Time: now(), SeatCode: s.Code, SeatName: s.Name, Tool: name,
-		Arg: truncateRunes(arg, 200), OK: toolResultOK(result),
+		Arg: truncateRunes(redactToolArg(name, arg), 200), OK: toolResultOK(result),
 		DurationMs: duration.Milliseconds(),
 	})
 	if len(a.data.ToolLog) > maxToolLogEntries {
@@ -344,6 +375,82 @@ func (a *App) runToolInner(ctx context.Context, cfg settings, s seat, name, arg 
 			return "Error: tool coding dimatikan di Pengaturan.", ""
 		}
 		return a.toolRunShell(ctx, s, arg), ""
+	case "create_project":
+		return a.toolCreateProject(arg), ""
+	case "list_tree":
+		return a.toolListTree(arg), ""
+	case "read_file_lines":
+		return a.toolReadFileLines(arg), ""
+	case "move_file":
+		return a.toolMoveFile(arg), ""
+	case "copy_file":
+		return a.toolCopyFile(arg), ""
+	case "mkdir":
+		return a.toolMkdir(arg), ""
+	case "search_code":
+		return a.toolSearchCode(arg), ""
+	case "find_files":
+		return a.toolFindFiles(arg), ""
+	case "apply_patch":
+		return a.toolApplyPatch(arg), ""
+	case "edit_many":
+		return a.toolEditMany(arg), ""
+	case "project_snapshot":
+		return a.toolProjectSnapshot(ctx, s, arg), ""
+	case "run_build":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolRunBuild(ctx, arg), ""
+	case "run_tests":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolRunTests(ctx, arg), ""
+	case "run_lint":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolRunLint(ctx, arg), ""
+	case "format_code":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolFormatCode(ctx, arg), ""
+	case "run_server":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolRunServer(ctx, arg), ""
+	case "allowlist_shell":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolAllowlistShell(ctx, arg), ""
+	case "git_commit":
+		return a.toolGitCommit(ctx, s, arg), ""
+	case "git_branch":
+		return a.toolGitBranch(ctx, s, arg), ""
+	case "git_stash":
+		return a.toolGitStash(ctx, s, arg), ""
+	case "outline":
+		return a.toolOutline(arg), ""
+	case "find_references":
+		return a.toolFindReferences(arg), ""
+	case "dependency_graph":
+		return a.toolDependencyGraph(arg), ""
+	case "todo_scan":
+		return a.toolTodoScan(arg), ""
+	case "complexity_report":
+		return a.toolComplexityReport(arg), ""
+	case "generate_tests":
+		return a.toolGenerateTests(arg), ""
+	case "export_project":
+		return a.toolExportProject(arg), ""
+	case "import_project":
+		return a.toolImportProject(ctx, s, arg), ""
+	case "env_file":
+		return a.toolEnvFile(arg), ""
 	default:
 		if tool, ok := a.findCustomTool(name); ok {
 			return a.runCustomToolCfg(ctx, cfg, s, tool, arg, code), ""
