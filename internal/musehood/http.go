@@ -86,6 +86,10 @@ type App struct {
 	store dataStore
 	// version adalah versi aplikasi untuk cek update (fitur 45).
 	version string
+	// serverMu/servers adalah dev server proyek yang berjalan
+	// (tool run_server), hanya di memori.
+	serverMu sync.Mutex
+	servers  map[string]*projectServer
 }
 type apiError struct {
 	status  int
@@ -221,6 +225,7 @@ func (a *App) Close() {
 	a.closed = true
 	a.stop()
 	a.mu.Unlock()
+	a.stopAllProjectServers()
 	a.wg.Wait()
 	a.client.CloseIdleConnections()
 }
@@ -1247,6 +1252,16 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if folder == "exports" && exportNamePattern.MatchString(filename) {
+			if f, err := os.OpenInRoot(filepath.Join(a.dir, folder), filename); err == nil {
+				defer f.Close()
+				if stat, err := f.Stat(); err == nil && stat.Mode().IsRegular() {
+					w.Header().Set("Cache-Control", "no-cache")
+					http.ServeContent(w, r, filename, stat.ModTime(), f)
+					return
+				}
+			}
+		}
 		if path != "index.html" && a.frontend != nil {
 			if raw, err := fs.ReadFile(a.frontend, path); err == nil {
 				if strings.HasPrefix(path, "_app/immutable/") {
@@ -1265,7 +1280,7 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if len(a.index) == 0 || strings.HasPrefix(path, "images/") || strings.HasPrefix(path, "avatars/") || strings.HasPrefix(path, "uploads/") || strings.HasPrefix(path, "_app/") {
+	if len(a.index) == 0 || strings.HasPrefix(path, "images/") || strings.HasPrefix(path, "avatars/") || strings.HasPrefix(path, "uploads/") || strings.HasPrefix(path, "exports/") || strings.HasPrefix(path, "_app/") {
 		a.writeJSON(w, 0, nil, problem(404, "Halaman tidak ditemukan."))
 		return
 	}

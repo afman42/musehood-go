@@ -396,7 +396,7 @@ func (a *App) chatWithNativeTools(ctx context.Context, cfg settings, s seat, his
 				used = append(used, name)
 				calls = append(calls, toolCallRecord{
 					Name:   name,
-					Arg:    truncateRunes(arg, 300),
+					Arg:    truncateRunes(redactToolArg(name, arg), 300),
 					Result: truncateRunes(result, 600),
 					OK:     toolResultOK(result),
 				})
@@ -441,7 +441,7 @@ func (a *App) chatWithNativeTools(ctx context.Context, cfg settings, s seat, his
 			used = append(used, call.name)
 			calls = append(calls, toolCallRecord{
 				Name:   call.name,
-				Arg:    truncateRunes(call.arg, 300),
+				Arg:    truncateRunes(redactToolArg(call.name, call.arg), 300),
 				Result: truncateRunes(result, 600),
 				OK:     toolResultOK(result),
 			})

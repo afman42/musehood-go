@@ -11,6 +11,7 @@
     if (approval.kind === 'shell') return `⚠ ${who} ingin menjalankan perintah shell:`;
     if (approval.kind === 'delete') return `⚠ ${who} ingin menghapus file:`;
     if (approval.kind === 'http') return `⚠ ${who} ingin mengirim POST HTTP:`;
+    if (approval.kind === 'git') return `⚠ ${who} ingin menjalankan operasi git:`;
     return `⚠ ${who} ingin menjalankan kode ${approval.language ?? ''} yang terdeteksi berbahaya:`;
   }
 </script>

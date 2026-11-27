@@ -108,6 +108,15 @@ var builtinToolNames = map[string]bool{
 	"translate_text": true, "ocr_image": true, "image_caption": true, "qr_code": true,
 	"rss_feed": true, "youtube_transcript": true, "currency_convert": true,
 	"text_to_speech": true, "http_post": true, "password_gen": true,
+	"create_project": true, "list_tree": true, "read_file_lines": true, "move_file": true,
+	"copy_file": true, "mkdir": true, "search_code": true, "find_files": true,
+	"apply_patch": true, "edit_many": true, "project_snapshot": true,
+	"run_build": true, "run_tests": true, "run_lint": true, "format_code": true,
+	"run_server": true, "allowlist_shell": true,
+	"git_commit": true, "git_branch": true, "git_stash": true,
+	"outline": true, "find_references": true, "dependency_graph": true,
+	"todo_scan": true, "complexity_report": true, "generate_tests": true,
+	"export_project": true, "import_project": true, "env_file": true,
 }
 
 func (a *App) toolsDir() string {

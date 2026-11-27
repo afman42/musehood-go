@@ -28,3 +28,6 @@ release-*.log
 /data.json.bak-*
 /frontend/tests/unit/.tmp/
 /worker-token.txt
+/projects/
+/exports/
+/snapshots/
