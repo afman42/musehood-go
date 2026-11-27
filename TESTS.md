@@ -1,6 +1,23 @@
 # Pengujian Musehood Go
 
-Terakhir dijalankan 26 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
+Terakhir dijalankan 27 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
+
+## Pendalaman tes backend 8 kategori (27 Nov 2026)
+
+Untuk 19 fitur pendalaman (PIN/auth, log audit tool, cache respons, health check, uji latency, pasang skill, persona, urutan bicara ruang, arsip ruang, rerun, fork, ekspor diskusi, reaksi, balasan berantai, debat, mode kompak, tool kustom http_post + parameter ber-tipe) ditambahkan **48 fungsi tes + 6 benchmark baru** di 8 file `depth_*_test.go`. Total kini **238 fungsi tes** (233 `internal/musehood` + 5 `main`) dan **12 benchmark** di 44 file `*_test.go`; cakupan pernyataan `internal/musehood` **82,8%** (`go test ./... -timeout 600s -count=1 -cover`, semua hijau).
+
+| Kategori | File | Isi |
+| --- | --- | --- |
+| Security | `depth_security_test.go` (6) | Bypass PIN (cookie dimodifikasi/kedaluwarsa/asing, token pekerja salah), PINHash + WorkerToken tidak bocor di state/backup/ekspor, restore backup asing tidak menimpa PIN lokal, penolakan skill install (SSRF, traversal, >200 KB), isolasi lintas ruang, truncasi argumen log. |
+| Unit | `depth_unit_test.go` (8) | Hash+verify PIN, token sesi (expiry/tamper), kunci cache + TTL + cap 200, validasi parameter ber-tipe, 6 persona valid, filter seatOrder, reaksi toggle. |
+| Database | `depth_store_test.go` (6) | Roundtrip field baru, default aman data lama, cap log sesudah reload, data korup parsial tanpa panic, save atomik konkuren, PIN/token bertahan sesudah restart. |
+| Contract | `depth_contract_test.go` (8) | Bentuk respons + status endpoint baru (login/PIN, tool-log, persona, debat, skill install, health/latency terurut, rerun/fork/arsip, header ekspor), semua error `{error}`. |
+| API endpoint | `depth_api_test.go` (6) | Matriks metode 405/404, body rusak 400, ID tak dikenal 404, konflik 409/400/403, header cookie (HttpOnly/SameSite), gerbang PIN persis `{"error":"PIN diperlukan"}`. |
+| E2E service | `depth_e2e_test.go` (4) | Alur PIN penuh, debat 5 tahap dengan integrator antrean Muse, skill terpasang memengaruhi prompt, cache pada alur pesan nyata. |
+| Integration | `depth_integration_test.go` (7) | Arsip + pencarian, rerun membatalkan job berjalan, fork me-remap replyTo, rantai pada kursi antrean, health + CRUD provider, log audit dari chat nyata, persona dipakai diskusi. |
+| Performance/load/stress | `depth_perf_test.go` (3 + 6 benchmark) | Benchmark PIN/sesi/log/cache/instruksi tool; state 3000 pesan + log penuh (state 46 ms, tool-log 6,5 ms); konkurensi rerun+fork+arsip (juga bersih di `-race`); 50 login salah tidak mengunci server. |
+
+Dua perbaikan produksi ditemukan oleh tes ini: (1) restore backup kini selalu mempertahankan PINHash + WorkerToken lokal (sebelumnya backup rekayasa bisa menimpa PIN dan mengunci pemilik); (2) peta health in-memory dibersihkan saat provider dihapus.
 
 ## E2E semua fitur + test live (26 Nov 2026)
 
