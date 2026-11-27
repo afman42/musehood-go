@@ -10,6 +10,8 @@
   import SettingsPresets from './SettingsPresets.svelte';
   import SettingsTemplates from './SettingsTemplates.svelte';
   import SettingsStats from './SettingsStats.svelte';
+  import SettingsToolLog from './SettingsToolLog.svelte';
+  import SettingsSecurity from './SettingsSecurity.svelte';
   import SettingsBackup from './SettingsBackup.svelte';
   import type { Notice, ReviewLevel, RoomEdit, SeatEdit, State } from './types';
 
@@ -63,6 +65,7 @@
       id: room.id,
       name: room.name,
       seatCodes: room.seatCodes && room.seatCodes.length ? [...room.seatCodes] : current!.seats.map((s) => s.code),
+      seatOrder: [...(room.seatOrder ?? [])],
     }));
   }
 
@@ -164,6 +167,8 @@
     <SettingsPresets {current} {refresh} {notify} onSave={save} onSync={syncSeats} />
     <SettingsTemplates {current} {refresh} {notify} />
     <SettingsStats {current} />
+    <SettingsToolLog {notify} />
+    <SettingsSecurity {current} {notify} {refresh} />
     <SettingsBackup {current} {refresh} {notify} onSync={syncSeats} />
     <section class="settings-section danger-section">
       <h3>Riwayat percakapan</h3><p class="section-hint">Hapus pesan dan batalkan antrean aktif di ruang yang sedang aktif saja. Pengaturan dan ruang lain tetap tersimpan.</p>

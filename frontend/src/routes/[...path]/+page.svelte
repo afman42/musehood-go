@@ -69,6 +69,8 @@
   let selectedTemplate = $state('');
   let query = $state('');
   let matchIndex = $state(0);
+  let pinInput = $state('');
+  let pinBusy = $state(false);
 
   const day = new Intl.DateTimeFormat('id-ID');
   const fullDay = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -111,6 +113,20 @@
       navigator.serviceWorker.register('/sw.js').catch(() => { /* PWA opsional */ });
     }
   });
+
+  async function submitLogin(event: SubmitEvent) {
+    event.preventDefault();
+    if (pinBusy) return;
+    pinBusy = true;
+    try {
+      await chat.login(pinInput);
+      pinInput = '';
+    } catch (error) {
+      chat.notify(errorText(error), true);
+    } finally {
+      pinBusy = false;
+    }
+  }
 
   function scrollForImage() {
     if (messages.scrollHeight - messages.scrollTop - messages.clientHeight < 450) messages.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
@@ -292,6 +308,17 @@
 
 <svelte:head><title>{current ? `${current.group.name} — Musehood` : 'Musehood — Grup multi-AI'}</title></svelte:head>
 
+{#if chat.pinRequired}
+  <main class="login-screen">
+    <form class="login-card" onsubmit={submitLogin}>
+      <p class="eyebrow">MUSEHOOD</p>
+      <h1>Masukkan PIN</h1>
+      <p>Grup ini dilindungi PIN aplikasi. Sesi masuk berlaku 7 hari.</p>
+      <label>PIN<input bind:value={pinInput} type="password" autocomplete="current-password" required maxlength="64" placeholder="PIN"></label>
+      <button class="primary-button" type="submit" disabled={pinBusy}>Masuk</button>
+    </form>
+  </main>
+{:else}
 <main class="app">
   <header class="group-header">
     <img id="groupAvatar" class="group-avatar" src={current?.group.avatar ?? '/avatars/group.svg'} alt={current ? `Foto grup ${current.group.name}` : 'Foto grup'} width="42" height="42">
@@ -391,6 +418,7 @@
     onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null}
     onSchedule={() => scheduleDialog?.open(text)} />
 </main>
+{/if}
 
 <Settings bind:this={settingsPanel} current={chat.current} refresh={chat.refresh} mutate={chat.mutate} notify={chat.notify} notice={chat.notice} />
 <MentionDialog bind:this={mentionDialog} seats={chat.roomSeats} notice={chat.notice} onPick={(seat) => composer?.insertMention(seat.name)} />

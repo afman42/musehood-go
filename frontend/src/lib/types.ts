@@ -11,6 +11,10 @@ export type Settings = {
   codeToolEnabled?: boolean;
   skillsEnabled?: boolean;
   streamingEnabled?: boolean;
+  hasPin?: boolean;
+  responseCacheEnabled?: boolean;
+  chainReplies?: boolean;
+  density?: string;
 };
 export type SkillDef = { name: string; description: string; source?: string };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
@@ -23,7 +27,11 @@ export type Message = {
   toolCalls?: ToolCallRecord[];
 };
 export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
-export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; messageCount?: number; pinned?: boolean };
+export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; seatOrder?: string[]; messageCount?: number; pinned?: boolean; archived?: boolean };
+export type ProviderHealth = { ok: boolean; latencyMs: number; checkedAt: string; error?: string };
+export type ToolLogEntry = { time: string; seatCode: string; seatName: string; tool: string; arg?: string; ok: boolean; durationMs: number };
+export type Persona = { id: string; name: string; role: string; prompt: string; disabledTools?: string[]; skills?: string[] };
+export type ReactionStats = { total: Record<string, number>; bySeat: Record<string, Record<string, number>> };
 export type DiscussionTemplate = { id: string; name: string; seats: string[]; instruction?: string; createdAt: string };
 export type ScheduledMessage = {
   id: string; roomId: string; text: string; sendAt?: string;
@@ -34,9 +42,9 @@ export type PresetSeat = { code: string; name: string; role: string; provider: '
 export type SeatPreset = { id: string; name: string; createdAt: string; seats: PresetSeat[] };
 export type UsageStat = { requests: number; success: number; failed: number; totalLatencyMs: number; promptTokens: number; completionTokens: number; lastAt?: string; estimatedCostUsd?: number };
 export type SearchResult = { id: string; roomId: string; roomName: string; author: string; text: string; createdAt: string };
-export type SearchFilters = { seat: string; room: string; from: string; to: string; hasImage: boolean };
-export const emptySearchFilters = (): SearchFilters => ({ seat: '', room: '', from: '', to: '', hasImage: false });
-export type GatewayProvider = { id: string; name: string; alias?: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean; priceInputPer1M?: number; priceOutputPer1M?: number };
+export type SearchFilters = { seat: string; room: string; from: string; to: string; hasImage: boolean; includeArchived: boolean };
+export const emptySearchFilters = (): SearchFilters => ({ seat: '', room: '', from: '', to: '', hasImage: false, includeArchived: false });
+export type GatewayProvider = { id: string; name: string; alias?: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean; priceInputPer1M?: number; priceOutputPer1M?: number; health?: ProviderHealth };
 export type ProviderModelTest = { model: string; ok: boolean; latencyMs?: number; reply?: string; error?: string };
 export type Connection = { models: string[]; testedAt: string };
 export type Approval = { id: string; seatCode: string; seatName: string; kind: 'code' | 'shell' | 'delete' | 'http'; language?: string; detail: string; createdAt: string };
@@ -46,8 +54,9 @@ export type State = {
   rooms: Room[]; activeRoomId: string; presets?: SeatPreset[]; stats?: Record<string, UsageStat>;
   templates?: DiscussionTemplate[]; scheduled?: ScheduledMessage[];
   pendingApprovals?: Approval[];
+  reactions?: ReactionStats;
 };
 export type Notice = { text: string; error: boolean; target: string | null };
 export type SeatEdit = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string; fallbackModel: string; fallbackModels: string; disabledTools: string[]; memory: string; skills: string };
-export type RoomEdit = { id: string; name: string; seatCodes: string[] };
+export type RoomEdit = { id: string; name: string; seatCodes: string[]; seatOrder: string[] };
 export type ModelTestResult = { ok: boolean; latencyMs?: number; reply?: string; error?: string };

@@ -367,6 +367,8 @@ func (a *App) backup(w http.ResponseWriter, r *http.Request) {
 		d.Providers[i].APIKey = ""
 	}
 	d.Settings.APIKey = ""
+	d.Settings.PINHash = ""
+	d.WorkerToken = ""
 	raw, err := json.MarshalIndent(a.safeLocked(d), "", "  ")
 	a.mu.Unlock()
 	if err != nil {
@@ -427,6 +429,13 @@ func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 		if old := a.data.findProvider(incoming.Settings.ActiveProviderID); old != nil {
 			incoming.Settings.APIKey = old.APIKey
 		}
+	}
+	// PIN dan token pekerja tidak ikut cadangan; pertahankan yang aktif.
+	if incoming.Settings.PINHash == "" {
+		incoming.Settings.PINHash = a.data.Settings.PINHash
+	}
+	if incoming.WorkerToken == "" {
+		incoming.WorkerToken = a.data.WorkerToken
 	}
 	incoming.migrateRooms()
 	incoming.migrateProviders()

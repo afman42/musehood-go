@@ -359,3 +359,22 @@ html.dark .room-badge{background:#e08a97;color:#1c1a1a}
 .bubble p,.message-text{font-size:calc(13.5px * var(--font-scale,1))}
 .composer textarea{font-size:calc(13.5px * var(--font-scale,1))}
 .settings-section h3{font-size:calc(14px * var(--font-scale,1))}
+
+/* Layar login PIN (fitur 31) */
+.login-screen{min-height:100dvh;display:grid;place-items:center;padding:20px;background:var(--bg,#f4f6f8)}
+.login-card{width:min(360px,100%);display:grid;gap:12px;padding:28px;border-radius:16px;background:var(--panel,#fff);box-shadow:0 12px 40px rgba(0,0,0,.12)}
+.login-card h1{font-size:22px;margin:0}
+.login-card p{margin:0;color:var(--muted,#5b6675);font-size:14px;line-height:1.6}
+.login-card label{display:grid;gap:6px;font-size:13px;font-weight:600}
+.login-card input{padding:10px 12px;border:1px solid var(--border,#d7dde5);border-radius:10px;font-size:15px}
+html.dark .login-screen{background:#10151c}
+html.dark .login-card{background:#1a222d;color:#e8edf3}
+html.dark .login-card input{background:#121922;border-color:#334155;color:#e8edf3}
+.tool-log-arg{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Mode kompak (fitur 36) */
+html.density-compact .messages{padding-top:10px;padding-bottom:14px}
+html.density-compact .message{margin-bottom:8px}
+html.density-compact .bubble{padding:5px 9px 6px}
+html.density-compact .message-text{font-size:12px;line-height:1.55}
+html.density-compact .message-meta{margin-bottom:3px}
