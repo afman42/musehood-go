@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -408,11 +407,11 @@ func (s *projectServer) stop() {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return
 	}
-	_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGTERM)
+	_ = killProcessGroup(s.cmd.Process.Pid, false)
 	select {
 	case <-s.done:
 	case <-time.After(3 * time.Second):
-		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		_ = killProcessGroup(s.cmd.Process.Pid, true)
 		<-s.done
 	}
 }
@@ -512,7 +511,7 @@ func (a *App) toolRunServer(ctx context.Context, arg string) string {
 	cmd := exec.Command("bwrap", filtered...)
 	cmd.Stdout = log
 	cmd.Stderr = log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return "Error: gagal menjalankan server: " + err.Error()
 	}
