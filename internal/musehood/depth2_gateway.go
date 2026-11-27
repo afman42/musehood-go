@@ -285,6 +285,11 @@ type nativeToolCall struct {
 func parseNativeToolCalls(raw []byte) ([]nativeToolCall, string) {
 	var obj map[string]any
 	if json.Unmarshal(raw, &obj) != nil {
+		// Provider membalas SSE walau diminta non-streaming: urai teksnya
+		// seperti jalur chat biasa, jangan tampilkan payload mentah.
+		if text, err := parseProtocolText(protoOpenAI, string(raw)); err == nil && text != "" {
+			return nil, text
+		}
 		return nil, strings.TrimSpace(string(raw))
 	}
 	choice := first(field(obj, "choices"))
