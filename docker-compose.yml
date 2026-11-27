@@ -1,0 +1,28 @@
+# Musehood Go — jalankan dengan: docker compose up -d --build
+# Image TIDAK di-push ke Docker Hub; build lokal saja.
+services:
+  musehood-go:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+    image: musehood-go:local
+    container_name: musehood-go
+    ports:
+      - "3001:3001"
+    volumes:
+      - musehood-data:/data
+    environment:
+      PORT: "3001"
+      DATA_DIR: /data
+      # Ganti dengan host publik Anda bila diakses lewat domain/tunnel,
+      # mis. TRUSTED_HOSTS: "contoh.domain.com"
+      TRUSTED_HOSTS: ""
+    restart: unless-stopped
+    # Opsional: aktifkan baris berikut agar sandbox bubblewrap untuk
+    # tool kode (run_code, run_build, run_tests, run_server) bekerja
+    # di dalam container. Tanpa ini tool kode jatuh ke mode terbatas.
+    # privileged: true
+
+volumes:
+  musehood-data:
