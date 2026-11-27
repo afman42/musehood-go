@@ -102,7 +102,7 @@ func (a *App) buildToolInstructions(code bool, s seat) string {
 		text = strings.Join(kept, "\n")
 	}
 	for _, tool := range a.loadCustomTools() {
-		if tool.Type == "shell" && !code {
+		if (tool.Type == "shell" || tool.Type == "javascript") && !code {
 			continue
 		}
 		if s.toolDisabled(tool.Name) {
@@ -346,7 +346,7 @@ func (a *App) runToolInner(ctx context.Context, cfg settings, s seat, name, arg 
 		return a.toolRunShell(ctx, s, arg), ""
 	default:
 		if tool, ok := a.findCustomTool(name); ok {
-			return a.runCustomTool(ctx, s, tool, arg, code), ""
+			return a.runCustomToolCfg(ctx, cfg, s, tool, arg, code), ""
 		}
 		return fmt.Sprintf("Tool %q tidak dikenal.", name), ""
 	}
@@ -670,6 +670,12 @@ func (a *App) toolRunCode(ctx context.Context, s seat, arg string) string {
 // filesystem di luar folder kerja tidak terlihat, tanpa jaringan, dengan
 // batas CPU/memori/proses lewat cgroup systemd-run --scope.
 func (a *App) executeCode(ctx context.Context, interpreter, ext, code string) string {
+	return a.executeCodeStdin(ctx, interpreter, ext, code, "")
+}
+
+// executeCodeStdin seperti executeCode, tetapi memberi stdin ke proses
+// (dipakai tool kustom javascript, fitur 23).
+func (a *App) executeCodeStdin(ctx context.Context, interpreter, ext, code, stdin string) string {
 	dir := a.sandboxDir()
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return "Error: gagal membuat folder kerja."
@@ -702,10 +708,16 @@ func (a *App) executeCode(ctx context.Context, interpreter, ext, code string) st
 
 	args := append([]string{"--quiet", "--scope", "-p", "MemoryMax=256M", "-p", "TasksMax=64", "-p", "CPUQuota=50%", "bwrap"}, bwrapArgs...)
 	cmd := exec.CommandContext(runCtx, "systemd-run", args...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil && strings.Contains(string(out), "Failed to") {
 		// systemd-run tidak tersedia di lingkungan ini: jalankan bwrap langsung.
 		cmd = exec.CommandContext(runCtx, "bwrap", bwrapArgs...)
+		if stdin != "" {
+			cmd.Stdin = strings.NewReader(stdin)
+		}
 		out, err = cmd.CombinedOutput()
 	}
 	text := strings.TrimSpace(string(out))

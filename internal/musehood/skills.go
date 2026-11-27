@@ -25,6 +25,9 @@ type skillDef struct {
 	// (~/.claude/skills). Kosong untuk skill yang dibuat di tes.
 	Source string `json:"source,omitempty"`
 	Body   string `json:"-"`
+	// Usage adalah hitungan pemakaian skill (fitur 27), diisi dari
+	// data.SkillUsage saat daftar skill dibaca klien.
+	Usage int `json:"usage,omitempty"`
 }
 
 func (a *App) skillsDir() string {
@@ -156,6 +159,12 @@ func (a *App) skillsPrompt(s seat) string {
 			continue
 		}
 		builder.WriteString("\n\n## Skill: " + skill.Name + "\n" + skill.Body)
+		// Statistik pemakaian skill (fitur 27): semua pemanggil
+		// skillsPrompt memegang a.mu, jadi aman menaikkan hitungan.
+		if a.data.SkillUsage == nil {
+			a.data.SkillUsage = map[string]int{}
+		}
+		a.data.SkillUsage[skill.Name]++
 		if builder.Len() > maxSkillsPromptChars {
 			break
 		}

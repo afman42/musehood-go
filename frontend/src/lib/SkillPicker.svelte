@@ -47,8 +47,8 @@
   {#if search.trim()}
     <div class="skill-results">
       {#each results as skill (skill.name)}
-        <button class="skill-result" type="button" aria-label={`Tambah skill ${skill.name}`} onclick={() => add(skill.name)}>
-          <strong>{skill.name}</strong>{#if skill.source}<span class="skill-source">{skill.source}</span>{/if}{#if skill.description}<small>{skill.description}</small>{/if}
+        <button class="skill-result" type="button" aria-label={`Tambah skill ${skill.name}`} title={skill.usage ? `Dipakai ${skill.usage}×` : undefined} onclick={() => add(skill.name)}>
+          <strong>{skill.name}</strong>{#if skill.usage}<span class="skill-source">{skill.usage}×</span>{/if}{#if skill.source}<span class="skill-source">{skill.source}</span>{/if}{#if skill.description}<small>{skill.description}</small>{/if}
         </button>
       {/each}
       {#if showCustom}

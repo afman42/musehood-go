@@ -78,6 +78,9 @@
       name: room.name,
       seatCodes: room.seatCodes && room.seatCodes.length ? [...room.seatCodes] : current!.seats.map((s) => s.code),
       seatOrder: [...(room.seatOrder ?? [])],
+      icon: room.icon ?? '',
+      color: room.color ?? '',
+      disabledTools: [...(room.disabledTools ?? [])],
     }));
   }
 

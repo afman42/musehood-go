@@ -11,6 +11,30 @@ import (
 	"fmt"
 )
 
+// applyRoomDisabledToolsLocked menggabung tool nonaktif ruang (fitur 25)
+// ke salinan kursi yang akan menjawab, sehingga instruksi tool dan
+// eksekusi tool sama-sama menghormatinya. Pemanggil wajib memegang a.mu.
+func (a *App) applyRoomDisabledToolsLocked(j *job, member *seat) {
+	r := a.data.findRoom(j.RoomID)
+	if r == nil || len(r.DisabledTools) == 0 {
+		return
+	}
+	merged := append([]string{}, member.DisabledTools...)
+	for _, name := range r.DisabledTools {
+		found := false
+		for _, existing := range merged {
+			if existing == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			merged = append(merged, name)
+		}
+	}
+	member.DisabledTools = merged
+}
+
 // parallelEligibleLocked memeriksa apakah pekerjaan boleh dijalankan
 // paralel. Pemanggil wajib memegang a.mu.
 func (a *App) parallelEligibleLocked(j *job) bool {
@@ -60,6 +84,7 @@ func (a *App) advanceParallelLocked(j *job) {
 	for i := range j.Steps {
 		s := &j.Steps[i]
 		member := *a.data.findSeat(s.Seat)
+		a.applyRoomDisabledToolsLocked(j, &member)
 		m := a.messageLocked(j, s, member)
 		if a.budgetExceededLocked(member) {
 			key := j.ID + "|" + member.Code

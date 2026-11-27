@@ -19,7 +19,7 @@
   {#each ordered as room (room.id)}
     {@const unread = room.id === activeRoomId ? 0 : unreadCount(room)}
     <span class="room-chip-wrap">
-      <button class="room-chip" class:active={room.id === activeRoomId} type="button" title={`Ruang ${room.name}`} onclick={() => onSwitch(room.id)}>{room.pinned ? '📌 ' : ''}{room.name}{#if unread > 0}<span class="room-badge" aria-label={`${unread} ${t('unread')}`}>{unread > 99 ? '99+' : unread}</span>{/if}</button>
+      <button class="room-chip" class:active={room.id === activeRoomId} style={room.color ? `border-color: ${room.color}; box-shadow: inset 0 0 0 1px ${room.color}` : undefined} type="button" title={`Ruang ${room.name}`} onclick={() => onSwitch(room.id)}>{room.pinned ? '📌 ' : ''}{room.icon ? `${room.icon} ` : ''}{room.name}{#if unread > 0}<span class="room-badge" aria-label={`${unread} ${t('unread')}`}>{unread > 99 ? '99+' : unread}</span>{/if}</button>
       <button class="room-pin" type="button" title={room.pinned ? t('unpinRoom') : t('pinRoom')} aria-label={room.pinned ? t('unpinRoom') : t('pinRoom')} onclick={() => onTogglePin(room)}>{room.pinned ? '📌' : '📍'}</button>
     </span>
   {/each}

@@ -568,6 +568,7 @@ func (a *App) advanceLocked(j *job) {
 	for j.Index < len(j.Steps) {
 		s := &j.Steps[j.Index]
 		member := *a.data.findSeat(s.Seat)
+		a.applyRoomDisabledToolsLocked(j, &member)
 		m := a.messageLocked(j, s, member)
 		// Balasan berantai (fitur 14): tautkan pesan ini ke balasan kursi
 		// sebelumnya pada diskusi bergilir.

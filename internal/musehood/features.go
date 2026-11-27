@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -12,10 +13,47 @@ import (
 // --- Ruang (multi-room) ---
 
 type roomInput struct {
-	Name      *string   `json:"name"`
-	SeatCodes *[]string `json:"seatCodes"`
-	SeatOrder *[]string `json:"seatOrder"`
-	Pinned    *bool     `json:"pinned"`
+	Name          *string   `json:"name"`
+	SeatCodes     *[]string `json:"seatCodes"`
+	SeatOrder     *[]string `json:"seatOrder"`
+	Pinned        *bool     `json:"pinned"`
+	Icon          *string   `json:"icon"`
+	Color         *string   `json:"color"`
+	DisabledTools *[]string `json:"disabledTools"`
+}
+
+var roomColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// validateRoomIconColor memvalidasi ikon (maks 8 rune) dan warna
+// (#rrggbb) ruang (fitur 19).
+func validateRoomIconColor(icon, color string) error {
+	if len([]rune(strings.TrimSpace(icon))) > 8 {
+		return problem(400, "Ikon ruang maksimal 8 karakter.")
+	}
+	if color != "" && !roomColorPattern.MatchString(color) {
+		return problem(400, "Warna ruang harus berformat #rrggbb.")
+	}
+	return nil
+}
+
+// validateRoomDisabledTools memvalidasi daftar tool nonaktif ruang
+// (fitur 25).
+func validateRoomDisabledTools(tools []string) ([]string, error) {
+	if len(tools) > 60 {
+		return nil, problem(400, "Terlalu banyak tool dinonaktifkan.")
+	}
+	out := []string{}
+	for _, name := range tools {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if !customToolNamePattern.MatchString(name) {
+			return nil, problem(400, "Nama tool tidak valid.")
+		}
+		out = append(out, name)
+	}
+	return out, nil
 }
 
 func (a *App) roomViewsLocked() []map[string]any {
@@ -93,7 +131,24 @@ func (a *App) createRoomLocked(input roomInput) (any, error) {
 			return nil, err
 		}
 	}
-	r := room{ID: newRoomID(), Name: name, CreatedAt: now(), SeatCodes: codes, SeatOrder: order}
+	icon, color := "", ""
+	if input.Icon != nil {
+		icon = strings.TrimSpace(*input.Icon)
+	}
+	if input.Color != nil {
+		color = strings.TrimSpace(*input.Color)
+	}
+	if err := validateRoomIconColor(icon, color); err != nil {
+		return nil, err
+	}
+	disabledTools := []string{}
+	if input.DisabledTools != nil {
+		disabledTools, err = validateRoomDisabledTools(*input.DisabledTools)
+		if err != nil {
+			return nil, err
+		}
+	}
+	r := room{ID: newRoomID(), Name: name, CreatedAt: now(), SeatCodes: codes, SeatOrder: order, Icon: icon, Color: color, DisabledTools: disabledTools}
 	previous := a.data
 	a.data.Rooms = append(a.data.Rooms, r)
 	a.data.ActiveRoomID = r.ID
@@ -134,6 +189,22 @@ func (a *App) updateRoomLocked(id string, input roomInput) (any, error) {
 	}
 	if input.Pinned != nil {
 		next.Pinned = *input.Pinned
+	}
+	if input.Icon != nil {
+		next.Icon = strings.TrimSpace(*input.Icon)
+	}
+	if input.Color != nil {
+		next.Color = strings.TrimSpace(*input.Color)
+	}
+	if err := validateRoomIconColor(next.Icon, next.Color); err != nil {
+		return nil, err
+	}
+	if input.DisabledTools != nil {
+		tools, err := validateRoomDisabledTools(*input.DisabledTools)
+		if err != nil {
+			return nil, err
+		}
+		next.DisabledTools = tools
 	}
 	*r = next
 	if err := a.saveLocked(); err != nil {

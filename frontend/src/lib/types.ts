@@ -24,7 +24,7 @@ export type Settings = {
   telegramEnabled?: boolean;
   hasTelegramToken?: boolean;
 };
-export type SkillDef = { name: string; description: string; source?: string };
+export type SkillDef = { name: string; description: string; source?: string; usage?: number };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
 export type Attachment = { url: string; name: string; size: number; mime: string };
 export type Message = {
@@ -73,5 +73,5 @@ export type DailyUsage = { tokensIn: number; tokensOut: number; costUsd: number 
 export type LoginEvent = { time: string; ip: string; success: boolean };
 export type Notice = { text: string; error: boolean; target: string | null };
 export type SeatEdit = { code: string; name: string; role: string; provider: 'muse' | 'gateway'; model?: string; prompt: string; fallbackModel: string; fallbackModels: string; disabledTools: string[]; memory: string; skills: string; autoMemory: boolean; dailyBudgetUsd: number; modelChat: string; modelTools: string; modelSummary: string };
-export type RoomEdit = { id: string; name: string; seatCodes: string[]; seatOrder: string[] };
+export type RoomEdit = { id: string; name: string; seatCodes: string[]; seatOrder: string[]; icon: string; color: string; disabledTools: string[] };
 export type ModelTestResult = { ok: boolean; latencyMs?: number; reply?: string; error?: string };

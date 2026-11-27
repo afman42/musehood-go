@@ -549,7 +549,13 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		}
 		return a.respondLocked(201, func() (any, error) { return a.createScheduledLocked(input) })
 	case "/api/skills":
-		return a.respondLocked(200, func() (any, error) { return map[string]any{"skills": a.loadSkills()}, nil })
+		return a.respondLocked(200, func() (any, error) {
+			skills := a.loadSkills()
+			for i := range skills {
+				skills[i].Usage = a.data.SkillUsage[skills[i].Name]
+			}
+			return map[string]any{"skills": skills}, nil
+		})
 	case "/api/tools":
 		return a.respondLocked(200, func() (any, error) {
 			builtin := make([]string, 0, len(builtinToolNames))
