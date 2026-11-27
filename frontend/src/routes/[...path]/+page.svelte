@@ -12,8 +12,11 @@
   import SeatInfoDialog from '../../lib/SeatInfoDialog.svelte';
   import ScheduleDialog from '../../lib/ScheduleDialog.svelte';
   import DebateDialog from '../../lib/DebateDialog.svelte';
+  import ABTestDialog from '../../lib/ABTestDialog.svelte';
   import ShortcutHelpDialog from '../../lib/ShortcutHelpDialog.svelte';
   import { shortcutAction } from '../../lib/shortcuts';
+  import { parseSlashCommand, slashMessageText, SLASH_HELP_TEXT } from '../../lib/slash';
+  import { nextRating } from '../../lib/rating';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
@@ -27,6 +30,7 @@
   let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialog>>();
   let scheduleDialog = $state<ReturnType<typeof ScheduleDialog>>();
   let debateDialog = $state<ReturnType<typeof DebateDialog>>();
+  let abDialog = $state<ReturnType<typeof ABTestDialog>>();
   let shortcutHelp = $state<ReturnType<typeof ShortcutHelpDialog>>();
   let roomDialog = $state<ReturnType<typeof RoomDialog>>();
   let composer = $state<ReturnType<typeof Composer>>();
@@ -76,6 +80,10 @@
   let matchIndex = $state(0);
   let pinInput = $state('');
   let pinBusy = $state(false);
+  // Nama pengirim terpilih (fitur 21): '' = pemilik.
+  let author = $state('');
+  // Pesan lokal (hasil /bantu) yang tidak dikirim ke server (fitur 34).
+  let localMessages = $state<Array<{ id: string; text: string }>>([]);
 
   const day = new Intl.DateTimeFormat('id-ID');
   const fullDay = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -170,15 +178,39 @@
   async function send(event: SubmitEvent) {
     event.preventDefault();
     if ((!text.trim() && !pendingImage && !pendingFile) || submitting) return;
+    // Perintah /slash (fitur 34): ubah menjadi pesan pemilik biasa.
+    let outgoing = text.trim();
+    if (!pendingImage && !pendingFile) {
+      const parsed = parseSlashCommand(outgoing);
+      if (parsed) {
+        if (parsed.command === 'bantu') {
+          localMessages = [...localMessages, { id: `local-${Date.now()}`, text: SLASH_HELP_TEXT }];
+          await composer?.setText('');
+          await tick();
+          messages?.scrollTo({ top: messages.scrollHeight, behavior: 'smooth' });
+          composer?.focus();
+          return;
+        }
+        const integrator = current?.seats.find((s) => s.code === (current.settings.integratorSeat || 'MUSE')) ?? current?.seats[0];
+        const coder = current?.seats.find((s) => s.rolePreset === 'coder') ?? integrator;
+        const transformed = slashMessageText(parsed, integrator?.name ?? 'Muse', coder?.name ?? integrator?.name ?? 'Muse');
+        if (transformed === null) {
+          chat.notify(`Perintah /${parsed.command} butuh teks sesudahnya. Ketik /bantu untuk daftar perintah.`, true);
+          return;
+        }
+        outgoing = transformed;
+      }
+    }
     submitting = true;
     try {
       forceScroll = true;
       await chat.sendMessage({
-        text: text.trim(),
+        text: outgoing,
         ...(replyTo ? { replyTo: replyTo.id } : {}),
         ...(pendingImage ? { imageUrl: pendingImage } : {}),
         ...(pendingFile ? { attachment: pendingFile } : {}),
         ...(selectedTemplate ? { templateId: selectedTemplate } : {}),
+        ...(author ? { author } : {}),
       });
       await composer?.setText('');
       replyTo = undefined;
@@ -288,6 +320,28 @@
     chat.notify('Debat dimulai.');
   }
 
+  async function startABTest(question: string, modelA: string, modelB: string) {
+    try {
+      forceScroll = true;
+      await chat.startABTest(question, modelA, modelB);
+      chat.notify('Uji A/B dimulai — dua jawaban sedang dibuat.');
+    } catch (error) {
+      chat.notify(errorText(error), true);
+      throw error;
+    }
+  }
+
+  async function rateMessage(message: Message, clicked: number) {
+    try { await chat.rateMessage(message, nextRating(message.rating ?? 0, clicked)); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
+  async function pickAB(message: Message) {
+    if (!message.abGroup) return;
+    try { await chat.pickABWinner(message.abGroup, message.id); }
+    catch (error) { chat.notify(errorText(error), true); }
+  }
+
   async function toggleReact(message: Message, emoji: string) {
     reactFor = '';
     try { await chat.toggleReact(message, emoji); }
@@ -367,7 +421,8 @@
   }
 
   function authorName(message: Message): string {
-    return message.authorType === 'owner' ? current?.owner.name ?? '' : current?.seats.find(s => s.code === message.seat)?.name ?? message.seat ?? '';
+    if (message.authorType === 'owner') return message.author || current?.owner.name || '';
+    return current?.seats.find(s => s.code === message.seat)?.name ?? message.seat ?? '';
   }
 </script>
 
@@ -412,6 +467,9 @@
       onInput={() => chat.scheduleSearch(query.trim(), searchFilters)} onPrev={() => jumpTo(-1)} onNext={() => jumpTo(1)} onClose={toggleSearch} onJumpResult={jumpToResult} />
   {/if}
   <div class="visually-hidden" aria-live="polite">{liveAnnouncement}</div>
+  {#if !chat.online}
+    <div class="offline-banner" role="status">Offline — menampilkan data terakhir. Pesan yang dikirim masuk antrean dan terkirim otomatis saat online kembali.</div>
+  {/if}
   <SeatStrip seats={chat.roomSeats} onMention={(seat) => composer?.insertMention(seat.name)} />
   {#if current && !chat.connectionReady}
     <button id="connectionNotice" class="connection-notice" type="button" onclick={() => settingsPanel?.open()}><span class="notice-dot"></span><span>Hubungkan gateway melalui Pengaturan untuk mengaktifkan enam kursi AI.</span><span aria-hidden="true">›</span></button>
@@ -445,19 +503,15 @@
         <p class="empty-note">Muse terhubung melalui antrean pekerja lokal.</p>
       </div>
     {:else}
-      {#each current.messages as message, index (message.id)}
-        {@const date = new Date(message.createdAt)}
+      {#snippet bubble(message: Message)}
         {@const own = message.authorType === 'owner'}
         {@const seat = current.seats.find(s => s.code === message.seat)}
-        {@const author = own ? current.owner : seat}
+        {@const authorIdentity = own ? current.owner : seat}
         {@const quoted = message.replyTo ? current.messages.find(m => m.id === message.replyTo) : undefined}
-        {#if index === 0 || day.format(date) !== day.format(new Date(current.messages[index - 1].createdAt))}
-          <div class="date-divider"><span>{day.format(date) === day.format(new Date()) ? 'Hari ini' : fullDay.format(date)}</span></div>
-        {/if}
         <MessageBubble
           {message} {seat} seats={chat.roomSeats} {own}
-          name={author?.name ?? message.seat ?? ''}
-          avatar={author?.avatar ?? '/avatars/group.svg'}
+          name={own ? (message.author || authorIdentity?.name || '') : (authorIdentity?.name ?? message.seat ?? '')}
+          avatar={authorIdentity?.avatar ?? '/avatars/group.svg'}
           {quoted}
           quotedAuthorName={quoted ? authorName(quoted) : ''}
           editing={editingId === message.id}
@@ -482,7 +536,33 @@
           onBranch={() => branchMessage(message)}
           onTags={(tags) => setTags(message, tags)}
           onExport={() => exportDiscussion(message)}
+          onRate={(clicked) => rateMessage(message, clicked)}
+          onPickAB={() => pickAB(message)}
         />
+      {/snippet}
+      {#each current.messages as message, index (message.id)}
+        {@const date = new Date(message.createdAt)}
+        {@const prev = current.messages[index - 1]}
+        {@const next = current.messages[index + 1]}
+        {#if index === 0 || day.format(date) !== day.format(new Date(current.messages[index - 1].createdAt))}
+          <div class="date-divider"><span>{day.format(date) === day.format(new Date()) ? 'Hari ini' : fullDay.format(date)}</span></div>
+        {/if}
+        {#if message.abLabel === 'B' && prev?.abGroup && prev.abGroup === message.abGroup}
+          <!-- sudah dirender berdampingan dengan model A -->
+        {:else if message.abLabel === 'A' && next?.abGroup === message.abGroup && next.abLabel === 'B'}
+          <div class="ab-pair">{@render bubble(message)}{@render bubble(next)}</div>
+        {:else}
+          {@render bubble(message)}
+        {/if}
+      {/each}
+      {#each localMessages as local (local.id)}
+        <article class="message local-message" data-message-id={local.id}>
+          <img class="message-avatar" src={current.group.avatar} alt="Musehood">
+          <div class="bubble">
+            <div class="message-meta"><span class="author-name">Musehood</span><span class="author-role">Bantuan lokal</span></div>
+            <div class="message-text local-text">{local.text}</div>
+          </div>
+        </article>
       {/each}
     {/if}
   </section>
@@ -492,13 +572,16 @@
   <Composer bind:this={composer} bind:text {submitting} {asking} {voting} {uploadingImage} {uploadingFile} {uploadProgress}
     {replyTo} replyAuthorName={replyTo ? authorName(replyTo) : ''} {pendingImage} {pendingFile}
     templates={current?.templates ?? []} bind:selectedTemplate
+    participants={current?.rooms.find((room) => room.id === current.activeRoomId)?.participants ?? []}
+    ownerName={current?.owner.name ?? ''} bind:author
     onSend={send} onProgress={progress} onVote={startVote}
     onOpenMention={() => { if (current) mentionDialog?.open(); }}
     onImagePrompt={() => composer?.setText(/^Gambar\s*:/i.test(text) ? text : `Gambar: ${text}`)}
     onUploadImage={() => imageInput.click()} onUploadFile={() => fileInput.click()}
     onCancelReply={() => replyTo = undefined} onCancelImage={() => pendingImage = ''} onCancelFile={() => pendingFile = null}
     onSchedule={() => scheduleDialog?.open(text)}
-    onDebate={() => debateDialog?.open()} />
+    onDebate={() => debateDialog?.open()}
+    onABTest={() => abDialog?.open()} />
 </main>
 {/if}
 
@@ -508,6 +591,7 @@
 <ScheduleDialog bind:this={scheduleDialog} listScheduled={chat.listScheduled} createScheduled={chat.createScheduled} updateScheduled={chat.updateScheduled} deleteScheduled={chat.deleteScheduled} notify={chat.notify} roomId={current?.activeRoomId ?? ''} />
 <RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
 <DebateDialog bind:this={debateDialog} seats={current?.seats ?? []} notice={chat.notice} onStart={startDebate} />
+<ABTestDialog bind:this={abDialog} current={chat.current} notice={chat.notice} onStart={startABTest} />
 <ShortcutHelpDialog bind:this={shortcutHelp} />
 <Toast notice={chat.notice} target={null} />
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>

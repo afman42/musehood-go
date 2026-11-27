@@ -6,7 +6,7 @@
   let {
     message, seat, seats, own, name, avatar, quoted, quotedAuthorName,
     editing, editText = $bindable(''), reactOpen, emojis, query,
-    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick, onRegenerate, onRerun, onFork, onExport, onBranch, onTags,
+    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick, onRegenerate, onRerun, onFork, onExport, onBranch, onTags, onRate, onPickAB,
   }: {
     message: Message;
     seat: Seat | undefined;
@@ -38,6 +38,8 @@
     onExport: () => void;
     onBranch: () => void;
     onTags: (tags: string[]) => void;
+    onRate: (rating: number) => void;
+    onPickAB: () => void;
   } = $props();
 
   function editTags() {
@@ -54,9 +56,10 @@
 <article class="message" class:message-owner={own} class:message-final={message.label} data-message-id={message.id}>
   <img class="message-avatar" src={avatar} alt={name}>
   <div class="bubble">
-    <div class="message-meta"><span class="author-name">{name}</span><span class="author-role">{own ? 'Pemilik' : seat?.role ?? ''}</span><time datetime={message.createdAt} title={date.toLocaleString('id-ID')}>{clock.format(date)}</time>{#if message.editedAt}<span class="edited-label" title="Diedit {new Date(message.editedAt).toLocaleString('id-ID')}">(diedit)</span>{/if}{#if message.pinned}<span class="pin-label" title="Pesan tersemat">📌</span>{/if}</div>
+    <div class="message-meta"><span class="author-name">{name}</span><span class="author-role">{own ? (message.author ? 'Peserta' : 'Pemilik') : seat?.role ?? ''}</span><time datetime={message.createdAt} title={date.toLocaleString('id-ID')}>{clock.format(date)}</time>{#if message.editedAt}<span class="edited-label" title="Diedit {new Date(message.editedAt).toLocaleString('id-ID')}">(diedit)</span>{/if}{#if message.pinned}<span class="pin-label" title="Pesan tersemat">📌</span>{/if}{#if message.abGroup}<span class="ab-label" title="Uji A/B">Uji A/B · Model {message.abLabel}{#if message.model} · {message.model}{/if}</span>{/if}{#if message.chainId}<span class="chain-label" title="Langkah rantai prompt">⛓ Langkah {message.chainStep}</span>{/if}</div>
     {#if message.label}<div class="final-label">{message.label}</div>{/if}
     {#if message.bestAnswer}<div class="best-label">★ Jawaban Terbaik{#if message.votes} · {message.votes} suara{/if}</div>{/if}
+    {#if message.abWinner}<div class="best-label">🏆 Pemenang uji A/B</div>{/if}
     {#if message.demo}<span class="demo-label">DEMO</span>{/if}
     {#if quoted}
       <button class="quote-block" type="button" onclick={() => onJumpQuote(quoted.id)}>
@@ -76,6 +79,12 @@
       {#if message.text}
         <div class="message-text"><MarkdownText text={message.text} {seats} {query} {onMentionClick} /></div>
       {/if}
+    {/if}
+    {#if message.originalText}
+      <details class="original-text">
+        <summary>✎ Dikoreksi peninjau — lihat teks asli</summary>
+        <div class="message-text"><MarkdownText text={message.originalText} {seats} {query} {onMentionClick} /></div>
+      </details>
     {/if}
     {#if message.imageUrl}
       <a class="image-link" href={message.imageUrl} target="_blank" rel="noopener" title="Buka gambar ukuran penuh"><img class="chat-image" src={message.imageUrl} alt={message.text || `Gambar dari ${name}`} loading="lazy" onload={onImageLoad}></a>
@@ -137,6 +146,13 @@
         <button class="msg-action" type="button" aria-label="Ubah tag" title="Ubah tag" onclick={editTags}>🏷</button>
         <button class="msg-action" type="button" aria-label="Ekspor diskusi ini" title="Ekspor diskusi ini" onclick={onExport}>⬇</button>
         <button class="msg-action" type="button" aria-label="Hapus pesan" title="Hapus" onclick={onDelete}>🗑</button>
+      </div>
+    {/if}
+    {#if !own && message.status === 'completed'}
+      <div class="rating-bar" aria-label="Nilai balasan ini">
+        <button class="rating-button" class:active={message.rating === 1} type="button" aria-label="Balasan bagus" title="Bagus" onclick={() => onRate(1)}>👍</button>
+        <button class="rating-button" class:active={message.rating === -1} type="button" aria-label="Balasan kurang" title="Kurang" onclick={() => onRate(-1)}>👎</button>
+        {#if message.abGroup && !message.abWinner}<button class="secondary-button ab-pick" type="button" onclick={onPickAB}>Pilih ini</button>{/if}
       </div>
     {/if}
   </div>

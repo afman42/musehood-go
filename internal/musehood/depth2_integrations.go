@@ -114,7 +114,7 @@ func (a *App) externalMessage(w http.ResponseWriter, r *http.Request) (int, json
 	if stored == "" || given == "" || subtle.ConstantTimeCompare([]byte(given), []byte(stored)) != 1 {
 		return 0, nil, problem(401, "Token API eksternal tidak valid.")
 	}
-	j, err := a.submitLocked(body.Text, "", "", nil, a.data.ActiveRoomID, false)
+	j, err := a.submitLocked(body.Text, "", "", nil, a.data.ActiveRoomID, "", false)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -198,7 +198,7 @@ func (a *App) telegramPollOnce(cfg settings, offset int64) {
 		}
 		if update.Message != nil && update.Message.Text != "" &&
 			strconv.FormatInt(update.Message.Chat.ID, 10) == a.data.Settings.TelegramChatID {
-			_, _ = a.submitLocked(update.Message.Text, "", "", nil, a.data.ActiveRoomID, false)
+			_, _ = a.submitLocked(update.Message.Text, "", "", nil, a.data.ActiveRoomID, "", false)
 		}
 		_ = a.saveLocked()
 		a.mu.Unlock()

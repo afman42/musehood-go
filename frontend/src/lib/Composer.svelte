@@ -2,14 +2,16 @@
   import { tick } from 'svelte';
   import { attachmentLabel, humanSize } from './format';
   import { t } from './i18n.svelte';
+  import { SLASH_COMMANDS } from './slash';
   import type { Attachment, DiscussionTemplate, Message } from './types';
 
   let {
     text = $bindable(''), submitting, asking, voting, uploadingImage, uploadingFile, uploadProgress,
     replyTo, replyAuthorName, pendingImage, pendingFile,
     templates = [], selectedTemplate = $bindable(''),
+    participants = [], ownerName = '', author = $bindable(''),
     onSend, onProgress, onVote, onOpenMention, onImagePrompt, onUploadImage, onUploadFile,
-    onCancelReply, onCancelImage, onCancelFile, onSchedule, onDebate,
+    onCancelReply, onCancelImage, onCancelFile, onSchedule, onDebate, onABTest,
   }: {
     text?: string;
     submitting: boolean;
@@ -24,6 +26,9 @@
     pendingFile: Attachment | null;
     templates?: DiscussionTemplate[];
     selectedTemplate?: string;
+    participants?: string[];
+    ownerName?: string;
+    author?: string;
     onSend: (event: SubmitEvent) => void;
     onProgress: () => void;
     onVote: () => void;
@@ -36,6 +41,7 @@
     onCancelFile: () => void;
     onSchedule: () => void;
     onDebate: () => void;
+    onABTest: () => void;
   } = $props();
 
   let input: HTMLTextAreaElement;
@@ -100,6 +106,19 @@
       composer.requestSubmit();
     }
   }
+
+  // Petunjuk perintah /slash (fitur 34): tampil saat teks diawali "/" dan
+  // perintah belum selesai diketik (belum ada spasi).
+  const slashHints = $derived.by(() => {
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith('/') || trimmed.includes(' ') || trimmed.includes('\n')) return [];
+    const prefix = trimmed.slice(1).toLowerCase();
+    return SLASH_COMMANDS.filter((item) => item.name.startsWith(prefix));
+  });
+
+  function pickSlash(name: string) {
+    void setText(`/${name} `);
+  }
 </script>
 
 <footer class="composer-area">
@@ -133,6 +152,13 @@
     <button id="voteButton" class="action-chip" type="button" onclick={onVote} disabled={voting}>★ {voting ? 'Memulai voting…' : t('vote').replace('⭐ ', '')}</button>
     <button id="scheduleButton" class="action-chip" type="button" onclick={onSchedule}>{t('schedule')}</button>
     <button id="debateButton" class="action-chip" type="button" onclick={onDebate}>⚖ Debat</button>
+    <button id="abTestButton" class="action-chip" type="button" onclick={onABTest}>🅰🅱 Uji A/B</button>
+    {#if participants.length}
+      <select id="authorSelect" class="template-select" aria-label="Nama pengirim" bind:value={author}>
+        <option value="">{ownerName}</option>
+        {#each participants as participant (participant)}<option value={participant}>{participant}</option>{/each}
+      </select>
+    {/if}
     {#if templates.length}
       <select id="templateSelect" class="template-select" aria-label="Template diskusi" bind:value={selectedTemplate}>
         <option value="">{t('noTemplate')}</option>
@@ -143,9 +169,18 @@
     <button id="uploadImageButton" class="action-chip" type="button" onclick={onUploadImage} disabled={uploadingImage}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V4m0 0L6.5 7.5M10 4l3.5 3.5M4 13v2.5h12V13"/></svg>{uploadingImage ? `Mengunggah… ${uploadProgress ?? 0}%` : 'Kirim Gambar'}</button>
     <button id="uploadFileButton" class="action-chip" type="button" onclick={onUploadFile} disabled={uploadingFile}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v8m0 0-3-3m3 3 3-3M4 15v2.5h12V15"/></svg>{uploadingFile ? `Mengunggah… ${uploadProgress ?? 0}%` : 'Lampirkan File'}</button>
   </div>
+  {#if slashHints.length}
+    <div class="slash-hints" role="listbox" aria-label="Perintah cepat">
+      {#each slashHints as item (item.name)}
+        <button class="slash-hint" type="button" role="option" aria-selected="false" onclick={() => pickSlash(item.name)}>
+          <strong>{item.usage}</strong><span>{item.hint}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
   <form bind:this={composer} id="composer" class="composer" onsubmit={onSend}>
     <textarea bind:this={input} bind:value={text} id="messageInput" rows="1" maxlength="20000" placeholder={t('composerPlaceholder')} aria-label="Pesan untuk grup" required={!pendingImage && !pendingFile} onkeydown={handleEnter} oninput={() => resizeInput()}></textarea>
     <button id="sendButton" class="send-button" class:sending={submitting} type="submit" aria-label={t('send')} title={t('send')} disabled={submitting}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8Z"/><path d="M7 12h13"/></svg>{#if submitting}<span class="send-label">{t('sending')} {sendSeconds} dtk</span>{/if}</button>
   </form>
-  <p class="composer-hint">Enter untuk kirim <span>·</span> Shift + Enter untuk baris baru</p>
+  <p class="composer-hint">Enter untuk kirim <span>·</span> Shift + Enter untuk baris baru <span>·</span> Ketik / untuk perintah cepat</p>
 </footer>

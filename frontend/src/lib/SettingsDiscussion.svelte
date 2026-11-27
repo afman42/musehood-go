@@ -26,7 +26,10 @@
     nativeToolsEnabled = $bindable(true), loadBalanceProviders = $bindable(false), parallelMode = $bindable(false),
     webhookUrl = $bindable(''), webhookEnabled = $bindable(false),
     telegramBotToken = $bindable(''), telegramChatId = $bindable(''), telegramEnabled = $bindable(false), hasTelegramToken = false,
-    theme = $bindable('light'), fontSize = $bindable('M'), seats,
+    theme = $bindable('light'), fontSize = $bindable('M'),
+    autoReview = $bindable(false), reviewerSeat = $bindable(''),
+    dailySummaryEnabled = $bindable(false), dailySummaryTime = $bindable('21:00'), dailySummaryChannel = $bindable('inbox'),
+    seats,
   }: {
     roundRobin?: boolean;
     reviewLevel?: ReviewLevel;
@@ -49,6 +52,11 @@
     hasTelegramToken?: boolean;
     theme?: string;
     fontSize?: string;
+    autoReview?: boolean;
+    reviewerSeat?: string;
+    dailySummaryEnabled?: boolean;
+    dailySummaryTime?: string;
+    dailySummaryChannel?: string;
     seats: SeatEdit[];
   } = $props();
 
@@ -83,4 +91,11 @@
   <label>{t('theme')}<select id="themeSelect" bind:value={theme}><option value="light">{t('themeLight')}</option><option value="dark">{t('themeDark')}</option><option value="auto">{t('themeAuto')}</option></select></label>
   <label>{t('fontSize')}<select id="fontSizeSelect" bind:value={fontSize}><option value="S">{t('fontSmall')}</option><option value="M">{t('fontMedium')}</option><option value="L">{t('fontLarge')}</option></select></label>
   <label>{t('language')}<select id="localeSelect" value={i18n.locale} onchange={(e) => setLocale((e.currentTarget as HTMLSelectElement).value as Locale)}><option value="id">Bahasa Indonesia</option><option value="en">English</option></select></label>
+  <label class="toggle-row"><span><strong>Koreksi otomatis balasan</strong><small>Sebelum ditampilkan, balasan kursi diperiksa kursi peninjau dan diperbaiki hanya bila ada kesalahan nyata. Teks asli tetap bisa dilihat di pesan.</small></span><input id="autoReview" type="checkbox" role="switch" bind:checked={autoReview}></label>
+  {#if autoReview}<label>Kursi peninjau<select id="reviewerSeat" bind:value={reviewerSeat}><option value="">Kursi integrator</option>{#each seats as item (item.code)}<option value={item.code}>{item.name} ({item.code})</option>{/each}</select></label>{/if}
+  <label class="toggle-row"><span><strong>Ringkasan harian terjadwal</strong><small>Setiap hari pada jam yang ditentukan (WIB), kursi integrator merangkum diskusi hari ini dari semua ruang.</small></span><input id="dailySummaryEnabled" type="checkbox" role="switch" bind:checked={dailySummaryEnabled}></label>
+  {#if dailySummaryEnabled}
+    <label>Jam ringkasan (WIB)<input id="dailySummaryTime" type="time" bind:value={dailySummaryTime}></label>
+    <label>Saluran ringkasan<select id="dailySummaryChannel" bind:value={dailySummaryChannel}><option value="inbox">Pesan di ruang utama saja</option><option value="webhook">Webhook</option><option value="telegram">Telegram</option></select></label>
+  {/if}
 </section>

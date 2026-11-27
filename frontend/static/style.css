@@ -408,3 +408,37 @@ html.dark .skill-install{border-color:#334155}
 .settings-form fieldset input::placeholder{color:#5f6f63}
 .settings-form .settings-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:13px}
 html.dark .settings-form fieldset input:not([type=checkbox]),html.dark .settings-form fieldset select,html.dark .settings-form>label select,html.dark .settings-form>label textarea{background:#26332b;border-color:#3a4a3f;color:var(--ink)}
+
+/* Batch 3: banner offline, petunjuk /slash, uji A/B, rating, koreksi, rantai, peserta, dokumen, ollama */
+.offline-banner{background:#fdf3d8;color:#7a5b00;border:1px solid #e8d48a;border-radius:10px;padding:8px 12px;margin:8px 12px 0;font-size:12px}
+html.dark .offline-banner{background:#3a3317;color:#f0d98a;border-color:#6b5f2a}
+.slash-hints{display:flex;flex-direction:column;gap:4px;margin:0 12px 8px;padding:8px;border:1px solid var(--border,#d7dde5);border-radius:12px;background:var(--surface,#fff)}
+html.dark .slash-hints{background:#26332b;border-color:#3a4a3f}
+.slash-hint{display:flex;gap:10px;align-items:baseline;text-align:left;background:none;border:0;padding:6px 8px;border-radius:8px;cursor:pointer;color:inherit;font:inherit}
+.slash-hint:hover{background:rgba(124,92,255,.12)}
+.slash-hint span{color:var(--muted,#667);font-size:12px}
+.ab-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+@media (max-width:720px){.ab-pair{grid-template-columns:1fr}}
+.ab-pair .message{min-width:0}
+.ab-label{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#e8e4ff;color:#4b3bb8}
+html.dark .ab-label{background:#2c2650;color:#c4bbff}
+.chain-label{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#e3f5e9;color:#146c2e}
+html.dark .chain-label{background:#12351f;color:#7ee2a0}
+.ab-pick{margin-left:8px;padding:2px 10px;font-size:12px}
+.rating-bar{display:flex;gap:6px;align-items:center;margin-top:6px}
+.rating-button{background:none;border:1px solid transparent;border-radius:999px;padding:2px 8px;cursor:pointer;font-size:13px;opacity:.55}
+.rating-button:hover{opacity:1}
+.rating-button.active{opacity:1;border-color:var(--border,#d7dde5);background:rgba(124,92,255,.12)}
+.original-text{margin-top:6px;font-size:12px}
+.original-text summary{cursor:pointer;color:var(--muted,#667)}
+.local-text{white-space:pre-wrap}
+.participants-editor,.documents-editor{margin-top:10px}
+.participant-add{display:flex;gap:8px;align-items:center;margin-top:6px}
+.participant-add input{flex:1;min-width:0}
+.document-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:4px 0}
+.file-button{display:inline-block;cursor:pointer;margin-top:6px}
+.chain-step{border:1px solid var(--border,#d7dde5);border-radius:12px;padding:10px;margin:8px 0}
+html.dark .chain-step{border-color:#3a4a3f}
+.chain-run{display:flex;gap:8px;align-items:center;margin-top:6px}
+.chain-run input{flex:1;min-width:0}
+.ollama-model-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:4px 0}

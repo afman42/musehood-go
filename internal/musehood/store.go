@@ -61,6 +61,11 @@ type seat struct {
 	ModelChat    string `json:"modelChat,omitempty"`
 	ModelTools   string `json:"modelTools,omitempty"`
 	ModelSummary string `json:"modelSummary,omitempty"`
+	// RolePreset adalah preset peran kursi (fitur 22): "", "reviewer",
+	// "coder", "peneliti", "editor", "pengajar", atau "analis". Prompt
+	// presetnya digabung ke system prompt kursi. Berbeda dari Role
+	// (teks peran tampil bebas).
+	RolePreset string `json:"rolePreset,omitempty"`
 }
 
 // modelForTask mengembalikan nama model kursi ini untuk jenis tugas
@@ -181,6 +186,22 @@ type settings struct {
 	TelegramBotToken string `json:"telegramBotToken,omitempty"`
 	TelegramChatID   string `json:"telegramChatId,omitempty"`
 	TelegramEnabled  *bool  `json:"telegramEnabled,omitempty"`
+	// AutoReview mengizinkan kursi peninjau mengoreksi balasan kursi lain
+	// sebelum disimpan final (fitur 25). Nil berarti MATI.
+	AutoReview *bool `json:"autoReview,omitempty"`
+	// ReviewerSeat adalah kode kursi peninjau untuk AutoReview.
+	// Kosong berarti kursi integrator.
+	ReviewerSeat string `json:"reviewerSeat,omitempty"`
+	// DailySummaryEnabled mengizinkan ringkasan harian terjadwal
+	// (fitur 27). Nil berarti MATI.
+	DailySummaryEnabled *bool `json:"dailySummaryEnabled,omitempty"`
+	// DailySummaryTime adalah jam ringkasan harian "HH:MM" zona
+	// Asia/Jakarta. Kosong berarti "21:00".
+	DailySummaryTime string `json:"dailySummaryTime,omitempty"`
+	// DailySummaryChannel adalah saluran pengiriman ringkasan harian:
+	// "inbox" (hanya pesan di ruang utama), "webhook", atau "telegram".
+	// Kosong berarti "inbox".
+	DailySummaryChannel string `json:"dailySummaryChannel,omitempty"`
 }
 
 func (s settings) responseCacheOn() bool {
@@ -225,6 +246,31 @@ func (s settings) webhookOn() bool {
 
 func (s settings) telegramOn() bool {
 	return s.TelegramEnabled != nil && *s.TelegramEnabled && s.TelegramBotToken != "" && s.TelegramChatID != ""
+}
+
+func (s settings) autoReviewOn() bool {
+	return s.AutoReview != nil && *s.AutoReview
+}
+
+func (s settings) dailySummaryOn() bool {
+	return s.DailySummaryEnabled != nil && *s.DailySummaryEnabled
+}
+
+// dailySummaryTime mengembalikan jam ringkasan harian ("21:00" bila kosong).
+func (s settings) dailySummaryTime() string {
+	if t := strings.TrimSpace(s.DailySummaryTime); t != "" {
+		return t
+	}
+	return "21:00"
+}
+
+// dailySummaryChannel mengembalikan saluran ringkasan harian
+// ("inbox" bila kosong).
+func (s settings) dailySummaryChannel() string {
+	if c := strings.TrimSpace(s.DailySummaryChannel); c != "" {
+		return c
+	}
+	return "inbox"
 }
 
 // gatewayProvider adalah satu konfigurasi gateway kustom yang tersimpan.
@@ -292,6 +338,27 @@ type message struct {
 	BranchID string `json:"branchId,omitempty"`
 	// Tags adalah label bebas pemilik pada pesan (fitur 17), maks 5.
 	Tags []string `json:"tags,omitempty"`
+	// Author adalah nama pengirim pesan pemilik (fitur 21, ruang
+	// bersama multi-pengguna). Kosong berarti pemilik utama.
+	Author string `json:"author,omitempty"`
+	// Model adalah nama model yang menghasilkan balasan ini (diisi untuk
+	// balasan gateway dan uji A/B, fitur 23).
+	Model string `json:"model,omitempty"`
+	// ABGroup/ABLabel/ABWinner menandai pasangan uji A/B model
+	// (fitur 23): dua pesan berbagi ABGroup, label "A"/"B", dan pemenang
+	// pilihan pemilik.
+	ABGroup  string `json:"abGroup,omitempty"`
+	ABLabel  string `json:"abLabel,omitempty"`
+	ABWinner bool   `json:"abWinner,omitempty"`
+	// ChainID/ChainStep menandai hasil langkah rantai prompt (fitur 24).
+	ChainID   string `json:"chainId,omitempty"`
+	ChainStep int    `json:"chainStep,omitempty"`
+	// OriginalText menyimpan teks asli balasan sebelum koreksi otomatis
+	// kursi peninjau (fitur 25); hanya diisi bila koreksi mengubah teks.
+	OriginalText string `json:"originalText,omitempty"`
+	// Rating adalah penilaian pemilik atas balasan kursi (fitur 30):
+	// -1 (buruk), 0 (netral), 1 (bagus).
+	Rating int `json:"rating,omitempty"`
 }
 
 // branchID mengembalikan branch pesan ini ("main" bila kosong).
@@ -386,6 +453,9 @@ type room struct {
 	// DisabledTools adalah tool yang dinonaktifkan khusus di ruang ini
 	// (fitur 25), digabung dengan disabledTools kursi.
 	DisabledTools []string `json:"disabledTools,omitempty"`
+	// Participants adalah nama tamu terdaftar di ruang ini (fitur 21,
+	// ruang bersama multi-pengguna), maks 10 nama unik.
+	Participants []string `json:"participants,omitempty"`
 }
 
 // activeBranch mengembalikan branch aktif ruang ("main" bila kosong).
@@ -409,6 +479,7 @@ type presetSeat struct {
 	DisabledTools  []string `json:"disabledTools,omitempty"`
 	Memory         string   `json:"memory,omitempty"`
 	Skills         []string `json:"skills,omitempty"`
+	RolePreset     string   `json:"rolePreset,omitempty"`
 }
 
 // seatPreset adalah templat susunan kursi yang bisa disimpan dan dimuat ulang.
@@ -487,6 +558,14 @@ type data struct {
 	// TelegramOffset adalah offset update Telegram terakhir yang sudah
 	// diproses jembatan Telegram (fitur 43).
 	TelegramOffset int64 `json:"telegramOffset,omitempty"`
+	// Chains adalah rantai prompt tersimpan (fitur 24), maks 20.
+	Chains []promptChain `json:"chains,omitempty"`
+	// Documents adalah dokumen terlampir per ruang untuk konteks RAG
+	// sederhana (fitur 26); teks chunk saja, ikut cadangan.
+	Documents []roomDocument `json:"documents,omitempty"`
+	// LastDailySummary adalah tanggal ("2006-01-02", Asia/Jakarta)
+	// ringkasan harian terakhir dibuat (fitur 27).
+	LastDailySummary string `json:"lastDailySummary,omitempty"`
 }
 
 // toolLogEntry adalah satu catatan audit pemakaian tool.
@@ -1363,6 +1442,9 @@ func (a *App) stateLocked() any {
 	d.Settings.TelegramBotToken = ""
 	d.WorkerToken = ""
 	d.ToolLog = nil
+	// Chunk dokumen terlampir (fitur 26) tidak ikut state agar polling
+	// tetap ringan; daftar dokumen diakses lewat endpoint khusus.
+	d.Documents = nil
 	present := 0
 	if d.Owner.Present {
 		present++
@@ -1390,6 +1472,7 @@ func (a *App) stateLocked() any {
 		} `json:"presence"`
 		PendingApprovals []approval     `json:"pendingApprovals"`
 		Reactions        map[string]any `json:"reactions"`
+		Ratings          map[string]any `json:"ratings"`
 	}{d, views, a.roomViewsLocked(), struct {
 		settings
 		HasAPIKey        bool `json:"hasApiKey"`
@@ -1398,7 +1481,7 @@ func (a *App) stateLocked() any {
 	}{d.Settings, len(key) > 0, hasPin, hasTelegramToken}, struct {
 		Present int `json:"present"`
 		Total   int `json:"total"`
-	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.reactionsStatsLocked()}
+	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.reactionsStatsLocked(), a.ratingsStatsLocked()}
 }
 
 type nameUpdate struct {
@@ -1424,6 +1507,7 @@ type settingsUpdate struct {
 		ModelChat      *string   `json:"modelChat"`
 		ModelTools     *string   `json:"modelTools"`
 		ModelSummary   *string   `json:"modelSummary"`
+		RolePreset     *string   `json:"rolePreset"`
 	} `json:"seats"`
 	Settings *struct {
 		BaseURL         *string `json:"baseUrl"`
@@ -1452,6 +1536,11 @@ type settingsUpdate struct {
 		TelegramBotToken     *string `json:"telegramBotToken"`
 		TelegramChatID       *string `json:"telegramChatId"`
 		TelegramEnabled      *bool   `json:"telegramEnabled"`
+		AutoReview           *bool   `json:"autoReview"`
+		ReviewerSeat         *string `json:"reviewerSeat"`
+		DailySummaryEnabled  *bool   `json:"dailySummaryEnabled"`
+		DailySummaryTime     *string `json:"dailySummaryTime"`
+		DailySummaryChannel  *string `json:"dailySummaryChannel"`
 		ClearAPIKey          bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
@@ -1611,6 +1700,13 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 				}
 				*taskModel.dest = strings.TrimSpace(*taskModel.value)
 			}
+			if patch.RolePreset != nil {
+				preset := strings.TrimSpace(*patch.RolePreset)
+				if preset != "" && findRolePreset(preset) == nil {
+					return problem(400, "Preset peran kursi tidak dikenal.")
+				}
+				s.RolePreset = preset
+			}
 		}
 		seen := map[string]bool{}
 		for _, s := range next.Seats {
@@ -1736,6 +1832,37 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 		if patch.TelegramEnabled != nil {
 			enabled := *patch.TelegramEnabled
 			next.Settings.TelegramEnabled = &enabled
+		}
+		if patch.AutoReview != nil {
+			enabled := *patch.AutoReview
+			next.Settings.AutoReview = &enabled
+		}
+		if patch.ReviewerSeat != nil {
+			code := strings.TrimSpace(*patch.ReviewerSeat)
+			if code != "" && next.findSeat(code) == nil {
+				return problem(400, "Kursi peninjau tidak dikenal.")
+			}
+			next.Settings.ReviewerSeat = code
+		}
+		if patch.DailySummaryEnabled != nil {
+			enabled := *patch.DailySummaryEnabled
+			next.Settings.DailySummaryEnabled = &enabled
+		}
+		if patch.DailySummaryTime != nil {
+			at := strings.TrimSpace(*patch.DailySummaryTime)
+			if at != "" {
+				if _, err := time.Parse("15:04", at); err != nil {
+					return problem(400, "Jam ringkasan harian harus berformat HH:MM.")
+				}
+			}
+			next.Settings.DailySummaryTime = at
+		}
+		if patch.DailySummaryChannel != nil {
+			channel := strings.TrimSpace(*patch.DailySummaryChannel)
+			if channel != "" && channel != "inbox" && channel != "webhook" && channel != "telegram" {
+				return problem(400, "Saluran ringkasan harian harus inbox, webhook, atau telegram.")
+			}
+			next.Settings.DailySummaryChannel = channel
 		}
 		if patch.IntegratorSeat != nil {
 			code := strings.TrimSpace(*patch.IntegratorSeat)

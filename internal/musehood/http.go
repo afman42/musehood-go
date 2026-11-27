@@ -368,15 +368,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	path := r.URL.Path
 	var want string
 	switch path {
-	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools", "/api/tool-log", "/api/personas", "/api/update/check":
+	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools", "/api/tool-log", "/api/personas", "/api/update/check", "/api/roles":
 		want = http.MethodGet
-	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled", "/api/templates":
+	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled", "/api/templates", "/api/chains":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.Header().Set("Allow", "GET, POST")
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 		}
 		want = r.Method
-	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote", "/api/login", "/api/logout", "/api/pin", "/api/debate", "/api/skills/install", "/api/update/apply", "/api/external-token/regenerate", "/api/external/message":
+	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote", "/api/login", "/api/logout", "/api/pin", "/api/debate", "/api/skills/install", "/api/update/apply", "/api/external-token/regenerate", "/api/external/message", "/api/abtest", "/api/ollama/detect", "/api/ollama/add":
 		want = http.MethodPost
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
@@ -399,7 +399,13 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					w.Header().Set("Allow", "POST, DELETE")
 					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 				}
-			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive" || parts[1] == "branch") && r.Method == http.MethodPost {
+			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive" || parts[1] == "branch" || parts[1] == "participants") && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else if len(parts) == 2 && parts[1] == "documents" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+				want = r.Method
+			} else if len(parts) == 3 && parts[1] == "participants" && parts[2] == "remove" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else if len(parts) == 4 && parts[1] == "documents" && parts[3] == "delete" && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
@@ -435,6 +441,24 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			} else if len(parts) == 2 && parts[1] == "health" && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else if len(parts) == 2 && parts[1] == "latency-test" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
+			}
+		} else if strings.HasPrefix(path, "/api/chains/") {
+			rest := strings.TrimPrefix(path, "/api/chains/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else if len(parts) == 2 && (parts[1] == "delete" || parts[1] == "run") && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
+			}
+		} else if strings.HasPrefix(path, "/api/abtest/") {
+			rest := strings.TrimPrefix(path, "/api/abtest/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 2 && parts[1] == "pick" && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
@@ -545,6 +569,71 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		return a.respondLocked(200, func() (any, error) {
 			return map[string]any{"personas": builtinPersonas}, nil
 		})
+	case "/api/roles":
+		return a.respondLocked(200, func() (any, error) {
+			return map[string]any{"roles": builtinRoles}, nil
+		})
+	case "/api/chains":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) {
+				items := a.data.Chains
+				if items == nil {
+					items = []promptChain{}
+				}
+				return map[string]any{"chains": items}, nil
+			})
+		}
+		var input chainInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(201, func() (any, error) { return a.createChainLocked(input) })
+	case "/api/abtest":
+		var body struct {
+			Text   string `json:"text"`
+			ModelA string `json:"modelA"`
+			ModelB string `json:"modelB"`
+			RoomID string `json:"roomId"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(202, func() (any, error) {
+			group, ids, err := a.startABTestLocked(body.Text, body.ModelA, body.ModelB, body.RoomID)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"group": group, "messages": ids}, nil
+		})
+	case "/api/ollama/detect":
+		var body struct {
+			BaseURL string `json:"baseUrl"`
+		}
+		if r.ContentLength > 0 {
+			if err := readObject(w, r, &body); err != nil {
+				return 0, nil, err
+			}
+		}
+		base, err := validateOllamaBaseURL(body.BaseURL)
+		if err != nil {
+			return 0, nil, err
+		}
+		models, err := a.detectOllama(r.Context(), base)
+		if err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(200, func() (any, error) {
+			return map[string]any{"baseUrl": base, "models": models}, nil
+		})
+	case "/api/ollama/add":
+		var body struct {
+			BaseURL string `json:"baseUrl"`
+			Model   string `json:"model"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(200, func() (any, error) { return a.addOllamaProviderLocked(body.BaseURL, body.Model) })
 	case "/api/state":
 		return a.respondLocked(200, func() (any, error) { return a.stateLocked(), nil })
 	case "/api/rooms":
@@ -635,7 +724,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		})
 	case "/api/stats":
 		return a.respondLocked(200, func() (any, error) {
-			return map[string]any{"stats": a.statsWithCostLocked(), "cacheHits": a.cacheHitCount(), "reactions": a.reactionsStatsLocked()}, nil
+			return map[string]any{"stats": a.statsWithCostLocked(), "cacheHits": a.cacheHitCount(), "reactions": a.reactionsStatsLocked(), "ratings": a.ratingsStatsLocked()}, nil
 		})
 	case "/api/search":
 		query := r.URL.Query()
@@ -697,6 +786,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			Attachment *attachment `json:"attachment"`
 			RoomID     string      `json:"roomId"`
 			TemplateID string      `json:"templateId"`
+			Author     string      `json:"author"`
 		}
 		if err := readObject(w, r, &body); err != nil {
 			return 0, nil, err
@@ -709,7 +799,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 				}
 				return a.jobResponseLocked(j), nil
 			}
-			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, body.Attachment, body.RoomID, false)
+			j, err := a.submitLocked(body.Text, body.ReplyTo, body.ImageURL, body.Attachment, body.RoomID, body.Author, false)
 			if err != nil {
 				return nil, err
 			}
@@ -768,6 +858,43 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return created, nil
 		})
 	default:
+		if strings.HasPrefix(path, "/api/chains/") {
+			rest := strings.TrimPrefix(path, "/api/chains/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 2 && parts[1] == "delete" {
+				return a.respondLocked(200, func() (any, error) { return map[string]bool{"ok": true}, a.deleteChainLocked(parts[0]) })
+			}
+			if len(parts) == 2 && parts[1] == "run" {
+				var body struct {
+					Text   string `json:"text"`
+					RoomID string `json:"roomId"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(202, func() (any, error) { return a.runChainLocked(parts[0], body.Text, body.RoomID) })
+			}
+			if len(parts) == 1 {
+				var input chainInput
+				if err := readObject(w, r, &input); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.updateChainLocked(parts[0], input) })
+			}
+		}
+		if strings.HasPrefix(path, "/api/abtest/") {
+			rest := strings.TrimPrefix(path, "/api/abtest/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 2 && parts[1] == "pick" {
+				var body struct {
+					MessageID string `json:"messageId"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.pickABWinnerLocked(parts[0], body.MessageID) })
+			}
+		}
 		if strings.HasPrefix(path, "/api/templates/") {
 			id := strings.TrimPrefix(path, "/api/templates/")
 			if r.Method == http.MethodDelete {
@@ -835,6 +962,33 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					return 0, nil, err
 				}
 				return a.respondLocked(200, func() (any, error) { return a.switchBranchLocked(parts[0], body.BranchID) })
+			}
+			if len(parts) == 2 && parts[1] == "participants" {
+				var body struct {
+					Name string `json:"name"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.addParticipantLocked(parts[0], body.Name) })
+			}
+			if len(parts) == 3 && parts[1] == "participants" && parts[2] == "remove" {
+				var body struct {
+					Name string `json:"name"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.removeParticipantLocked(parts[0], body.Name) })
+			}
+			if len(parts) == 2 && parts[1] == "documents" {
+				if r.Method == http.MethodGet {
+					return a.respondLocked(200, func() (any, error) { return a.listDocumentsLocked(parts[0]) })
+				}
+				return a.uploadDocument(w, r, parts[0])
+			}
+			if len(parts) == 4 && parts[1] == "documents" && parts[3] == "delete" {
+				return a.respondLocked(200, func() (any, error) { return map[string]bool{"ok": true}, a.deleteDocumentLocked(parts[0], parts[2]) })
 			}
 			if len(parts) == 1 {
 				if r.Method == http.MethodDelete {

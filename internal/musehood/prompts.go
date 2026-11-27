@@ -54,6 +54,11 @@ func (a *App) systemPrompt(s seat, d data) string {
 	if d.Settings.skillsOn() {
 		prompt += a.skillsPrompt(s)
 	}
+	// Preset peran kursi (fitur 22): prompt perilaku tambahan digabung
+	// setelah Memory/Skills.
+	if preset := findRolePreset(s.RolePreset); preset != nil {
+		prompt += " Preset peran: " + preset.Prompt
+	}
 	return prompt
 }
 
@@ -114,7 +119,11 @@ func contextFor(d data, j *job) chatContext {
 		}
 		entry := contextMessage{Text: m.Text, Error: m.Error, ImageURL: m.ImageURL}
 		if m.AuthorType == "owner" {
+			// Pesan peserta ruang (fitur 21) memakai nama pengirimnya.
 			entry.Name = d.Owner.Name
+			if m.Author != "" {
+				entry.Name = m.Author
+			}
 			entry.Role = "Pemilik"
 		} else if s := d.findSeat(m.Seat); s != nil {
 			entry.Name = s.Name
@@ -138,6 +147,13 @@ type gatewayMessage struct {
 
 func (a *App) gatewayMessages(s seat, d data, j *job) []gatewayMessage {
 	system := a.systemPrompt(s, d)
+	// Konteks dokumen terlampir (fitur 26): chunk paling relevan dengan
+	// pesan pemilik terakhir disisipkan ke system prompt.
+	if j.RoomID != "" {
+		if chunks := relevantDocumentChunks(d, j.RoomID, j.Prompt, 3); len(chunks) > 0 {
+			system += "\n\nDokumen terlampir (kutipan yang relevan dengan permintaan; gunakan sebagai sumber bila membantu):\n" + strings.Join(chunks, "\n---\n")
+		}
+	}
 	if d.Settings.toolsOn() {
 		system += a.buildToolInstructions(d.Settings.codeToolOn(), s)
 	}
@@ -157,5 +173,14 @@ func (a *App) gatewayMessages(s seat, d data, j *job) []gatewayMessage {
 		}
 		history = append(history, gatewayMessage{role, text.String()})
 	}
-	return append(history, gatewayMessage{"user", fmt.Sprintf("Permintaan %s: %s\nKontribusikan bagian sesuai peran %s berdasarkan konteks di atas.", d.Owner.Name, j.Prompt, s.Role)})
+	// Nama peminta: peserta ruang (fitur 21) bila pesan pemilik pekerjaan
+	// ini dikirim atas nama peserta, selain itu pemilik utama.
+	requester := d.Owner.Name
+	for _, m := range d.Messages {
+		if m.JobID == j.ID && m.AuthorType == "owner" && m.Author != "" {
+			requester = m.Author
+			break
+		}
+	}
+	return append(history, gatewayMessage{"user", fmt.Sprintf("Permintaan %s: %s\nKontribusikan bagian sesuai peran %s berdasarkan konteks di atas.", requester, j.Prompt, s.Role)})
 }

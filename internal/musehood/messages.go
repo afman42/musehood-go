@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin|regenerate|rerun|fork|branch|tags)$`)
+var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin|regenerate|rerun|fork|branch|tags|rate)$`)
 
 var reactionEmojis = []string{"👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👏"}
 
@@ -34,6 +34,56 @@ func (a *App) reactionsStatsLocked() map[string]any {
 		}
 	}
 	return map[string]any{"total": total, "bySeat": bySeat}
+}
+
+// ratingsStatsLocked menghitung penilaian kualitas balasan (fitur 30)
+// per kursi dan per model: jumlah jempol naik (up) dan turun (down).
+func (a *App) ratingsStatsLocked() map[string]any {
+	bySeat := map[string]map[string]int{}
+	byModel := map[string]map[string]int{}
+	add := func(target map[string]map[string]int, key string, rating int) {
+		if key == "" {
+			return
+		}
+		if target[key] == nil {
+			target[key] = map[string]int{"up": 0, "down": 0}
+		}
+		if rating > 0 {
+			target[key]["up"]++
+		} else {
+			target[key]["down"]++
+		}
+	}
+	for _, m := range a.data.Messages {
+		if m.AuthorType != "seat" || m.Rating == 0 {
+			continue
+		}
+		add(bySeat, m.Seat, m.Rating)
+		add(byModel, m.Model, m.Rating)
+	}
+	return map[string]any{"bySeat": bySeat, "byModel": byModel}
+}
+
+// rateMessageLocked menyimpan penilaian pemilik atas satu balasan kursi
+// (fitur 30): -1, 0, atau 1. Pemanggil wajib memegang a.mu.
+func (a *App) rateMessageLocked(id string, rating int) (*message, error) {
+	if rating < -1 || rating > 1 {
+		return nil, problem(400, "Rating harus -1, 0, atau 1.")
+	}
+	m := a.findMessageLocked(id)
+	if m == nil {
+		return nil, problem(404, "Pesan tidak ditemukan.")
+	}
+	if m.AuthorType != "seat" {
+		return nil, problem(400, "Hanya balasan kursi yang dapat dinilai.")
+	}
+	previous := m.Rating
+	m.Rating = rating
+	if err := a.saveLocked(); err != nil {
+		m.Rating = previous
+		return nil, err
+	}
+	return m, nil
 }
 
 func messageAction(path string) (string, string, bool) {
@@ -123,6 +173,20 @@ func (a *App) messageAction(w http.ResponseWriter, r *http.Request, id, action s
 		})
 	case "fork":
 		return a.respondLocked(200, func() (any, error) { return a.forkMessageLocked(id) })
+	case "rate":
+		var body struct {
+			Rating int `json:"rating"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(200, func() (any, error) {
+			msg, err := a.rateMessageLocked(id, body.Rating)
+			if err != nil {
+				return nil, err
+			}
+			return msg, nil
+		})
 	}
 	return 0, nil, problem(404, "Rute tidak ditemukan.")
 }
@@ -606,6 +670,27 @@ func mustJSON(value any) json.RawMessage {
 	return raw
 }
 
+// slugifyFilename mengubah nama ruang menjadi slug aman untuk nama file
+// ekspor: huruf kecil, spasi dan karakter lain menjadi tanda hubung.
+func slugifyFilename(name string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+		} else if !lastDash && b.Len() > 0 {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		return "ruang"
+	}
+	return slug
+}
+
 // exportChat streams the whole conversation as JSON or Markdown download.
 // API keys never leave the app: settings are exported through the same
 // redaction path as GET /api/state.
@@ -618,8 +703,8 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "json"
 	}
-	if format != "json" && format != "md" && format != "html" {
-		a.writeJSON(w, 0, nil, problem(400, "Format ekspor harus json, md, atau html."))
+	if format != "json" && format != "md" && format != "html" && format != "markdown" {
+		a.writeJSON(w, 0, nil, problem(400, "Format ekspor harus json, md, html, atau markdown."))
 		return
 	}
 	a.mu.Lock()
@@ -678,6 +763,59 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		}
 		roomMessages = filtered
 		filenamePrefix = "diskusi-musehood"
+	}
+	// Ekspor Markdown untuk Notion/Obsidian (fitur 29): frontmatter YAML,
+	// judul ruang, tiap pesan sebagai blok "### Nama — jam", gambar
+	// sebagai tautan relatif.
+	if format == "markdown" {
+		seatNames := map[string]string{}
+		for _, s := range a.data.Seats {
+			seatNames[s.Code] = s.Name
+		}
+		ownerName := a.data.Owner.Name
+		exported := make([]*message, len(roomMessages))
+		copy(exported, roomMessages)
+		a.mu.Unlock()
+		today := time.Now().Format("2006-01-02")
+		filename := slugifyFilename(roomName) + "-" + today + ".md"
+		var buf bytes.Buffer
+		buf.WriteString("---\n")
+		fmt.Fprintf(&buf, "title: %q\n", roomName)
+		fmt.Fprintf(&buf, "date: %s\n", today)
+		buf.WriteString("tags: [musehood]\n---\n\n")
+		fmt.Fprintf(&buf, "# %s\n\n", roomName)
+		for _, m := range exported {
+			name := ownerName
+			if m.AuthorType == "owner" {
+				if m.Author != "" {
+					name = m.Author
+				}
+			} else if seatName, ok := seatNames[m.Seat]; ok {
+				name = seatName
+			} else if m.Seat != "" {
+				name = m.Seat
+			} else if m.Model != "" {
+				name = m.Model
+			}
+			stamp, err := time.Parse(time.RFC3339Nano, m.CreatedAt)
+			if err != nil {
+				stamp = time.Time{}
+			}
+			fmt.Fprintf(&buf, "### %s — %s\n\n", name, stamp.Format("15:04"))
+			if m.ImageURL != "" {
+				fmt.Fprintf(&buf, "![gambar](%s)\n\n", m.ImageURL)
+			}
+			if m.Text != "" {
+				fmt.Fprintf(&buf, "%s\n\n", m.Text)
+			}
+			if m.Error != "" {
+				fmt.Fprintf(&buf, "> Error: %s\n\n", m.Error)
+			}
+		}
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Write(buf.Bytes())
+		return
 	}
 	rawState, err := json.Marshal(a.safeLocked(a.stateLocked()))
 	rawMessages, merr := json.Marshal(a.safeLocked(roomMessages))

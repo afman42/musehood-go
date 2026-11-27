@@ -368,7 +368,7 @@ func (a *App) runSchedulesLocked() {
 			continue
 		}
 		// Jatuh tempo: kirim sebagai pesan pemilik di ruangnya.
-		if _, err := a.submitLocked(s.Text, "", "", nil, s.RoomID, false); err != nil {
+		if _, err := a.submitLocked(s.Text, "", "", nil, s.RoomID, "", false); err != nil {
 			kept = append(kept, s) // coba lagi pada tick berikutnya
 			continue
 		}

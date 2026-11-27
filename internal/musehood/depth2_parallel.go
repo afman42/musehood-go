@@ -9,6 +9,7 @@ package musehood
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // applyRoomDisabledToolsLocked menggabung tool nonaktif ruang (fitur 25)
@@ -179,6 +180,13 @@ func (a *App) advanceParallelLocked(j *job) {
 					reply, err = lbReply, nil
 				}
 			}
+			// Koreksi otomatis (fitur 25), sama seperti jalur sekuensial.
+			corrected := ""
+			if err == nil && reply.Error == "" && strings.TrimSpace(reply.Text) != "" {
+				if text, ok := a.autoReviewReply(ctx, p.member, reply.Text); ok {
+					corrected = text
+				}
+			}
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			if ctx.Err() != nil || a.closed {
@@ -195,6 +203,13 @@ func (a *App) advanceParallelLocked(j *job) {
 				} else {
 					p.m.ImageURL = reply.ImageURL
 					p.m.Text = a.redactLocked(reply.Text)
+					if corrected != "" && corrected != reply.Text {
+						p.m.OriginalText = a.redactLocked(reply.Text)
+						p.m.Text = a.redactLocked(corrected)
+					}
+					if p.member.Model != nil {
+						p.m.Model = *p.member.Model
+					}
 					p.m.ToolsUsed = reply.ToolsUsed
 					p.m.ToolCalls = reply.ToolCalls
 					for i := range p.m.ToolCalls {

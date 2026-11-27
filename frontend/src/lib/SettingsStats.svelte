@@ -18,6 +18,18 @@
       .sort((a, b) => b.count - a.count);
   });
 
+  const ratingRows = $derived.by(() => {
+    const ratings = current?.ratings;
+    if (!ratings) return { seats: [], models: [] };
+    const seats = Object.entries(ratings.bySeat)
+      .map(([code, bucket]) => ({ label: `${current?.seats.find((s) => s.code === code)?.name ?? code} (${code})`, up: bucket.up, down: bucket.down }))
+      .sort((a, b) => b.up + b.down - (a.up + a.down));
+    const models = Object.entries(ratings.byModel)
+      .map(([model, bucket]) => ({ label: model, up: bucket.up, down: bucket.down }))
+      .sort((a, b) => b.up + b.down - (a.up + a.down));
+    return { seats, models };
+  });
+
   const rows = $derived.by(() => {
     const stats = current?.stats ?? {};
     return Object.entries(stats).map(([key, st]) => {
@@ -39,6 +51,18 @@
       <div class="stats-row stats-head" role="row"><span role="columnheader">Kursi / Model</span><span role="columnheader">Request</span><span role="columnheader">Berhasil</span><span role="columnheader">Gagal</span><span role="columnheader">Rata²</span><span role="columnheader">Token</span><span role="columnheader">Est. biaya</span></div>
       {#each rows as row (row.key)}
         <div class="stats-row" role="row"><span role="cell">{row.label}</span><span role="cell">{row.requests}</span><span role="cell">{row.success}</span><span role="cell">{row.failed}</span><span role="cell">{row.avgMs} mdtk</span><span role="cell">{row.promptTokens + row.completionTokens}</span><span role="cell">{row.estimatedCostUsd !== undefined ? `$${row.estimatedCostUsd.toFixed(4)}` : '—'}</span></div>
+      {/each}
+    </div>
+  {/if}
+  {#if ratingRows.seats.length || ratingRows.models.length}
+    <h4>Penilaian kualitas balasan</h4>
+    <div class="stats-table" role="table" aria-label="Statistik penilaian">
+      <div class="stats-row stats-head" role="row"><span role="columnheader">Kursi / Model</span><span role="columnheader">👍</span><span role="columnheader">👎</span></div>
+      {#each ratingRows.seats as row (row.label)}
+        <div class="stats-row" role="row"><span role="cell">{row.label}</span><span role="cell">{row.up}</span><span role="cell">{row.down}</span></div>
+      {/each}
+      {#each ratingRows.models as row (row.label)}
+        <div class="stats-row" role="row"><span role="cell">Model {row.label}</span><span role="cell">{row.up}</span><span role="cell">{row.down}</span></div>
       {/each}
     </div>
   {/if}

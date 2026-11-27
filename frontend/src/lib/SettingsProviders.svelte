@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api, apiDelete, errorText, protocolLabels } from './api';
-  import type { GatewayProvider, GatewayProtocol, LatencyResult, ModelTestResult, State } from './types';
+  import type { GatewayProvider, GatewayProtocol, LatencyResult, ModelTestResult, OllamaModel, State } from './types';
 
   let { current, refresh, mutate, notify, onSave, saving }: {
     current: State | undefined;
@@ -179,6 +179,34 @@
       notify(connectionError, true);
     } finally { testing = false; }
   }
+
+  // Model lokal Ollama (fitur 32).
+  let ollamaBaseUrl = $state('http://127.0.0.1:11434');
+  let ollamaModels = $state<OllamaModel[]>([]);
+  let ollamaDetecting = $state(false);
+  let ollamaAdding = $state('');
+
+  async function detectOllama() {
+    if (ollamaDetecting) return;
+    ollamaDetecting = true;
+    try {
+      const out = await api<{ models: OllamaModel[] }>('/api/ollama/detect', { baseUrl: ollamaBaseUrl.trim() });
+      ollamaModels = out.models ?? [];
+      notify(ollamaModels.length ? `${ollamaModels.length} model Ollama ditemukan.` : 'Tidak ada model di Ollama itu.');
+    } catch (error) { notify(errorText(error), true); }
+    finally { ollamaDetecting = false; }
+  }
+
+  async function addOllamaModel(model: string) {
+    if (ollamaAdding) return;
+    ollamaAdding = model;
+    try {
+      await api('/api/ollama/add', { baseUrl: ollamaBaseUrl.trim(), model });
+      await refresh();
+      notify(`Provider Ollama ditambahkan (${model}). Aktifkan di daftar provider bila ingin dipakai.`);
+    } catch (error) { notify(errorText(error), true); }
+    finally { ollamaAdding = ''; }
+  }
 </script>
 
 <section class="settings-section">
@@ -257,4 +285,19 @@
     <div id="connectionResult" class="connection-result" role="status">Provider {activeProvider()?.name ?? 'Kustom'} · Terhubung · {current.connection.models.length} model ditemukan. Periksa status setiap kursi di bawah.</div>
     <div id="modelList" class="model-list">{#each current.connection.models as model, index (index)}<span class="model-tag">{modelLabel(activeProvider(), model)}</span>{/each}</div>
   {/if}
+  <div class="add-provider">
+    <h4>Model lokal Ollama</h4>
+    <p class="field-hint">Deteksi model dari server Ollama di komputer ini atau jaringan lokal (localhost/LAN saja), lalu tambahkan sebagai provider protokol Ollama.</p>
+    <label>Base URL Ollama<input aria-label="Base URL Ollama" type="url" placeholder="http://127.0.0.1:11434" autocomplete="off" spellcheck="false" bind:value={ollamaBaseUrl}></label>
+    <div class="provider-form-actions">
+      <button class="secondary-button" type="button" onclick={detectOllama} disabled={ollamaDetecting}>{ollamaDetecting ? 'Mendeteksi…' : 'Deteksi Ollama'}</button>
+    </div>
+    {#if ollamaModels.length}
+      <div class="ollama-models">
+        {#each ollamaModels as model (model.name)}
+          <p class="ollama-model-row"><span><strong>{model.name}</strong>{#if model.size} <span class="field-hint">({(model.size / 1e9).toFixed(1)} GB)</span>{/if}</span><button class="secondary-button" type="button" onclick={() => addOllamaModel(model.name)} disabled={ollamaAdding !== ''}>{ollamaAdding === model.name ? 'Menambah…' : 'Tambah'}</button></p>
+        {/each}
+      </div>
+    {/if}
+  </div>
 </section>

@@ -90,7 +90,7 @@ func (a *App) routeLocked(text string, r *room) (string, []step) {
 	}
 	return "chat", mentioned
 }
-func (a *App) submitLocked(text, replyTo, imageURL string, att *attachment, roomID string, progress bool) (*job, error) {
+func (a *App) submitLocked(text, replyTo, imageURL string, att *attachment, roomID, author string, progress bool) (*job, error) {
 	text = strings.TrimSpace(text)
 	if (text == "" && imageURL == "" && att == nil) || jsLength(text) > 20000 {
 		return nil, problem(400, "Pesan wajib berisi teks, gambar, atau lampiran, maksimal 20.000 karakter.")
@@ -107,6 +107,12 @@ func (a *App) submitLocked(text, replyTo, imageURL string, att *attachment, room
 	}
 	if r == nil {
 		return nil, problem(500, "Ruang bawaan tidak tersedia.")
+	}
+	// Nama pengirim (fitur 21): kosong = pemilik utama, selain itu harus
+	// peserta terdaftar di ruang ini.
+	authorName, err := a.resolveAuthorLocked(r, author)
+	if err != nil {
+		return nil, err
 	}
 	if replyTo != "" {
 		target := a.findMessageLocked(replyTo)
@@ -135,7 +141,7 @@ func (a *App) submitLocked(text, replyTo, imageURL string, att *attachment, room
 	j := &job{ID: uuid(), Prompt: text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, BranchID: r.activeBranch()}
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
-	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL, Attachment: att, RoomID: r.ID, BranchID: r.activeBranch()})
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", Author: authorName, JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL, Attachment: att, RoomID: r.ID, BranchID: r.activeBranch()})
 	if kind == "task" {
 		a.data.Task = &activeTask{JobID: j.ID, Title: taskPrefix.ReplaceAllString(text, ""), CurrentStep: ptr(steps[0].Seat), Status: "processing", CreatedAt: now(), RoomID: r.ID}
 	}
@@ -155,7 +161,7 @@ func (a *App) progressLocked() (*job, error) {
 	if task.LastCompleted != nil {
 		last = *task.LastCompleted
 	}
-	return a.submitLocked(fmt.Sprintf("Tanya Progres: %s. Langkah terakhir selesai: %s. Status: %s.", task.Title, last, task.Status), "", "", nil, task.RoomID, true)
+	return a.submitLocked(fmt.Sprintf("Tanya Progres: %s. Langkah terakhir selesai: %s. Status: %s.", task.Title, last, task.Status), "", "", nil, task.RoomID, "", true)
 }
 func (a *App) saveJobLocked() {
 	if err := a.saveLocked(); err != nil {
@@ -217,6 +223,7 @@ func (a *App) submitDebateLocked(seatA, seatB, topic, roomID string) (*job, erro
 func (a *App) tickLocked() {
 	a.runSchedulesLocked()
 	a.autoCompactLocked()
+	a.checkDailySummaryLocked()
 	for _, j := range a.data.Jobs {
 		a.advanceLocked(j)
 	}
@@ -763,6 +770,15 @@ func (a *App) runLocked(j *job, s *step, member seat, m *message, worker bool, r
 	a.wg.Go(func() {
 		defer cancel()
 		reply, err := run(ctx)
+		// Koreksi otomatis (fitur 25): kursi peninjau memeriksa balasan
+		// gateway sebelum disimpan final. Dilakukan di luar mutex
+		// karena melibatkan panggilan gateway.
+		corrected := ""
+		if err == nil && !worker && reply.Error == "" && strings.TrimSpace(reply.Text) != "" && s.Kind != "image" && s.Kind != "vote" {
+			if text, ok := a.autoReviewReply(ctx, member, reply.Text); ok {
+				corrected = text
+			}
+		}
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if ctx.Err() != nil || a.closed {
@@ -775,6 +791,17 @@ func (a *App) runLocked(j *job, s *step, member seat, m *message, worker bool, r
 			} else {
 				m.ImageURL = reply.ImageURL
 				m.Text = a.redactLocked(reply.Text)
+				// Hasil koreksi otomatis (fitur 25) menggantikan teks
+				// balasan; teks asli disimpan bila berubah.
+				if corrected != "" && corrected != reply.Text {
+					m.OriginalText = a.redactLocked(reply.Text)
+					m.Text = a.redactLocked(corrected)
+				}
+				// Catat model penghasil balasan untuk statistik rating
+				// per model (fitur 30); jalur pekerja Muse tidak punya model.
+				if !worker && member.Model != nil {
+					m.Model = *member.Model
+				}
 				m.ToolsUsed = reply.ToolsUsed
 				m.ToolCalls = reply.ToolCalls
 				for i := range m.ToolCalls {

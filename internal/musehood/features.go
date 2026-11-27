@@ -82,7 +82,11 @@ func (a *App) roomViewsLocked() []map[string]any {
 		if order == nil {
 			order = []string{}
 		}
-		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived, "summary": r.Summary, "summaryCount": r.SummaryCount, "activeBranch": r.activeBranch(), "branches": branches, "icon": r.Icon, "color": r.Color, "disabledTools": r.DisabledTools})
+		participants := r.Participants
+		if participants == nil {
+			participants = []string{}
+		}
+		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived, "summary": r.Summary, "summaryCount": r.SummaryCount, "activeBranch": r.activeBranch(), "branches": branches, "icon": r.Icon, "color": r.Color, "disabledTools": r.DisabledTools, "participants": participants})
 	}
 	return views
 }
@@ -317,7 +321,7 @@ func (a *App) createPresetLocked(name string) (any, error) {
 	}
 	p := seatPreset{ID: newPresetID(), Name: name, CreatedAt: now()}
 	for _, s := range a.data.Seats {
-		ps := presetSeat{Code: s.Code, Name: s.Name, Role: s.Role, Provider: s.Provider, Prompt: s.Prompt, FallbackModel: s.FallbackModel, FallbackModels: s.FallbackModels, DisabledTools: s.DisabledTools, Memory: s.Memory, Skills: s.Skills}
+		ps := presetSeat{Code: s.Code, Name: s.Name, Role: s.Role, Provider: s.Provider, Prompt: s.Prompt, FallbackModel: s.FallbackModel, FallbackModels: s.FallbackModels, DisabledTools: s.DisabledTools, Memory: s.Memory, Skills: s.Skills, RolePreset: s.RolePreset}
 		if s.Model != nil {
 			model := *s.Model
 			ps.Model = &model
@@ -369,6 +373,7 @@ func (a *App) applyPresetLocked(id string) (any, error) {
 		s.DisabledTools = ps.DisabledTools
 		s.Memory = ps.Memory
 		s.Skills = ps.Skills
+		s.RolePreset = ps.RolePreset
 		applied++
 	}
 	seen := map[string]bool{}

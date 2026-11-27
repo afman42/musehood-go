@@ -3,7 +3,7 @@
   import { t } from './i18n.svelte';
   import AvatarButton from './AvatarButton.svelte';
   import SkillPicker from './SkillPicker.svelte';
-  import type { ModelTestResult, Persona, SeatEdit, SkillDef, State } from './types';
+  import type { ModelTestResult, Persona, RolePreset, SeatEdit, SkillDef, State } from './types';
 
   let { seats = $bindable([]), current, refresh, notify, onSync, onSave, saving, onChooseAvatar, skillsEnabled }: {
     seats?: SeatEdit[];
@@ -39,6 +39,16 @@
     api<{ personas: Persona[] }>('/api/personas')
       .then((out) => { personas = out.personas ?? []; })
       .catch(() => { /* tanpa persona: dropdown disembunyikan */ });
+  });
+
+  let roles = $state<RolePreset[]>([]);
+  let rolesLoaded = false;
+  $effect(() => {
+    if (rolesLoaded) return;
+    rolesLoaded = true;
+    api<{ roles: RolePreset[] }>('/api/roles')
+      .then((out) => { roles = out.roles ?? []; })
+      .catch(() => { /* tanpa preset: dropdown disembunyikan */ });
   });
 
   async function applyPersona(code: string, personaId: string) {
@@ -173,6 +183,12 @@
               <label>Persona preset<select aria-label={`Persona ${item.code}`} onchange={(e) => { const select = e.currentTarget; void applyPersona(item.code, select.value); select.value = ''; }}>
                 <option value="">Pilih persona…</option>
                 {#each personas as persona (persona.id)}<option value={persona.id}>{persona.name} — {persona.role}</option>{/each}
+              </select></label>
+            {/if}
+            {#if roles.length}
+              <label>Preset peran<select aria-label={`Preset peran ${item.code}`} data-seat-role-preset={item.code} bind:value={item.rolePreset}>
+                <option value="">Tanpa preset</option>
+                {#each roles as role (role.id)}<option value={role.id}>{role.name}</option>{/each}
               </select></label>
             {/if}
             <label>Jalur jawaban<select aria-label={`Provider ${item.code}`} data-seat-provider={item.code} bind:value={item.provider}>

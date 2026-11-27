@@ -1,5 +1,24 @@
 import { api, apiDelete, errorText } from './api';
-import type { Attachment, Message, Notice, ScheduledMessage, SearchFilters, SearchResult, State } from './types';
+import type { Attachment, Message, Notice, OllamaModel, PromptChain, RolePreset, RoomDocument, ScheduledMessage, SearchFilters, SearchResult, State } from './types';
+
+export const OUTBOX_KEY = 'musehood-outbox';
+
+type OutboxItem = { text: string; roomId?: string; replyTo?: string; imageUrl?: string; attachment?: Attachment; templateId?: string; author?: string };
+
+function loadOutbox(): OutboxItem[] {
+  try {
+    const raw = localStorage.getItem(OUTBOX_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function saveOutbox(items: OutboxItem[]) {
+  try {
+    if (items.length === 0) localStorage.removeItem(OUTBOX_KEY);
+    else localStorage.setItem(OUTBOX_KEY, JSON.stringify(items));
+  } catch { /* penyimpanan tidak tersedia */ }
+}
 
 export const NOTIFY_KEY = 'musehood-notify';
 
@@ -57,6 +76,7 @@ export function createChat(hooks: ChatHooks = {}) {
   let current = $state.raw<State>();
   let notice = $state<Notice>();
   let pinRequired = $state(false);
+  let online = $state(typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' ? true : navigator.onLine);
   let serverResults = $state<SearchResult[]>([]);
   let timer: ReturnType<typeof setTimeout>;
   let searchTimer: ReturnType<typeof setTimeout>;
@@ -162,6 +182,13 @@ export function createChat(hooks: ChatHooks = {}) {
         if (current?.settings.theme === 'auto') applyTheme(current);
       });
     }
+    // Deteksi offline (fitur 28): banner + antrean pesan keluar yang
+    // otomatis terkirim saat koneksi kembali.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => { online = true; void flushOutbox(); });
+      window.addEventListener('offline', () => { online = false; });
+    }
+    void flushOutbox();
     let stopped = false;
     let pollTimer: ReturnType<typeof setTimeout>;
     let pollError = false;
@@ -177,16 +204,62 @@ export function createChat(hooks: ChatHooks = {}) {
     return () => { stopped = true; clearTimeout(pollTimer); clearTimeout(timer); };
   }
 
-  async function sendMessage(payload: { text: string; replyTo?: string; imageUrl?: string; attachment?: Attachment; templateId?: string }) {
-    await api('/api/message', {
+  async function sendMessage(payload: { text: string; replyTo?: string; imageUrl?: string; attachment?: Attachment; templateId?: string; author?: string }) {
+    const item: OutboxItem = {
       text: payload.text,
       ...(current?.activeRoomId ? { roomId: current.activeRoomId } : {}),
       ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
       ...(payload.imageUrl ? { imageUrl: payload.imageUrl } : {}),
       ...(payload.attachment ? { attachment: payload.attachment } : {}),
       ...(payload.templateId ? { templateId: payload.templateId } : {}),
-    });
+      ...(payload.author ? { author: payload.author } : {}),
+    };
+    if (!online) {
+      saveOutbox([...loadOutbox(), item]);
+      notify('Offline — pesan masuk antrean dan akan terkirim saat online kembali.');
+      return;
+    }
+    try {
+      await api('/api/message', item);
+    } catch (error) {
+      // Kegagalan jaringan (fetch TypeError) → antre; error server (4xx/5xx
+      // dengan pesan) diteruskan ke pemanggil.
+      if (error instanceof TypeError) {
+        online = false;
+        saveOutbox([...loadOutbox(), item]);
+        notify('Koneksi terputus — pesan masuk antrean dan akan terkirim saat online kembali.');
+        return;
+      }
+      throw error;
+    }
     await refresh();
+  }
+
+  let flushing = false;
+  async function flushOutbox() {
+    if (flushing || !online) return;
+    const items = loadOutbox();
+    if (items.length === 0) return;
+    flushing = true;
+    try {
+      const remaining: OutboxItem[] = [];
+      for (let i = 0; i < items.length; i++) {
+        try {
+          await api('/api/message', items[i]);
+        } catch (error) {
+          if (error instanceof TypeError) {
+            online = false;
+            remaining.push(...items.slice(i));
+            break;
+          }
+          // Error server untuk item ini: buang agar tidak menyumbat antrean.
+        }
+      }
+      saveOutbox(remaining);
+      if (remaining.length === 0) await refresh();
+    } finally {
+      flushing = false;
+    }
   }
 
   async function summarizeRoom() {
@@ -342,10 +415,87 @@ export function createChat(hooks: ChatHooks = {}) {
     serverResults = [];
   }
 
+  // --- Fitur batch 3 ---
+
+  async function rateMessage(message: Message, rating: number) {
+    await mutate(`/api/message/${message.id}/rate`, { rating });
+  }
+
+  async function startABTest(text: string, modelA: string, modelB: string) {
+    await mutate('/api/abtest', { text, modelA, modelB, roomId: current?.activeRoomId ?? '' });
+  }
+
+  async function pickABWinner(group: string, messageId: string) {
+    await mutate(`/api/abtest/${group}/pick`, { messageId });
+  }
+
+  async function createChain(name: string, steps: Array<{ seatCode: string; instruction: string }>): Promise<PromptChain> {
+    const out = await api<PromptChain>('/api/chains', { name, steps });
+    await refresh();
+    return out;
+  }
+
+  async function updateChain(id: string, body: object) {
+    await mutate(`/api/chains/${id}`, body);
+  }
+
+  async function deleteChain(id: string) {
+    await mutate(`/api/chains/${id}/delete`, {});
+  }
+
+  async function runChain(id: string, text: string) {
+    await mutate(`/api/chains/${id}/run`, { text, roomId: current?.activeRoomId ?? '' });
+  }
+
+  async function addParticipant(roomId: string, name: string) {
+    await mutate(`/api/rooms/${roomId}/participants`, { name });
+  }
+
+  async function removeParticipant(roomId: string, name: string) {
+    await mutate(`/api/rooms/${roomId}/participants/remove`, { name });
+  }
+
+  async function listDocuments(roomId: string): Promise<RoomDocument[]> {
+    const out = await api<{ documents: RoomDocument[] }>(`/api/rooms/${roomId}/documents`);
+    return out.documents ?? [];
+  }
+
+  async function uploadDocument(roomId: string, file: File): Promise<RoomDocument> {
+    const form = new FormData();
+    form.set('file', file);
+    const out = await api<RoomDocument>(`/api/rooms/${roomId}/documents`, form);
+    await refresh();
+    return out;
+  }
+
+  async function deleteDocument(roomId: string, docId: string) {
+    await mutate(`/api/rooms/${roomId}/documents/${docId}/delete`, {});
+  }
+
+  let rolesCache: RolePreset[] | undefined;
+  async function fetchRoles(): Promise<RolePreset[]> {
+    if (!rolesCache) {
+      const out = await api<{ roles: RolePreset[] }>('/api/roles');
+      rolesCache = out.roles ?? [];
+    }
+    return rolesCache;
+  }
+
+  async function detectOllama(baseUrl: string): Promise<OllamaModel[]> {
+    const out = await api<{ models: OllamaModel[] }>('/api/ollama/detect', { baseUrl });
+    return out.models ?? [];
+  }
+
+  async function addOllama(baseUrl: string, model: string) {
+    await api('/api/ollama/add', { baseUrl, model });
+    await refresh();
+  }
+
   return {
     get current() { return current; },
     get notice() { return notice; },
     get pinRequired() { return pinRequired; },
+    get online() { return online; },
     login,
     logout,
     get serverResults() { return serverResults; },
@@ -383,6 +533,21 @@ export function createChat(hooks: ChatHooks = {}) {
     scheduleSearch,
     clearSearchResults,
     decideApproval,
+    rateMessage,
+    startABTest,
+    pickABWinner,
+    createChain,
+    updateChain,
+    deleteChain,
+    runChain,
+    addParticipant,
+    removeParticipant,
+    listDocuments,
+    uploadDocument,
+    deleteDocument,
+    fetchRoles,
+    detectOllama,
+    addOllama,
   };
 }
 

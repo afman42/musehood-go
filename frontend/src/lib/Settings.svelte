@@ -6,6 +6,7 @@
   import SettingsProviders from './SettingsProviders.svelte';
   import SettingsSeats from './SettingsSeats.svelte';
   import SettingsDiscussion from './SettingsDiscussion.svelte';
+  import SettingsChains from './SettingsChains.svelte';
   import SettingsRooms from './SettingsRooms.svelte';
   import SettingsPresets from './SettingsPresets.svelte';
   import SettingsTemplates from './SettingsTemplates.svelte';
@@ -54,6 +55,11 @@
   let density = $state('normal');
   let theme = $state('light');
   let fontSize = $state('M');
+  let autoReview = $state(false);
+  let reviewerSeat = $state('');
+  let dailySummaryEnabled = $state(false);
+  let dailySummaryTime = $state('21:00');
+  let dailySummaryChannel = $state('inbox');
   let saveStatus = $state('');
   let saving = $state(false);
 
@@ -76,6 +82,7 @@
       modelChat: seat.modelChat ?? '',
       modelTools: seat.modelTools ?? '',
       modelSummary: seat.modelSummary ?? '',
+      rolePreset: seat.rolePreset ?? '',
     }));
     integratorSeat = current.settings.integratorSeat || 'MUSE';
     roomEdits = (current.rooms ?? []).map((room) => ({
@@ -113,6 +120,11 @@
       density = current.settings.density ?? 'normal';
       theme = current.settings.theme ?? (current.settings.darkMode ? 'dark' : 'light');
       fontSize = current.settings.fontSize ?? 'M';
+      autoReview = current.settings.autoReview ?? false;
+      reviewerSeat = current.settings.reviewerSeat ?? '';
+      dailySummaryEnabled = current.settings.dailySummaryEnabled ?? false;
+      dailySummaryTime = current.settings.dailySummaryTime ?? '21:00';
+      dailySummaryChannel = current.settings.dailySummaryChannel ?? 'inbox';
       syncSeats();
       providersPanel?.resetForm();
       toolLogPanel?.reload();
@@ -128,7 +140,7 @@
       await mutate('/api/settings', {
         owner: { name: ownerName }, group: { name: groupName },
         seats: seats.map((s) => ({ ...s, skills: s.skills.split(',').map((x) => x.trim()).filter(Boolean), fallbackModels: s.fallbackModels.split(',').map((x) => x.trim()).filter(Boolean) })),
-        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled, skillsEnabled, streamingEnabled, responseCacheEnabled, chainReplies, nativeToolsEnabled, loadBalanceProviders, parallelMode, webhookUrl, webhookEnabled, telegramBotToken, telegramChatId, telegramEnabled, density, theme, fontSize },
+        settings: { roundRobin, demoFallback, reviewLevel, integratorSeat, toolsEnabled, codeToolEnabled, skillsEnabled, streamingEnabled, responseCacheEnabled, chainReplies, nativeToolsEnabled, loadBalanceProviders, parallelMode, webhookUrl, webhookEnabled, telegramBotToken, telegramChatId, telegramEnabled, density, theme, fontSize, autoReview, reviewerSeat, dailySummaryEnabled, dailySummaryTime, dailySummaryChannel },
       });
       providersPanel?.clearConnectionError();
       saveStatus = 'Tersimpan';
@@ -194,7 +206,8 @@
     </section>
     <SettingsProviders bind:this={providersPanel} {current} {refresh} {mutate} {notify} onSave={save} {saving} />
     <SettingsSeats bind:seats {current} {refresh} {notify} onSync={syncSeats} onSave={save} {saving} onChooseAvatar={chooseAvatar} {skillsEnabled} />
-    <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled bind:codeToolEnabled bind:streamingEnabled bind:responseCacheEnabled bind:chainReplies bind:nativeToolsEnabled bind:loadBalanceProviders bind:parallelMode bind:webhookUrl bind:webhookEnabled bind:telegramBotToken bind:telegramChatId bind:telegramEnabled hasTelegramToken={current?.settings.hasTelegramToken ?? false} bind:density bind:theme bind:fontSize {seats} />
+    <SettingsDiscussion bind:roundRobin bind:reviewLevel bind:integratorSeat bind:demoFallback bind:toolsEnabled bind:codeToolEnabled bind:streamingEnabled bind:responseCacheEnabled bind:chainReplies bind:nativeToolsEnabled bind:loadBalanceProviders bind:parallelMode bind:webhookUrl bind:webhookEnabled bind:telegramBotToken bind:telegramChatId bind:telegramEnabled hasTelegramToken={current?.settings.hasTelegramToken ?? false} bind:density bind:theme bind:fontSize bind:autoReview bind:reviewerSeat bind:dailySummaryEnabled bind:dailySummaryTime bind:dailySummaryChannel {seats} />
+    <SettingsChains {current} {refresh} {notify} />
     <SettingsRooms bind:roomEdits {current} {refresh} {notify} onSync={syncSeats} />
     <SettingsPresets {current} {refresh} {notify} onSave={save} onSync={syncSeats} />
     <SettingsTemplates {current} {refresh} {notify} />
