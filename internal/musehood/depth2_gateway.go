@@ -346,6 +346,15 @@ func (a *App) chatWithNativeTools(ctx context.Context, cfg settings, s seat, his
 		}
 		messages = append(messages, map[string]any{"role": m.Role, "content": content})
 	}
+	// Cache respons (fitur lama) tetap berlaku pada jalur native:
+	// jawaban teks polos tanpa tool disimpan dan dipakai ulang.
+	cacheKey := ""
+	if a.responseCacheEnabled() {
+		cacheKey = responseCacheKey(cfg, *s.Model, history)
+		if text, ok := a.cacheGet(cacheKey); ok {
+			return workerReply{Text: text}, true, nil
+		}
+	}
 	target := openAIBase(cfg) + "/v1/chat/completions"
 	headers := map[string]string{"Authorization": "Bearer " + cfg.APIKey}
 	var used []string
@@ -395,6 +404,9 @@ func (a *App) chatWithNativeTools(ctx context.Context, cfg settings, s seat, his
 			text := stripToolBlocks(content)
 			if onDelta != nil && text != "" {
 				onDelta(text)
+			}
+			if cacheKey != "" && text != "" && len(used) == 0 {
+				a.cachePut(cacheKey, text)
 			}
 			return workerReply{Text: text, ImageURL: imageURL, ToolsUsed: used, ToolCalls: calls}, true, nil
 		}
