@@ -15,7 +15,26 @@ import (
 
 var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin|regenerate)$`)
 
-var reactionEmojis = []string{"👍", "❤️", "😂", "😮", "😢", "🔥"}
+var reactionEmojis = []string{"👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👏"}
+
+// reactionsStatsLocked menghitung total reaksi per emoji dan per kursi
+// penerima (fitur 13).
+func (a *App) reactionsStatsLocked() map[string]any {
+	total := map[string]int{}
+	bySeat := map[string]map[string]int{}
+	for _, m := range a.data.Messages {
+		for _, r := range m.Reactions {
+			total[r.Emoji] += r.Count
+			if m.AuthorType == "seat" && m.Seat != "" {
+				if bySeat[m.Seat] == nil {
+					bySeat[m.Seat] = map[string]int{}
+				}
+				bySeat[m.Seat][r.Emoji] += r.Count
+			}
+		}
+	}
+	return map[string]any{"total": total, "bySeat": bySeat}
+}
 
 func messageAction(path string) (string, string, bool) {
 	m := messageActionRE.FindStringSubmatch(path)

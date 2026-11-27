@@ -18,13 +18,34 @@
 
   let availableSkills = $state<SkillDef[]>([]);
   let skillsLoaded = false;
+  async function loadSkills() {
+    try {
+      const out = await api<{ skills: SkillDef[] }>('/api/skills');
+      availableSkills = out.skills ?? [];
+    } catch { /* daftar kosong: picker tetap bisa nama manual */ }
+  }
   $effect(() => {
     if (skillsLoaded) return;
     skillsLoaded = true;
-    api<{ skills: SkillDef[] }>('/api/skills')
-      .then((out) => { availableSkills = out.skills ?? []; })
-      .catch(() => { /* daftar kosong: picker tetap bisa nama manual */ });
+    void loadSkills();
   });
+
+  let skillUrl = $state('');
+  let skillOverwrite = $state(false);
+  let installingSkill = $state(false);
+  async function installSkill() {
+    const url = skillUrl.trim();
+    if (!url || installingSkill) return;
+    installingSkill = true;
+    try {
+      const out = await api<{ name: string }>('/api/skills/install', { url, overwrite: skillOverwrite });
+      skillUrl = '';
+      skillOverwrite = false;
+      await loadSkills();
+      notify(`Skill "${out.name}" terpasang dan siap dipilih per kursi.`);
+    } catch (error) { notify(errorText(error), true); }
+    finally { installingSkill = false; }
+  }
 
   let allToolNames = $state<string[]>([]);
   let toolsLoaded = false;
@@ -99,6 +120,13 @@
 
 <section class="settings-section">
   <h3>Kursi AI</h3><p class="section-hint">Nama tampil, peran, jalur jawaban, dan model dapat diganti untuk semua kursi — termasuk kursi Admin dan Integrasi. Kode kursi bawaan tetap dan kursi bawaan tidak dapat dihapus. Kursi custom dapat ditambah dan dihapus di bawah.</p>
+  <div class="skill-install">
+    <h4>Pasang skill dari URL</h4>
+    <p class="field-hint">Tempel URL HTTPS ke file SKILL.md langsung atau URL repo git yang berisi SKILL.md. Skill terpasang muncul di pemilih skill tiap kursi.</p>
+    <label>URL skill<input aria-label="URL skill" type="url" placeholder="https://…/SKILL.md atau https://github.com/pemilik/repo" autocomplete="off" spellcheck="false" bind:value={skillUrl}></label>
+    <label class="toggle-row"><span><strong>Timpa bila sudah ada</strong><small>Skill dengan nama sama diganti isinya.</small></span><input type="checkbox" role="switch" bind:checked={skillOverwrite}></label>
+    <button class="secondary-button" type="button" onclick={installSkill} disabled={installingSkill || !skillUrl.trim()}>{installingSkill ? 'Memasang…' : 'Pasang Skill'}</button>
+  </div>
   <div id="seatSettings">
     {#each seats as item (item.code)}
       {@const member = current?.seats.find(seat => seat.code === item.code)}

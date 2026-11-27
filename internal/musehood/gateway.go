@@ -3,7 +3,9 @@ package musehood
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -285,12 +287,80 @@ func extractUsage(raw []byte) (int64, int64) {
 	return 0, 0
 }
 
+// Cache respons (fitur 9): hanya jalur non-streaming, hanya respons
+// sukses non-kosong tanpa blok tool-call. TTL 10 menit, maks 200 entri.
+type cacheEntry struct {
+	text string
+	at   time.Time
+}
+
+const responseCacheTTL = 10 * time.Minute
+const responseCacheMax = 200
+
+func (a *App) responseCacheEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.data.Settings.responseCacheOn()
+}
+
+func responseCacheKey(cfg settings, model string, history []gatewayMessage) string {
+	raw, _ := json.Marshal(history)
+	sum := sha256.Sum256([]byte(model + "\x00" + string(protocolOf(cfg)) + "\x00" + cfg.BaseURL + "\x00" + string(raw)))
+	return hex.EncodeToString(sum[:])
+}
+
+func (a *App) cacheGet(key string) (string, bool) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	entry, ok := a.cache[key]
+	if !ok || time.Since(entry.at) > responseCacheTTL {
+		if ok {
+			delete(a.cache, key)
+		}
+		return "", false
+	}
+	a.cacheHits++
+	return entry.text, true
+}
+
+func (a *App) cachePut(key, text string) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	if a.cache == nil {
+		a.cache = map[string]cacheEntry{}
+	}
+	a.cache[key] = cacheEntry{text: text, at: time.Now()}
+	for len(a.cache) > responseCacheMax {
+		oldestKey := ""
+		var oldestAt time.Time
+		for k, entry := range a.cache {
+			if oldestKey == "" || entry.at.Before(oldestAt) {
+				oldestKey, oldestAt = k, entry.at
+			}
+		}
+		delete(a.cache, oldestKey)
+	}
+}
+
+func (a *App) cacheHitCount() int64 {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	return a.cacheHits
+}
+
 func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayMessage) (string, error) {
 	if s.Provider == "muse" {
 		return "", errors.New("Kursi ini memakai antrean file Muse.")
 	}
 	if s.Model == nil || *s.Model == "" {
 		return "", problem(400, fmt.Sprintf("Nama model %s (%s) belum diisi di Pengaturan.", s.Name, s.Code))
+	}
+	cacheKey := ""
+	if a.responseCacheEnabled() {
+		cacheKey = responseCacheKey(cfg, *s.Model, history)
+		if text, ok := a.cacheGet(cacheKey); ok {
+			return text, nil
+		}
 	}
 	start := time.Now()
 	raw, err := a.protocolChat(ctx, cfg, *s.Model, history)
@@ -305,6 +375,11 @@ func (a *App) chat(ctx context.Context, cfg settings, s seat, history []gatewayM
 	}
 	promptTokens, completionTokens := extractUsage(raw)
 	a.recordStat(s, cfg, *s.Model, true, time.Since(start), promptTokens, completionTokens)
+	if cacheKey != "" && text != "" {
+		if _, _, hasTool := parseToolBlock(text); !hasTool {
+			a.cachePut(cacheKey, text)
+		}
+	}
 	return text, nil
 }
 

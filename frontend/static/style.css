@@ -378,3 +378,13 @@ html.density-compact .message{margin-bottom:8px}
 html.density-compact .bubble{padding:5px 9px 6px}
 html.density-compact .message-text{font-size:12px;line-height:1.55}
 html.density-compact .message-meta{margin-bottom:3px}
+
+/* Badge kesehatan provider (fitur 6) */
+.health-badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;vertical-align:middle}
+.health-badge.ok{background:#e3f5e9;color:#146c2e}
+.health-badge.fail{background:#fde7e7;color:#a11d1d}
+html.dark .health-badge.ok{background:#12351f;color:#7ee2a0}
+html.dark .health-badge.fail{background:#3d1717;color:#ff9c9c}
+.skill-install{display:grid;gap:8px;margin:10px 0 14px;padding:12px;border:1px solid var(--border,#d7dde5);border-radius:12px}
+.skill-install h4{margin:0;font-size:14px}
+html.dark .skill-install{border-color:#334155}

@@ -32,6 +32,7 @@ export type ProviderHealth = { ok: boolean; latencyMs: number; checkedAt: string
 export type ToolLogEntry = { time: string; seatCode: string; seatName: string; tool: string; arg?: string; ok: boolean; durationMs: number };
 export type Persona = { id: string; name: string; role: string; prompt: string; disabledTools?: string[]; skills?: string[] };
 export type ReactionStats = { total: Record<string, number>; bySeat: Record<string, Record<string, number>> };
+export type LatencyResult = { model: string; ok: boolean; latencyMs: number; error?: string };
 export type DiscussionTemplate = { id: string; name: string; seats: string[]; instruction?: string; createdAt: string };
 export type ScheduledMessage = {
   id: string; roomId: string; text: string; sendAt?: string;

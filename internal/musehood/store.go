@@ -169,15 +169,16 @@ type gatewayProvider struct {
 
 // gatewayProviderView adalah tampilan aman satu provider untuk klien.
 type gatewayProviderView struct {
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	Alias            string  `json:"alias,omitempty"`
-	BaseURL          string  `json:"baseUrl"`
-	Protocol         string  `json:"protocol"`
-	HasAPIKey        bool    `json:"hasApiKey"`
-	Active           bool    `json:"active"`
-	PriceInputPer1M  float64 `json:"priceInputPer1M,omitempty"`
-	PriceOutputPer1M float64 `json:"priceOutputPer1M,omitempty"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Alias            string          `json:"alias,omitempty"`
+	BaseURL          string          `json:"baseUrl"`
+	Protocol         string          `json:"protocol"`
+	HasAPIKey        bool            `json:"hasApiKey"`
+	Active           bool            `json:"active"`
+	PriceInputPer1M  float64         `json:"priceInputPer1M,omitempty"`
+	PriceOutputPer1M float64         `json:"priceOutputPer1M,omitempty"`
+	Health           *providerHealth `json:"health,omitempty"`
 }
 type message struct {
 	ID         string      `json:"id"`
@@ -1168,6 +1169,7 @@ func (a *App) stateLocked() any {
 	// aman (hasApiKey/active) lewat field Providers di bawah. Tampilan
 	// dihitung SEBELUM key dikosongkan, supaya hasApiKey tetap benar.
 	views := d.providerViews()
+	a.overlayHealth(views)
 	d.Providers = slices.Clone(d.Providers)
 	for i := range d.Providers {
 		d.Providers[i].APIKey = ""

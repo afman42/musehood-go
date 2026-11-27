@@ -55,6 +55,11 @@ type App struct {
 	closed          bool
 	approvalMu      sync.Mutex
 	approvals       map[string]*approval
+	cacheMu         sync.Mutex
+	cache           map[string]cacheEntry
+	cacheHits       int64
+	healthMu        sync.Mutex
+	health          map[string]providerHealth
 }
 type apiError struct {
 	status  int
@@ -100,6 +105,7 @@ func New(opts Options) (*App, error) {
 		d.WorkerToken = hex.EncodeToString(raw)
 	}
 	a := &App{dir: opts.DataDir, frontend: opts.Frontend, data: d, running: make(map[*job]context.CancelFunc), museWait: opts.MuseWait,
+		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth),
 		hosts: map[string]bool{"127.0.0.1": true, "localhost": true, "::1": true},
 		client: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 || !validHTTPURL(req.URL) {
@@ -169,6 +175,9 @@ func New(opts Options) (*App, error) {
 			}
 		}
 	})
+	// Pemeriksaan kesehatan provider berkala (fitur 6). Pemeriksaan pertama
+	// menunggu satu interval agar start aplikasi tidak memukul gateway.
+	a.wg.Go(a.healthLoop)
 	return a, nil
 }
 func (a *App) Close() {
@@ -326,7 +335,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 		}
 		want = r.Method
-	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote", "/api/login", "/api/logout", "/api/pin", "/api/debate":
+	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote", "/api/login", "/api/logout", "/api/pin", "/api/debate", "/api/skills/install":
 		want = http.MethodPost
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
@@ -378,6 +387,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 				want = http.MethodGet
 			} else if len(parts) == 2 && parts[1] == "test-models" && r.Method == http.MethodPost {
 				want = http.MethodPost
+			} else if len(parts) == 2 && parts[1] == "health" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else if len(parts) == 2 && parts[1] == "latency-test" && r.Method == http.MethodPost {
+				want = http.MethodPost
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
 			}
@@ -428,6 +441,21 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 				return nil, err
 			}
 			return map[string]any{"ok": true, "hasPin": a.data.Settings.PINHash != ""}, nil
+		})
+	case "/api/skills/install":
+		var body struct {
+			URL       string `json:"url"`
+			Overwrite bool   `json:"overwrite"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
+		name, err := a.installSkill(r.Context(), body.URL, body.Overwrite)
+		if err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(200, func() (any, error) {
+			return map[string]any{"name": name, "source": "lokal"}, nil
 		})
 	case "/api/state":
 		return a.respondLocked(200, func() (any, error) { return a.stateLocked(), nil })
@@ -512,7 +540,9 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return map[string]any{"entries": entries}, nil
 		})
 	case "/api/stats":
-		return a.respondLocked(200, func() (any, error) { return map[string]any{"stats": a.statsWithCostLocked()}, nil })
+		return a.respondLocked(200, func() (any, error) {
+			return map[string]any{"stats": a.statsWithCostLocked(), "cacheHits": a.cacheHitCount(), "reactions": a.reactionsStatsLocked()}, nil
+		})
 	case "/api/search":
 		query := r.URL.Query()
 		filters := searchFilters{
@@ -541,7 +571,11 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		})
 	case "/api/providers":
 		if r.Method == http.MethodGet {
-			return a.respondLocked(200, func() (any, error) { return map[string]any{"providers": a.data.providerViews()}, nil })
+			return a.respondLocked(200, func() (any, error) {
+				views := a.data.providerViews()
+				a.overlayHealth(views)
+				return map[string]any{"providers": views}, nil
+			})
 		}
 		var input providerInput
 		if err := readObject(w, r, &input); err != nil {
@@ -731,6 +765,23 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					return 0, nil, err
 				}
 				return a.testProviderModels(r.Context(), parts[0], body.Models)
+			}
+			if len(parts) == 2 && parts[1] == "health" {
+				a.mu.Lock()
+				p := a.data.findProvider(parts[0])
+				if p == nil {
+					a.mu.Unlock()
+					return 0, nil, problem(404, "Provider tidak ditemukan.")
+				}
+				provider := *p
+				a.mu.Unlock()
+				health := a.checkProviderHealth(r.Context(), provider)
+				return a.respondLocked(200, func() (any, error) {
+					return map[string]any{"providerId": parts[0], "health": health}, nil
+				})
+			}
+			if len(parts) == 2 && parts[1] == "latency-test" {
+				return a.latencyTest(r.Context(), parts[0])
 			}
 			if len(parts) == 1 {
 				if r.Method == http.MethodDelete {

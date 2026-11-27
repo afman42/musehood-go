@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api, apiDelete, errorText, protocolLabels } from './api';
-  import type { GatewayProvider, GatewayProtocol, ModelTestResult, State } from './types';
+  import type { GatewayProvider, GatewayProtocol, LatencyResult, ModelTestResult, State } from './types';
 
   let { current, refresh, mutate, notify, onSave, saving }: {
     current: State | undefined;
@@ -23,6 +23,9 @@
   let providerTests = $state<Record<string, Record<string, ModelTestResult>>>({});
   let fetchingProvider = $state<string | null>(null);
   let testingProvider = $state<string | null>(null);
+  let checkingHealth = $state<string | null>(null);
+  let latencyProvider = $state<string | null>(null);
+  let latencyResults = $state<Record<string, LatencyResult[]>>({});
   let savingProvider = $state(false);
   let testing = $state(false);
   let connectionError = $state('');
@@ -143,6 +146,28 @@
     finally { testingProvider = null; }
   }
 
+  async function checkHealth(provider: GatewayProvider) {
+    if (checkingHealth !== null) return;
+    checkingHealth = provider.id;
+    try {
+      const out = await api<{ providerId: string; health: { ok: boolean; latencyMs: number; error?: string } }>(`/api/providers/${provider.id}/health`, {});
+      await refresh();
+      notify(out.health.ok ? `${provider.name} sehat (${out.health.latencyMs} mdtk).` : `${provider.name} bermasalah: ${out.health.error ?? 'tidak terhubung'}`, !out.health.ok);
+    } catch (error) { notify(errorText(error), true); }
+    finally { checkingHealth = null; }
+  }
+
+  async function runLatencyTest(provider: GatewayProvider) {
+    if (latencyProvider !== null) return;
+    latencyProvider = provider.id;
+    try {
+      const out = await api<{ providerId: string; results: LatencyResult[] }>(`/api/providers/${provider.id}/latency-test`, {});
+      latencyResults = { ...latencyResults, [provider.id]: out.results ?? [] };
+      notify(`Uji latency selesai untuk ${provider.name}.`);
+    } catch (error) { notify(errorText(error), true); }
+    finally { latencyProvider = null; }
+  }
+
   async function testConnection() {
     testing = true;
     try {
@@ -165,7 +190,7 @@
       {#each current?.providers ?? [] as provider (provider.id)}
         <article class="provider-row">
           <div class="provider-info">
-            <p><strong>{provider.name}</strong> {#if provider.alias}<span class="model-tag">{provider.alias}</span>{/if} {#if provider.active}<span class="provider-active">Aktif</span>{/if}</p>
+            <p><strong>{provider.name}</strong> {#if provider.alias}<span class="model-tag">{provider.alias}</span>{/if} {#if provider.active}<span class="provider-active">Aktif</span>{/if} {#if provider.health}<span class="health-badge {provider.health.ok ? 'ok' : 'fail'}" title={provider.health.ok ? `Dicek ${provider.health.checkedAt}` : (provider.health.error ?? '')}>{provider.health.ok ? `● Sehat ${provider.health.latencyMs} mdtk` : '● Bermasalah'}</span>{/if}</p>
             <p class="field-hint">{provider.baseUrl} · {protocolLabels[provider.protocol]} · {provider.hasApiKey ? 'Key tersimpan' : 'Tanpa key'}</p>
           </div>
           <div class="provider-actions">
@@ -173,8 +198,22 @@
             <button class="secondary-button" type="button" onclick={() => editProvider(provider)}>Edit</button>
             <button class="secondary-button" type="button" onclick={() => fetchModels(provider)} disabled={fetchingProvider !== null}>{fetchingProvider === provider.id ? 'Mengambil…' : 'Fetch Models'}</button>
             <button class="secondary-button" type="button" onclick={() => testModels(provider)} disabled={testingProvider !== null || (fetchedModels[provider.id]?.models.length ?? 0) === 0}>{testingProvider === provider.id ? 'Menguji…' : 'Tes Models'}</button>
+            <button class="secondary-button" type="button" onclick={() => checkHealth(provider)} disabled={checkingHealth !== null}>{checkingHealth === provider.id ? 'Memeriksa…' : 'Cek Kesehatan'}</button>
+            <button class="secondary-button" type="button" onclick={() => runLatencyTest(provider)} disabled={latencyProvider !== null}>{latencyProvider === provider.id ? 'Mengukur…' : 'Uji Latency'}</button>
             <button class="text-button danger-text" type="button" onclick={() => deleteProvider(provider)}>Hapus</button>
           </div>
+          {#if latencyResults[provider.id]?.length}
+            <div class="table-scroll">
+              <table class="stats-table">
+                <thead><tr><th>#</th><th>Model</th><th>Latency</th><th>Status</th></tr></thead>
+                <tbody>
+                  {#each latencyResults[provider.id] as result, rank (result.model)}
+                    <tr><td>{rank + 1}</td><td>{modelLabel(provider, result.model)}</td><td>{result.ok ? `${result.latencyMs} mdtk` : '—'}</td><td>{result.ok ? 'OK' : (result.error ?? 'Gagal')}</td></tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
           {#if fetchedModels[provider.id]}
             <div class="model-list">{#each fetchedModels[provider.id].models as model (model)}<span class="model-tag">{modelLabel(provider, model)}</span>{/each}</div>
             {#if providerTests[provider.id]}
