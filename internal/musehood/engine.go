@@ -332,6 +332,9 @@ func (a *App) finishStepLocked(j *job, s *step, m *message) {
 			}
 			r.SummaryCount = count
 		}
+		// Memori otomatis (fitur 3): kursi peserta yang mengaktifkan
+		// AutoMemory menulis poin memori dari ringkasan ini.
+		a.autoMemoryAfterSummaryLocked(j.RoomID, m.Text)
 	}
 	m.StatusText = ""
 	j.Index++
@@ -352,6 +355,12 @@ func (a *App) finishStepLocked(j *job, s *step, m *message) {
 func (a *App) completeJobLocked(j *job) {
 	j.Status = "completed"
 	j.CompletedAt = now()
+	// Bersihkan catatan budget "sekali per pekerjaan" (fitur 5).
+	for key := range a.budgetNoted {
+		if strings.HasPrefix(key, j.ID+"|") {
+			delete(a.budgetNoted, key)
+		}
+	}
 	if task := a.data.Task; task != nil && task.JobID == j.ID {
 		task.Status = "completed"
 		task.CurrentStep = nil
@@ -596,10 +605,39 @@ func (a *App) advanceLocked(j *job) {
 			a.finishStepLocked(j, s, m)
 			continue
 		}
+		// Budget harian (fitur 5): kursi yang sudah mencapai budget hari
+		// ini dilewati; catatan singkat hanya sekali per pekerjaan.
+		if a.budgetExceededLocked(member) {
+			key := j.ID + "|" + member.Code
+			if !a.budgetNoted[key] {
+				a.budgetNoted[key] = true
+				m.Error = fmt.Sprintf("Kursi %s dilewati: budget harian $%.2f sudah tercapai hari ini.", member.Name, member.DailyBudgetUSD)
+			}
+			a.finishStepLocked(j, s, m)
+			continue
+		}
 		cfg := a.data.Settings
-		if member.Model != nil {
+		// Model per jenis tugas (fitur 6): ringkasan memakai model
+		// ringkasan, putaran dengan tool memakai model tools, sisanya
+		// model chat; gambar tetap memakai Model kursi.
+		task := "chat"
+		switch {
+		case s.Kind == "roomsum" || s.Kind == "summary":
+			task = "summary"
+		case s.Kind != "image" && s.Kind != "vote" && a.data.Settings.toolsOn():
+			task = "tools"
+		}
+		taskModel := ""
+		if s.Kind == "image" {
+			if member.Model != nil {
+				taskModel = *member.Model
+			}
+		} else {
+			taskModel = member.modelForTask(task)
+		}
+		if taskModel != "" {
 			var resolved string
-			cfg, resolved = a.data.resolveModelProviderLocked(cfg, *member.Model)
+			cfg, resolved = a.data.resolveModelProviderLocked(cfg, taskModel)
 			member.Model = &resolved
 		}
 		if s.Kind == "image" {

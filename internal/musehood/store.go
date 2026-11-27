@@ -49,6 +49,39 @@ type seat struct {
 	// Skills adalah nama skill (folder skills/) yang aktif untuk kursi ini;
 	// badan skill disisipkan ke system prompt.
 	Skills []string `json:"skills,omitempty"`
+	// AutoMemory mengizinkan kursi ini menulis sendiri 1-3 poin memori
+	// singkat dari ringkasan ruang ke Memory-nya (fitur 3). Nil = MATI.
+	AutoMemory *bool `json:"autoMemory,omitempty"`
+	// DailyBudgetUSD adalah batas biaya harian kursi ini (fitur 5).
+	// Nol berarti tanpa batas.
+	DailyBudgetUSD float64 `json:"dailyBudgetUsd,omitempty"`
+	// ModelChat/ModelTools/ModelSummary adalah model per jenis tugas
+	// (fitur 6): chat biasa, putaran dengan tool, dan ringkasan/memori
+	// otomatis. Kosong berarti memakai Model.
+	ModelChat    string `json:"modelChat,omitempty"`
+	ModelTools   string `json:"modelTools,omitempty"`
+	ModelSummary string `json:"modelSummary,omitempty"`
+}
+
+// modelForTask mengembalikan nama model kursi ini untuk jenis tugas
+// ("chat", "tools", "summary"); kosong pada field tugas berarti Model.
+func (s seat) modelForTask(task string) string {
+	taskModel := ""
+	switch task {
+	case "tools":
+		taskModel = s.ModelTools
+	case "summary":
+		taskModel = s.ModelSummary
+	default:
+		taskModel = s.ModelChat
+	}
+	if strings.TrimSpace(taskModel) != "" {
+		return taskModel
+	}
+	if s.Model == nil {
+		return ""
+	}
+	return *s.Model
 }
 // fallbackChain mengembalikan daftar model cadangan kursi secara berurutan:
 // FallbackModel (lama) lalu FallbackModels, tanpa duplikat dan tanpa model utama.
@@ -321,6 +354,22 @@ type usageStat struct {
 	CompletionTokens int64  `json:"completionTokens"`
 	LastAt           string `json:"lastAt,omitempty"`
 }
+
+// dailyUsage adalah pemakaian token dan estimasi biaya satu kursi dalam
+// satu hari (fitur 5). CostUSD dihitung dari harga token provider.
+type dailyUsage struct {
+	TokensIn  int64   `json:"tokensIn"`
+	TokensOut int64   `json:"tokensOut"`
+	CostUSD   float64 `json:"costUsd"`
+}
+
+// loginEvent adalah satu entri audit percobaan masuk PIN (fitur 28).
+type loginEvent struct {
+	Time    string `json:"time"`
+	IP      string `json:"ip"`
+	Success bool   `json:"success"`
+}
+
 type connection struct {
 	Models   []string `json:"models"`
 	TestedAt string   `json:"testedAt"`
@@ -351,6 +400,17 @@ type data struct {
 	WorkerToken string `json:"workerToken,omitempty"`
 	// ToolLog adalah log audit pemakaian tool oleh kursi (maks 500 entri).
 	ToolLog []toolLogEntry `json:"toolLog,omitempty"`
+	// DailyUsage adalah pemakaian token+biaya per tanggal ("2006-01-02")
+	// per kode kursi (fitur 5 budget harian).
+	DailyUsage map[string]map[string]*dailyUsage `json:"dailyUsage,omitempty"`
+	// SkillUsage adalah hitungan pemakaian skill per nama skill
+	// (fitur 27), dihitung saat skill disuntikkan ke system prompt.
+	SkillUsage map[string]int `json:"skillUsage,omitempty"`
+	// LoginLog adalah audit percobaan masuk PIN (fitur 28), maks 200 entri.
+	LoginLog []loginEvent `json:"loginLog,omitempty"`
+	// TelegramOffset adalah offset update Telegram terakhir yang sudah
+	// diproses jembatan Telegram (fitur 43).
+	TelegramOffset int64 `json:"telegramOffset,omitempty"`
 }
 
 // toolLogEntry adalah satu catatan audit pemakaian tool.
@@ -1263,6 +1323,11 @@ type settingsUpdate struct {
 		DisabledTools  *[]string `json:"disabledTools"`
 		Memory         *string   `json:"memory"`
 		Skills         *[]string `json:"skills"`
+		AutoMemory     *bool     `json:"autoMemory"`
+		DailyBudgetUSD *float64  `json:"dailyBudgetUsd"`
+		ModelChat      *string   `json:"modelChat"`
+		ModelTools     *string   `json:"modelTools"`
+		ModelSummary   *string   `json:"modelSummary"`
 	} `json:"seats"`
 	Settings *struct {
 		BaseURL         *string `json:"baseUrl"`
@@ -1414,6 +1479,33 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 					skills = append(skills, name)
 				}
 				s.Skills = skills
+			}
+			if patch.AutoMemory != nil {
+				enabled := *patch.AutoMemory
+				s.AutoMemory = &enabled
+			}
+			if patch.DailyBudgetUSD != nil {
+				if *patch.DailyBudgetUSD < 0 || *patch.DailyBudgetUSD > 100000 {
+					return problem(400, "Budget harian kursi harus antara 0 dan 100000 USD.")
+				}
+				s.DailyBudgetUSD = *patch.DailyBudgetUSD
+			}
+			for _, taskModel := range []struct {
+				value *string
+				dest  *string
+				label string
+			}{
+				{patch.ModelChat, &s.ModelChat, "Model chat"},
+				{patch.ModelTools, &s.ModelTools, "Model tools"},
+				{patch.ModelSummary, &s.ModelSummary, "Model ringkasan"},
+			} {
+				if taskModel.value == nil {
+					continue
+				}
+				if jsLength(*taskModel.value) > 200 || badSetting.MatchString(*taskModel.value) {
+					return problem(400, taskModel.label+" tidak valid.")
+				}
+				*taskModel.dest = strings.TrimSpace(*taskModel.value)
 			}
 		}
 		seen := map[string]bool{}

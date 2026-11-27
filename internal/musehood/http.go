@@ -60,6 +60,9 @@ type App struct {
 	cacheHits       int64
 	healthMu        sync.Mutex
 	health          map[string]providerHealth
+	// budgetNoted menandai catatan budget "sekali per pekerjaan" yang
+	// sudah ditampilkan (fitur 5), kunci "jobID|kodeKursi".
+	budgetNoted map[string]bool
 }
 type apiError struct {
 	status  int
@@ -105,7 +108,7 @@ func New(opts Options) (*App, error) {
 		d.WorkerToken = hex.EncodeToString(raw)
 	}
 	a := &App{dir: opts.DataDir, frontend: opts.Frontend, data: d, running: make(map[*job]context.CancelFunc), museWait: opts.MuseWait,
-		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth),
+		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth), budgetNoted: map[string]bool{},
 		hosts: map[string]bool{"127.0.0.1": true, "localhost": true, "::1": true},
 		client: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 || !validHTTPURL(req.URL) {
@@ -341,6 +344,8 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
 			want = http.MethodPost
 		} else if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/persona") && r.Method == http.MethodPost {
+			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/clone") && r.Method == http.MethodPost {
 			want = http.MethodPost
 		} else if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			want = http.MethodDelete
@@ -841,6 +846,16 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 				return 0, nil, err
 			}
 			return a.respondLocked(200, func() (any, error) { return a.applyPersonaLocked(code, body.PersonaID) })
+		}
+		if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/clone") {
+			code := strings.TrimSuffix(strings.TrimPrefix(path, "/api/seats/"), "/clone")
+			return a.respondLocked(201, func() (any, error) {
+				clone, err := a.cloneSeatLocked(code)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"seat": clone}, nil
+			})
 		}
 		if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
 			code := strings.TrimPrefix(path, "/api/seats/")

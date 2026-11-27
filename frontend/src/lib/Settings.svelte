@@ -63,6 +63,11 @@
       disabledTools: [...(seat.disabledTools ?? [])],
       memory: seat.memory ?? '',
       skills: (seat.skills ?? []).join(', '),
+      autoMemory: seat.autoMemory ?? false,
+      dailyBudgetUsd: seat.dailyBudgetUsd ?? 0,
+      modelChat: seat.modelChat ?? '',
+      modelTools: seat.modelTools ?? '',
+      modelSummary: seat.modelSummary ?? '',
     }));
     integratorSeat = current.settings.integratorSeat || 'MUSE';
     roomEdits = (current.rooms ?? []).map((room) => ({

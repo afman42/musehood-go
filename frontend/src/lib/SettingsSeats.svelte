@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, apiDelete, errorText } from './api';
+  import { t } from './i18n.svelte';
   import AvatarButton from './AvatarButton.svelte';
   import SkillPicker from './SkillPicker.svelte';
   import type { ModelTestResult, Persona, SeatEdit, SkillDef, State } from './types';
@@ -109,6 +110,15 @@
     finally { addingSeat = false; }
   }
 
+  async function cloneSeat(code: string, name: string) {
+    try {
+      await api(`/api/seats/${code}/clone`, {});
+      await refresh();
+      onSync();
+      notify(`Kursi ${name} dikloning.`);
+    } catch (error) { notify(errorText(error), true); }
+  }
+
   async function removeSeat(code: string, name: string) {
     if (!window.confirm(`Hapus kursi ${name}? Kursi bawaan tidak dapat dihapus.`)) return;
     try {
@@ -200,6 +210,12 @@
             <input aria-label={`Model fallback ${item.code}`} maxlength="1000" placeholder="model-a, model-b, model-c" autocomplete="off" spellcheck="false" data-fallback={item.code} bind:value={item.fallbackModels}>
           </label>
           <span class="field-hint">Dicoba berurutan bila model utama gagal. Pisahkan dengan koma, boleh berformat alias/model. Kosongkan untuk tanpa fallback.</span>
+          <label class="model-label">{t('taskModels')}
+            <input aria-label={`Model chat ${item.code}`} maxlength="200" placeholder={t('modelChatPh')} autocomplete="off" spellcheck="false" data-model-chat={item.code} bind:value={item.modelChat}>
+            <input aria-label={`Model tools ${item.code}`} maxlength="200" placeholder={t('modelToolsPh')} autocomplete="off" spellcheck="false" data-model-tools={item.code} bind:value={item.modelTools}>
+            <input aria-label={`Model ringkasan ${item.code}`} maxlength="200" placeholder={t('modelSummaryPh')} autocomplete="off" spellcheck="false" data-model-summary={item.code} bind:value={item.modelSummary}>
+          </label>
+          <span class="field-hint">{t('taskModelsHint')}</span>
           <details class="tools-details">
             <summary>Tool dinonaktifkan untuk kursi ini ({item.disabledTools.length})</summary>
             <div class="tools-checks">
@@ -214,11 +230,19 @@
           <textarea aria-label={`Memori ${item.code}`} rows="2" maxlength="4000" placeholder="Catatan persisten yang selalu diingat kursi ini…" data-memory={item.code} bind:value={item.memory}></textarea>
         </label>
         <span class="field-hint">Disisipkan ke instruksi kursi setiap kali menjawab; tetap ada setelah chat dibersihkan.</span>
+        <label class="toggle-row"><span><strong>{t('autoMemory')}</strong><small>{t('autoMemoryHint')}</small></span><input type="checkbox" role="switch" aria-label={`${t('autoMemory')} ${item.code}`} bind:checked={item.autoMemory}></label>
+        {#if item.provider === 'gateway'}
+          <label class="model-label">{t('dailyBudget')}
+            <input aria-label={`${t('dailyBudget')} ${item.code}`} type="number" min="0" step="0.01" data-budget={item.code} bind:value={item.dailyBudgetUsd}>
+          </label>
+          <span class="field-hint">{t('dailyBudgetHint')}</span>
+        {/if}
         <span class="model-label">Skill aktif</span>
         <SkillPicker bind:value={item.skills} available={availableSkills} code={item.code} />
         <span class="field-hint">{skillsEnabled
           ? 'Cari skill lalu tekan untuk menempel ke kursi ini. Skill dibaca dari folder skills/ server dan direktori skills.sh (~/.agents/skills, ~/.claude/skills); isinya disisipkan ke instruksi kursi.'
           : 'Skill sedang NONAKTIF global (saklar di bagian atas Pengaturan). Pilihan tetap tersimpan, tapi tidak dipakai sampai diaktifkan lagi.'}</span>
+        <button class="text-button" type="button" onclick={() => cloneSeat(item.code, item.name)}>{t('cloneSeat')}</button>
         {#if item.code.startsWith('C')}
           <button class="text-button danger-text" type="button" onclick={() => removeSeat(item.code, item.name)}>Hapus kursi ini</button>
         {/if}

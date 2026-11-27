@@ -263,6 +263,11 @@ func (a *App) recordStat(s seat, cfg settings, model string, ok bool, latency ti
 		st.CompletionTokens += completionTokens
 		st.LastAt = now()
 	}
+	// Pemakaian harian per kursi untuk budget (fitur 5); hanya panggilan
+	// sukses yang membawa token yang dihitung biayanya.
+	if ok && (promptTokens > 0 || completionTokens > 0) {
+		a.recordDailyUsageLocked(s.Code, cfg, promptTokens, completionTokens)
+	}
 }
 
 // extractUsage mengambil jumlah token dari respons gateway bila provider
