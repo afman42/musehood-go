@@ -1,6 +1,6 @@
 # Musehood Go
 
-Grup chat lokal berbahasa Indonesia untuk Arman dan tujuh kursi AI. Backend Go memakai standard library. Frontend SvelteKit 3, Svelte 5, dan TypeScript dibangun sebagai SPA dan disertakan di binary Go. Rilis terakhir: **v1.6.0** (40 binary lintas platform di GitHub Releases).
+Grup chat lokal berbahasa Indonesia untuk Arman dan tujuh kursi AI. Backend Go (standard library + satu dependensi: driver SQLite pure-Go `modernc.org/sqlite` untuk backend penyimpanan opsional). Frontend SvelteKit 3, Svelte 5, dan TypeScript dibangun sebagai SPA dan disertakan di binary Go. Rilis terakhir: **v1.8.0** (binary lintas platform di GitHub Releases).
 
 ## Mulai
 
@@ -253,11 +253,27 @@ Selain tool bawaan, tambahkan tool sendiri lewat definisi JSON di `tools/<nama>.
 }
 ```
 
-Dua tipe: `http_get` (GET ke URL template; `{{param}}` diganti dari baris argumen berurutan, `{{arg}}` = seluruh argumen; melewati penjaga SSRF; field opsional `userAgent`) dan `shell` (perintah template dijalankan di sandbox yang sama dengan `run_shell` — selalu memerlukan persetujuan pemilik dan toggle tool coding aktif). Nama tool harus huruf kecil/angka/underscore dan tidak boleh menabrak tool bawaan. Daftar tool kustom: `GET /api/tools`. Contoh siap pakai ada di `tools/cuaca.json`.
+Tipe yang tersedia: `http_get` (GET ke URL template; `{{param}}` diganti dari baris argumen berurutan, `{{arg}}` = seluruh argumen; melewati penjaga SSRF; field opsional `userAgent` dan `headers` template), `http_post` (POST JSON dari template body — **persetujuan pemilik**), `shell` (perintah template dijalankan di sandbox yang sama dengan `run_shell` — selalu memerlukan persetujuan pemilik dan toggle tool coding aktif), `javascript` (field `code` dijalankan via sandbox node, argumen JSON via stdin, stdout = hasil), dan `pipeline` (field `steps`, maks 5 tool berantai, tanpa pipeline bersarang). Parameter boleh berupa string (legacy) atau objek `{name, type: string|number|bool, required, hint}` yang divalidasi sebelum jalan. Nama tool harus huruf kecil/angka/underscore dan tidak boleh menabrak tool bawaan. Daftar tool kustom: `GET /api/tools`. Contoh siap pakai ada di `tools/cuaca.json`.
 
 ## Statistik pemakaian
 
 `GET /api/stats` mengembalikan pemakaian per kursi dan per model (jumlah request, sukses/gagal, latensi, token) untuk chat dan gambar. Bila harga provider diisi (per 1M token input/output), statistik menyertakan **estimasi biaya** (`estimatedCostUsd`) per model. Tabel statistik tampil di Pengaturan.
+
+## Pendalaman fitur
+
+Selain fitur inti di atas, aplikasi punya lapisan pendalaman (semua dapat diatur dari Pengaturan):
+
+- **Keamanan**: PIN aplikasi (hash + sesi cookie HMAC 7 hari; endpoint pekerja Muse memakai token pekerja terpisah), audit login (maks 200, FIFO) + rate limit PIN (5 gagal/IP/5 menit → 429 selama 5 menit), log audit tool (maks 500, FIFO — argumen `env_file set` di-redact).
+- **Kursi**: persona preset (6 bawaan: reviewer ketat, penulis santai, analis data, programmer, penerjemah, tutor sabar), kloning kursi, memori otomatis dari ringkasan ruang, budget harian per kursi (kursi dilewati + catatan sekali per job bila habis), model per jenis tugas (chat/tools/summary), urutan bicara per ruang.
+- **Gateway**: circuit breaker per provider (5 gagal berurutan → buka 60 detik → half-open), retry otomatis 429/5xx (maks 2×, backoff 1 dtk/3 dtk, `Retry-After` dihormati maks 10 dtk), cache respons (TTL 10 menit, non-streaming tanpa tool), health check provider berkala (5 menit) + uji latency berperingkat, load balancing antar provider bermodel sama, tool-calling native OpenAI (fallback protokol teks).
+- **Percakapan**: edit pesan + regenerasi dari pesan pemilik, branching dalam ruang (cabang aktif dipilih via chip), mode paralel (kursi menjawab bersamaan, integrator terakhir), tag pesan (maks 5) + filter pencarian, jadwal berulang mini-cron (5 field), balasan berantai antar kursi, mode debat (pro/kontra/rebuttal/kesimpulan), fork pesan ke ruang baru, ekspor satu diskusi, statistik reaksi emoji.
+- **Ruang**: ikon + warna aksen per ruang, arsip ruang (tersembunyi dari baris ruang + pencarian), izin tool per ruang.
+- **Tool kustom lanjutan**: tipe `http_post` (berpersetujuan), parameter ber-tipe (string/number/bool + wajib), header auth template `{{param}}` (tidak masuk log audit), tipe `javascript` (sandbox node, argumen JSON via stdin), tipe `pipeline` (maks 5 langkah berantai).
+- **Skill**: pasang skill dari URL SKILL.md atau repo git (`POST /api/skills/install`), statistik pemakaian skill.
+- **Integrasi**: webhook keluar `message.completed`, API eksternal ber-token (`POST /api/external/message`, bebas gerbang PIN), jembatan Telegram (long-poll; butuh token bot + chat ID dari pemilik), auto-update dari rilis GitHub (`/api/update/check` + `/api/update/apply` dengan `.bak`).
+- **Pencarian**: indeks full-text in-memory (AND multi-kata + fallback substring).
+- **Penyimpanan**: backend SQLite opsional (kv-blob `data.db`, migrasi otomatis dari `data.json` yang dipertahankan sebagai cadangan) via env `MUSEHOOD_STORAGE=sqlite|json`; tanpa env, SQLite hanya dipakai bila `data.db` sudah ada — produksi bawaan tetap JSON.
+- **UI**: shortcut keyboard (Ctrl/Cmd+K cari, Ctrl/Cmd+Enter kirim, Alt+1–9 ruang, `?` bantuan), mode kompak.
 
 ## PWA, tema, dan bahasa
 
@@ -336,18 +352,32 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | GET | `/api/queue/muse` | `{requests:[…]}` |
 | POST | `/api/queue/muse/:id` | `{text,imageUrl?}` atau `{error}` |
 | POST | `/api/upload-avatar` | Multipart dengan `target` dan `avatar`, raster maksimal 2 MB |
+| POST | `/api/login` / `/api/logout` / `/api/pin` | Login PIN, keluar, atur/ubah PIN |
+| GET | `/api/personas` | Daftar persona preset kursi |
+| POST | `/api/seats/{code}/persona` / `/clone` | Terapkan persona; kloning kursi |
+| POST | `/api/rooms/{id}/archive` | Arsipkan/pulihkan ruang |
+| POST | `/api/message/{id}/rerun` / `/fork` / `/branch` / `/tags` | Ulangi dari pesan pemilik; fork ke ruang baru; cabang; tag pesan |
+| POST | `/api/debate` | Debat dua kursi (pro/kontra/rebuttal/kesimpulan) |
+| GET | `/api/export?message=…` | Ekspor satu diskusi (HTML/JSON) |
+| GET | `/api/tool-log` | Log audit pemakaian tool |
+| POST | `/api/skills/install` | Pasang skill dari URL SKILL.md atau repo git |
+| POST | `/api/providers/{id}/health` / `/latency-test` | Cek kesehatan provider; uji latency berperingkat |
+| POST | `/api/external/message` | Pesan masuk via API eksternal (header `Authorization: Bearer <token>`) |
+| POST | `/api/external-token/regenerate` | Buat ulang token API eksternal (tampil sekali) |
+| GET/POST | `/api/update/check` / `/api/update/apply` | Cek rilis GitHub terbaru; terapkan update (dengan `.bak`) |
+| GET | `/exports/<nama>.zip` | Unduh hasil `export_project` |
 
 Browser mengambil hasil job dari `/api/state`. Semua error API memakai `{error}`. Pengaturan mendukung `owner.name`, `group.name`, `seats[].{code,name,role,prompt,provider,model,fallbackModel,fallbackModels,disabledTools,memory,skills}`, dan `settings.{baseUrl,apiKey,clearApiKey,roundRobin,reviewLevel,demoFallback,integratorSeat,toolsEnabled,codeToolEnabled,skillsEnabled,streamingEnabled,theme,fontSize}`; provider mendukung `priceInputPer1M`/`priceOutputPer1M`. `POST /api/message` menerima `templateId` opsional. Avatar dapat diunggah untuk `group`, `owner`, atau kode kursi.
 
 ## Penyimpanan
 
-`DATA_DIR` memakai direktori kerja sebagai default. Isinya `data.json` dengan skema Musehood versi 1, folder `queue/`, `avatars/` untuk unggahan, `images/` untuk gambar, `uploads/` untuk lampiran file, `sandbox/` sebagai folder kerja tool kursi, `skills/` untuk skill lokal per kursi, dan `tools/` untuk definisi tool kustom JSON. `data.json` ditulis atomik dengan izin `0600` dan memuat key gateway konfigurasi. Untuk memindahkan data Node, salin `data.json`, `queue/`, isi unggahan dari `public/avatars/`, serta `public/images/` ke struktur runtime Go. Jalankan satu proses per `DATA_DIR`.
+`DATA_DIR` memakai direktori kerja sebagai default. Isinya `data.json` dengan skema Musehood versi 1 (atau `data.db` bila backend SQLite diaktifkan via env `MUSEHOOD_STORAGE=sqlite` — migrasi otomatis dari `data.json`, JSON dipertahankan sebagai cadangan), folder `queue/`, `avatars/` untuk unggahan, `images/` untuk gambar, `uploads/` untuk lampiran file, `sandbox/` sebagai folder kerja tool kursi, `projects/` untuk proyek coding bernama, `exports/` untuk zip hasil ekspor proyek, `snapshots/` untuk snapshot proyek, `skills/` untuk skill lokal per kursi, dan `tools/` untuk definisi tool kustom JSON. `data.json` ditulis atomik dengan izin `0600` dan memuat key gateway konfigurasi. Untuk memindahkan data Node, salin `data.json`, `queue/`, isi unggahan dari `public/avatars/`, serta `public/images/` ke struktur runtime Go. Jalankan satu proses per `DATA_DIR`.
 
 ## Performa
 
 Terukur di VM pengembangan (RAM tersedia ~400 MB, GOMAXPROCS=2):
 
-- `/api/state` lokal: median **2 ms** per request; proses server memakai **~10 MB** RAM; binary 12 MB.
+- `/api/state` lokal: median **2 ms** per request; proses server memakai **~10 MB** RAM; binary ~21 MB (termasuk driver SQLite pure-Go).
 - `run_code` Python: **~50 ms** per eksekusi (termasuk startup sandbox + interpreter); JavaScript **~93 ms**.
 - Deteksi pola berbahaya: 47 µs; tulis+baca file sandbox: 22 µs.
 
@@ -377,6 +407,6 @@ node tests/frontend-perf.mjs
 
 `tests/live-e2e.mjs` menjalankan binary asli terhadap gateway mock dan menguji 49 skenario end-to-end. Uji Chromium menggunakan instalasi Playwright lokal. Isi `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` bila menggunakan executable Chromium dari lokasi lain. Lihat hasil dan cakupan pengujian di [TESTS.md](TESTS.md).
 
-Suite backend (`internal/musehood/*_test.go`, 168 fungsi tes, cakupan 82,4%) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model + rantai fallback, persetujuan via API, tool kustom, voting, isolasi ruang, streaming SSE + fallback, regenerate, pesan terjadwal + jadwal berulang, template diskusi, ringkasan + kompaksi konteks, pencarian berfilter, sematan ruang + tema), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom, terjemahan, kurs, QR, RSS, transkrip YouTube, `http_post` berpersetujuan — resolver DNS di-stub ke IP publik dan URL API diganti server lokal dalam tes, penjaga SSRF produksi tidak dilemahkan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
+Suite backend (`internal/musehood/*_test.go` + `main_test.go`, 276 fungsi tes, cakupan 80,5%) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model + rantai fallback, persetujuan via API, tool kustom, voting, isolasi ruang, streaming SSE + fallback, regenerate, pesan terjadwal + jadwal berulang, template diskusi, ringkasan + kompaksi konteks, pencarian berfilter, sematan ruang + tema), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom, terjemahan, kurs, QR, RSS, transkrip YouTube, `http_post` berpersetujuan — resolver DNS di-stub ke IP publik dan URL API diganti server lokal dalam tes, penjaga SSRF produksi tidak dilemahkan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
 
-Suite frontend mencakup: unit (`frontend/tests/unit/`, helper format/API, parser Markdown, lazy-load syntax highlighting + composable `chat.svelte.ts` yang dikompilasi dan dijalankan di Node dengan fetch/document stub, via `node --test`), komponen (`frontend/tests/component/`, render SSR komponen Svelte), E2E UI (`tests/frontend-e2e.mjs`: chat, mention + modal info kursi, render Markdown + syntax highlighting, pengaturan, pin, ruang, pencarian, voting, persetujuan tool; `tests/frontend-e2e-settings.mjs`: CRUD provider + fetch/test models, toggle, kursi custom, kelola ruang, preset, statistik, backup/restore, ekspor; `tests/frontend-e2e-actions.mjs`: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file), aksesibilitas (`tests/frontend-a11y.mjs`: audit axe-core mode terang + gelap, nama aksesibel, alt, keyboard/fokus, kontras WCAG, target sentuh), visual regression (`tests/frontend-visual.mjs`: screenshot 5 skenario vs baseline piksel di `tests/visual-baselines/`), dan cross-browser/performance (`tests/frontend-perf.mjs`: viewport 320–1920px, emulasi sentuh iPhone, anggaran timing/bundle/polling — Chromium saja karena unduhan browser lain diblokir di VM pengembangan).
+Suite frontend mencakup: unit (71 tes: `frontend/tests/unit/`, helper format/API, parser Markdown, lazy-load syntax highlighting + composable `chat.svelte.ts` yang dikompilasi dan dijalankan di Node dengan fetch/document stub, via `node --test`), komponen (38 tes: `frontend/tests/component/`, render SSR komponen Svelte), E2E UI (`tests/frontend-e2e.mjs` 21 + `frontend-e2e-depth.mjs` 23 + `frontend-e2e-depth-settings.mjs` 10: chat, mention + modal info kursi, render Markdown + syntax highlighting, pengaturan, pin, ruang, pencarian, voting, persetujuan tool, alur PIN, debat, fork, rerun, reaksi, arsip, ekspor, urutan kursi, shortcut; `tests/frontend-e2e-settings.mjs` 20: CRUD provider + fetch/test models, toggle, kursi custom, kelola ruang, preset, statistik, backup/restore, ekspor; `tests/frontend-e2e-actions.mjs` 10: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file), aksesibilitas (`tests/frontend-a11y.mjs` 20 + `frontend-a11y-depth.mjs` 18: audit axe-core mode terang + gelap, nama aksesibel, alt, keyboard/fokus, kontras WCAG, target sentuh), visual regression (`tests/frontend-visual.mjs`: screenshot 12 skenario vs baseline piksel di `tests/visual-baselines/`), dan cross-browser/performance (`tests/frontend-perf.mjs` 33: viewport 320–1920px, emulasi sentuh iPhone, anggaran timing/bundle/polling — Chromium saja karena unduhan browser lain diblokir di VM pengembangan).
