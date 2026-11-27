@@ -2,6 +2,20 @@
 
 Terakhir dijalankan 27 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
 
+## Tool coding proyek + Docker (27 Nov 2026)
+
+29 tool coding baru (`tools_code*.go`, total 65 tool bawaan) diuji oleh 7 fungsi tes di `tools_code_test.go`:
+
+- `TestProjectCreateAndFiles` — create_project (template Go, tolak duplikat/nama buruk), list_tree, read_file_lines, mkdir, copy/move (tolak menimpa), search_code, find_files glob `**`, penolakan traversal path (`../`, absolut).
+- `TestProjectPatchEditManySnapshot` — apply_patch ubah+tambah file, kegagalan konteks = atomik (tidak ada file berubah), edit_many multi-file, snapshot otomatis (auto-patch/auto-edit), create/list/restore (persetujuan)/delete.
+- `TestProjectBuildTestLintFormat` — proyek Go nyata di sandbox: run_build, run_tests, run_lint, format_code, allowlist_shell (perintah aman jalan; metakarakter `;` dan perintah di luar allowlist ditolak).
+- `TestProjectRunServer` — python http.server di port eksplisit: start, HTTP GET 200 di 127.0.0.1, status, penolakan server kedua, stop.
+- `TestProjectGit` — git_commit (persetujuan; commit bersih = tidak ada perubahan), git_branch create/list/checkout, git_stash push/list/pop (persetujuan).
+- `TestProjectIntelligence` — outline, find_references, dependency_graph, todo_scan, complexity_report, generate_tests (kerangka Go + tolak menimpa).
+- `TestProjectExportImportEnv` — export_project (zip + pola nama unduhan), import_project dari uploads, penolakan zip-slip, env_file set/get ter-mask/list/delete, redaksi argumen log audit (`redactToolArg`).
+
+Hasil: `go test ./... -timeout 900s -count=1` hijau (internal 79,9 dtk). svelte-check 0 error. Demo live via kursi Plamo: create_project → run_build → run_tests semuanya ok. Docker: CLI docker tidak tersedia di VM ini — `docker-compose.yml` terverifikasi sebagai YAML valid, tetapi build image TIDAK teruji di sini.
+
 ## Pendalaman fitur putaran 2 — 26 fitur (27 Nov 2026)
 
 Implementasi 26 fitur pendalaman (perintah Arman: nomor 3,4,5,6,7,8,9,10,12,13,14,15,17,18,19,22,23,24,25,27,28,35,34,41,42,43,45) ditambah **30 fungsi tes baru** di 6 file `depth2_*_test.go`. Total kini **268 fungsi tes** (263 `internal/musehood` + 5 `main`); `go test ./... -timeout 600s -count=1` semua hijau; frontend unit **71** + component **38** hijau; `svelte-check` 0 error.

@@ -135,7 +135,7 @@ API: `POST /api/upload-file` (→ `{url, name, size, mime}`), `GET /uploads/<fil
 
 ## Tool untuk kursi gateway
 
-Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran tool per balasan). Protokolnya berbasis teks — model menulis blok `<<TOOL:nama>>argumen<</TOOL>>`, server menjalankan tool-nya, lalu hasil tool dikirim kembali sebagai pesan lanjutan — sehingga bekerja di semua provider/protokol, termasuk jembatan CLI yang hanya mengembalikan teks. Selama tool berjalan, status mengetik menampilkan aktivitasnya ("Plamo menjalankan web_search…"); hasilnya tampil sebagai **kartu tool** di bawah balasan (klik untuk melihat argumen + hasil). Toggle **"Tool untuk kursi gateway"** di Pengaturan mengendalikan semuanya (bawaan aktif), dan tiap kursi dapat menonaktifkan tool tertentu (allowlist per kursi). Total **36 tool bawaan**:
+Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran tool per balasan). Protokolnya berbasis teks — model menulis blok `<<TOOL:nama>>argumen<</TOOL>>`, server menjalankan tool-nya, lalu hasil tool dikirim kembali sebagai pesan lanjutan — sehingga bekerja di semua provider/protokol, termasuk jembatan CLI yang hanya mengembalikan teks. Selama tool berjalan, status mengetik menampilkan aktivitasnya ("Plamo menjalankan web_search…"); hasilnya tampil sebagai **kartu tool** di bawah balasan (klik untuk melihat argumen + hasil). Toggle **"Tool untuk kursi gateway"** di Pengaturan mengendalikan semuanya (bawaan aktif), dan tiap kursi dapat menonaktifkan tool tertentu (allowlist per kursi). Total **65 tool bawaan** (36 tool umum + 29 tool coding proyek):
 
 | Tool | Fungsi |
 | --- | --- |
@@ -173,6 +173,42 @@ Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran too
 | `run_code` | Jalankan Python/JavaScript di sandbox terisolasi |
 | `run_shell` | Jalankan perintah shell di sandbox yang sama |
 
+### Tool coding proyek
+
+Tool coding bekerja pada **proyek bernama** di folder `projects/<nama>/` di direktori data. Awali argumen dengan baris `project:<nama>` untuk memilih proyek (tanpa itu dipakai proyek `default`); path selalu relatif terhadap folder proyek dan tidak boleh keluar dari folder itu. Semua tool tunduk pada saklar tool utama serta allowlist per kursi dan per ruang; tool eksekusi (`run_build`, `run_tests`, `run_lint`, `format_code`, `run_server`, `allowlist_shell`) juga tunduk pada toggle tool coding.
+
+| Tool | Fungsi |
+| --- | --- |
+| `create_project` | Buat proyek baru dari template `go`/`node`/`python`/`web` (menolak bila sudah ada) |
+| `list_tree` | Pohon folder proyek (kedalaman maks 6, 500 entri; `node_modules`/`.git`/`vendor`/`dist` diabaikan) |
+| `read_file_lines` | Baca rentang baris file (1-based, maks 500 baris) |
+| `move_file` / `copy_file` / `mkdir` | Pindah/salin file (tidak menimpa), buat folder bersarang |
+| `search_code` | Grep regex RE2 lintas proyek dengan 2 baris konteks (maks 100 hasil) |
+| `find_files` | Cari file dengan pola glob termasuk `**` (maks 200 hasil) |
+| `apply_patch` | Terapkan unified diff format git secara atomik (snapshot otomatis dulu) |
+| `edit_many` | Banyak edit `<<<OLD>>>`/`<<<NEW>>>` per file dalam satu panggilan (atomik per file, snapshot otomatis) |
+| `project_snapshot` | Snapshot folder proyek: `create [label]`/`list`/`restore <id>`/`delete <id>` (maks 10, FIFO; restore = persetujuan pemilik) |
+| `run_build` | Build proyek di sandbox tanpa jaringan (go build / npm run build / compileall; timeout 120 dtk) |
+| `run_tests` | Jalankan tes proyek di sandbox (go test / npm test / pytest; timeout 180 dtk) |
+| `run_lint` | Lint proyek (go vet + gofmt -l; py_compile + ruff bila ada; eslint hanya bila terpasang di proyek) |
+| `format_code` | Format kode proyek (gofmt; black/prettier bila tersedia) |
+| `run_server` | Dev server proyek sebagai proses latar di 127.0.0.1 (port 4100–4199, satu per proyek; `status`/`stop`) |
+| `allowlist_shell` | Perintah aman tanpa persetujuan (ls/cat/grep/find tanpa -exec, versi tool, git baca-saja); metakarakter shell ditolak |
+| `git_commit` | `git add -A` + commit di folder proyek — **persetujuan pemilik** (kind `git`) |
+| `git_branch` | Branch proyek: `list`/`create <nama>`/`checkout <nama>` (checkout kotor = persetujuan) |
+| `git_stash` | Stash proyek: `push`/`pop`/`list` (pop = persetujuan) |
+| `outline` | Daftar fungsi/kelas per file (Go/Python/JS/TS) dengan nomor baris |
+| `find_references` | Semua pemakaian simbol (word-boundary) lintas proyek (maks 100) |
+| `dependency_graph` | Peta import proyek (internal ditandai, eksternal diringkas) |
+| `todo_scan` | TODO/FIXME/HACK/XXX dengan file:baris (maks 100) |
+| `complexity_report` | LOC per file, 10 file terbesar, fungsi terpanjang |
+| `generate_tests` | File tes kerangka dari file sumber (Go `_test.go`, Python `test_*.py`, JS `*.test.js`) |
+| `export_project` | Zip proyek ke `exports/` dan kembalikan URL unduhan `/exports/<nama>.zip` |
+| `import_project` | Impor zip dari `uploads/` menjadi proyek (penjaga zip-slip; menimpa proyek lama = persetujuan) |
+| `env_file` | Kelola `.env` proyek: `list`/`get` (nilai ter-mask)/`set`/`delete`; nilai tidak masuk log audit tool |
+
+Tool eksekusi proyek memakai sandbox bubblewrap yang sama dengan `run_code` (user `nobody`, tanpa jaringan, folder proyek ter-bind rw, toolchain Go ter-bind read-only di `/goroot`), dengan batas cgroup lebih longgar (1 GB memori) dan timeout 120–180 detik. `run_server` adalah pengecualian: namespace jaringan tidak diputus agar server bisa dijangkau di 127.0.0.1, tetapi filesystem tetap terisolasi dan `HOST=127.0.0.1` dipaksakan. Tool git menulis menjalankan `git` langsung di folder proyek dengan identitas `musehood-go <musehood@local>`.
+
 Beberapa tool memakai binary sistem bila tersedia dan gagal dengan pesan jelas bila tidak ada: `ocr_image` → `tesseract-ocr`, `text_to_speech` → `espeak-ng`, `pdf_text` → `pdftotext` (poppler-utils), `screenshot_url` → Chromium. Di Debian/Ubuntu: `apt install tesseract-ocr espeak-ng poppler-utils`.
 
 ### Sandbox kode dan persetujuan pemilik
@@ -186,7 +222,17 @@ Seperti mode approval pada agent terminal (mis. Hermes), tindakan berisiko menun
 - Semua `delete_file`.
 - Semua `http_post` (URL + isi JSON ditampilkan pada banner).
 
-API: `POST /api/approvals/{id}` dengan `{approved: bool}`; permintaan yang menunggu muncul sebagai `pendingApprovals` di `/api/state` (kind `code`/`shell`/`delete`/`http`).
+API: `POST /api/approvals/{id}` dengan `{approved: bool}`; permintaan yang menunggu muncul sebagai `pendingApprovals` di `/api/state` (kind `code`/`shell`/`delete`/`http`/`git`).
+
+### Docker
+
+Image multi-stage tersedia lewat `Dockerfile` + `docker-compose.yml` (build lokal saja, tidak di-push ke registry mana pun):
+
+```sh
+docker compose up -d --build
+```
+
+Tahap pertama membangun frontend dengan Node, tahap kedua membangun binary Go (`CGO_ENABLED=0`, versi dari build arg `VERSION`), tahap runtime memakai Alpine berisi `git`, `nodejs`, `python3`, `tesseract-ocr`, `espeak-ng`, `poppler-utils`, `bubblewrap`, dan `ca-certificates`. Container berjalan sebagai user non-root, data di volume `/data`, port 3001. Catatan jujur: sandbox bubblewrap untuk tool kode butuh `--privileged` di dalam container (ada komentar opsional di `docker-compose.yml`); tanpa itu tool kode jatuh ke mode terbatas sedangkan fitur chat tetap berjalan.
 
 ### Skill per kursi
 
