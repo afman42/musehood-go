@@ -12,6 +12,8 @@
   import SeatInfoDialog from '../../lib/SeatInfoDialog.svelte';
   import ScheduleDialog from '../../lib/ScheduleDialog.svelte';
   import DebateDialog from '../../lib/DebateDialog.svelte';
+  import ShortcutHelpDialog from '../../lib/ShortcutHelpDialog.svelte';
+  import { shortcutAction } from '../../lib/shortcuts';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
   import RoomDialog from '../../lib/RoomDialog.svelte';
   import { createChat } from '../../lib/chat.svelte';
@@ -25,6 +27,7 @@
   let seatInfoDialog = $state<ReturnType<typeof SeatInfoDialog>>();
   let scheduleDialog = $state<ReturnType<typeof ScheduleDialog>>();
   let debateDialog = $state<ReturnType<typeof DebateDialog>>();
+  let shortcutHelp = $state<ReturnType<typeof ShortcutHelpDialog>>();
   let roomDialog = $state<ReturnType<typeof RoomDialog>>();
   let composer = $state<ReturnType<typeof Composer>>();
   let searchBar = $state<ReturnType<typeof SearchBar>>();
@@ -115,6 +118,36 @@
       navigator.serviceWorker.register('/sw.js').catch(() => { /* PWA opsional */ });
     }
   });
+
+  function handleShortcut(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    const inInput = Boolean(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable));
+    const action = shortcutAction(event, inInput);
+    if (!action) return;
+    if (action === 'search') {
+      event.preventDefault();
+      if (!searchOpen) toggleSearch();
+      else searchBar?.focus();
+    } else if (action === 'send') {
+      event.preventDefault();
+      composer?.submit();
+    } else if (action === 'focusComposer') {
+      event.preventDefault();
+      composer?.focus();
+    } else if (action === 'closeDialog') {
+      document.querySelector<HTMLDialogElement>('dialog[open]')?.close();
+    } else if (action === 'help') {
+      event.preventDefault();
+      shortcutHelp?.open();
+    } else if (action.startsWith('room')) {
+      const rooms = (current?.rooms ?? []).filter((room) => !room.archived).sort((a, b) => Number(b.pinned ?? false) - Number(a.pinned ?? false));
+      const room = rooms[Number(action.slice(4)) - 1];
+      if (room) {
+        event.preventDefault();
+        switchRoom(room.id);
+      }
+    }
+  }
 
   async function submitLogin(event: SubmitEvent) {
     event.preventDefault();
@@ -329,6 +362,7 @@
 </script>
 
 <svelte:head><title>{current ? `${current.group.name} — Musehood` : 'Musehood — Grup multi-AI'}</title></svelte:head>
+<svelte:window onkeydown={handleShortcut} />
 
 {#if chat.pinRequired}
   <main class="login-screen">
@@ -452,6 +486,7 @@
 <ScheduleDialog bind:this={scheduleDialog} listScheduled={chat.listScheduled} createScheduled={chat.createScheduled} updateScheduled={chat.updateScheduled} deleteScheduled={chat.deleteScheduled} notify={chat.notify} roomId={current?.activeRoomId ?? ''} />
 <RoomDialog bind:this={roomDialog} seats={current?.seats ?? []} notice={chat.notice} onCreate={createRoom} />
 <DebateDialog bind:this={debateDialog} seats={current?.seats ?? []} notice={chat.notice} onStart={startDebate} />
+<ShortcutHelpDialog bind:this={shortcutHelp} />
 <Toast notice={chat.notice} target={null} />
 <input id="chatImageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden bind:this={imageInput} onchange={chooseImage}>
 <input id="chatFileInput" type="file" hidden bind:this={fileInput} onchange={chooseFile}>
