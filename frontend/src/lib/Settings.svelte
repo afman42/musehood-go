@@ -27,6 +27,7 @@
   let form: HTMLFormElement;
   let fileInput: HTMLInputElement;
   let providersPanel = $state<ReturnType<typeof SettingsProviders>>();
+  let toolLogPanel = $state<ReturnType<typeof SettingsToolLog>>();
   let uploadTarget = '';
   let groupName = $state('');
   let ownerName = $state('');
@@ -90,6 +91,7 @@
       fontSize = current.settings.fontSize ?? 'M';
       syncSeats();
       providersPanel?.resetForm();
+      toolLogPanel?.reload();
       saveStatus = '';
       if (!dialog.open) dialog.showModal();
     } catch (error) { notify(errorText(error), true); }
@@ -173,7 +175,7 @@
     <SettingsPresets {current} {refresh} {notify} onSave={save} onSync={syncSeats} />
     <SettingsTemplates {current} {refresh} {notify} />
     <SettingsStats {current} />
-    <SettingsToolLog {notify} />
+    <SettingsToolLog bind:this={toolLogPanel} {notify} />
     <SettingsSecurity {current} {notify} {refresh} />
     <SettingsBackup {current} {refresh} {notify} onSync={syncSeats} />
     <section class="settings-section danger-section">
