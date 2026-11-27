@@ -63,6 +63,12 @@ export function createChat(hooks: ChatHooks = {}) {
   let requested = 0;
   let applied = 0;
   let messageKey = '';
+  // Signature JSON state terakhir yang diterapkan. Polling yang tidak
+  // membawa perubahan tidak mengganti `current`, sehingga Svelte tidak
+  // me-render ulang seluruh daftar pesan tiap 700 ms (pada ruang besar
+  // render ulang itu memblokir thread utama ratusan ms dan membuat
+  // ketikan di composer terasa berat).
+  let stateSignature = '';
   const notifiedIds = new Set<string>();
   let notificationsPrimed = false;
 
@@ -120,7 +126,11 @@ export function createChat(hooks: ChatHooks = {}) {
     const changed = nextKey !== messageKey;
     hooks.beforeApply?.();
     messageKey = nextKey;
-    current = result;
+    const signature = JSON.stringify(result);
+    if (signature !== stateSignature) {
+      stateSignature = signature;
+      current = result;
+    }
     maybeNotify(result);
     applyTheme(result);
     markSeen(result);
@@ -141,6 +151,8 @@ export function createChat(hooks: ChatHooks = {}) {
   async function logout() {
     await api('/api/logout', {});
     current = undefined;
+    stateSignature = '';
+    messageKey = '';
     pinRequired = true;
   }
 

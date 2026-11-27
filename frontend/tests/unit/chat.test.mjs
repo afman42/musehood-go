@@ -19,7 +19,7 @@ const compiled = compileModule(stripTypeScriptTypes(source), { filename: 'chat.s
   .replace(/from\s+['"]\.\/types['"]/g, "from '../../../src/lib/types.ts'")
   .replace(/from\s+['"]\.\/format['"]/g, "from '../../../src/lib/format.ts'");
 writeFileSync(join(tmpDir, 'chat.mjs'), compiled);
-const { createChat } = await import('./.tmp/chat.mjs');
+const { createChat, seenCount, unreadCount, notificationsEnabled, NOTIFY_KEY } = await import('./.tmp/chat.mjs');
 
 const darkToggles = [];
 globalThis.document = {
@@ -193,4 +193,152 @@ test('polling gagal memberi notifikasi koneksi terputus sekali', async () => {
   stop();
   assert.ok(chat.notice?.text.includes('Koneksi server terputus'), chat.notice?.text);
   assert.equal(chat.notice.error, true);
+});
+
+test('polling saat tab tersembunyi memakai interval lambat', async () => {
+  stubFetch();
+  const chat = createChat({});
+  globalThis.document.hidden = true;
+  try {
+    const stop = chat.startPolling();
+    await wait(1600);
+    stop();
+    const count = calls.filter(c => c.url === '/api/state').length;
+    // Interval tersembunyi 3000 ms: dalam 1,6 dtk hanya polling awal.
+    assert.equal(count, 1, `polling tersembunyi ${count}x`);
+  } finally {
+    globalThis.document.hidden = false;
+  }
+});
+
+function stubNotifyEnv({ permission = 'granted', enabled = true } = {}) {
+  const shown = [];
+  globalThis.Notification = class {
+    static permission = permission;
+    constructor(title, opts) { shown.push({ title, opts }); }
+  };
+  const store = new Map();
+  if (enabled) store.set(NOTIFY_KEY, '1');
+  globalThis.localStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: k => store.delete(k),
+  };
+  return shown;
+}
+
+test('maybeNotify: hanya saat tab tersembunyi + izin granted + toggle aktif', async () => {
+  stubFetch();
+  const shown = stubNotifyEnv();
+  const seatDone = (id, text) => ({ id, authorType: 'seat', seat: 'M01', status: 'completed', text });
+  stateBody.messages = [seatDone('n1', 'lama')];
+  const chat = createChat({});
+  await chat.refresh(); // priming: pesan lama tidak dinotifikasi
+  assert.equal(shown.length, 0);
+
+  // Tab terlihat: balasan baru tidak dinotifikasi.
+  stateBody.messages = [seatDone('n1', 'lama'), seatDone('n2', 'baru terlihat')];
+  await chat.refresh();
+  assert.equal(shown.length, 0);
+
+  // Tab tersembunyi: balasan berikutnya dinotifikasi sekali.
+  globalThis.document.hidden = true;
+  try {
+    stateBody.messages = [...stateBody.messages, seatDone('n3', 'baru tersembunyi')];
+    await chat.refresh();
+    assert.equal(shown.length, 1);
+    assert.match(shown[0].title, /Plamo membalas/);
+    assert.equal(shown[0].opts.body, 'baru tersembunyi');
+    // Refresh ulang tanpa pesan baru: tidak dobel.
+    await chat.refresh();
+    assert.equal(shown.length, 1);
+  } finally {
+    globalThis.document.hidden = false;
+  }
+
+  // Izin ditolak: tidak ada notifikasi walau tersembunyi.
+  stubNotifyEnv({ permission: 'denied' });
+  globalThis.document.hidden = true;
+  try {
+    stateBody.messages = [...stateBody.messages, seatDone('n4', 'izin ditolak')];
+    await chat.refresh();
+    assert.equal(shown.length, 1);
+  } finally {
+    globalThis.document.hidden = false;
+  }
+});
+
+test('notificationsEnabled + seenCount/unreadCount membaca localStorage', () => {
+  stubNotifyEnv();
+  assert.equal(notificationsEnabled(), true);
+  stubNotifyEnv({ enabled: false });
+  assert.equal(notificationsEnabled(), false);
+  stubNotifyEnv({ permission: 'denied' });
+  assert.equal(notificationsEnabled(), false);
+
+  const store = new Map([['musehood-seencount-r1', '7']]);
+  globalThis.localStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: k => store.delete(k),
+  };
+  assert.equal(seenCount('r1'), 7);
+  assert.equal(seenCount('rX'), 0);
+  assert.equal(unreadCount({ id: 'r1', messageCount: 10 }), 3);
+  assert.equal(unreadCount({ id: 'r1', messageCount: 5 }), 0);
+  assert.equal(unreadCount({ id: 'r1' }), 0);
+});
+
+test('PIN: state 401 -> pinRequired, login membuka, logout menutup', async () => {
+  const localCalls = [];
+  let pinActive = true;
+  globalThis.fetch = async (url, init = {}) => {
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
+    localCalls.push({ url: String(url), method: init.method || 'GET', body });
+    if (String(url) === '/api/state') {
+      if (pinActive) return { ok: false, status: 401, json: async () => ({ error: 'PIN diperlukan' }) };
+      return { ok: true, status: 200, json: async () => structuredClone(sampleState()) };
+    }
+    if (String(url) === '/api/login') {
+      if (body.pin !== '1234') return { ok: false, status: 401, json: async () => ({ error: 'PIN salah' }) };
+      pinActive = false;
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (String(url) === '/api/logout') {
+      pinActive = true;
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  const chat = createChat({});
+  await chat.refresh();
+  assert.equal(chat.pinRequired, true);
+  assert.equal(chat.current, undefined);
+  await assert.rejects(() => chat.login('0000'), /PIN salah/);
+  assert.equal(chat.pinRequired, true);
+  await chat.login('1234');
+  assert.equal(chat.pinRequired, false);
+  assert.equal(chat.current.seats.length, 2);
+  await chat.logout();
+  assert.equal(chat.current, undefined);
+  assert.equal(chat.pinRequired, true);
+  assert.ok(localCalls.some(c => c.url === '/api/login' && c.body.pin === '1234'));
+});
+
+test('aksi debat/rerun/fork/regenerate memanggil route yang benar', async () => {
+  stubFetch();
+  const chat = createChat({});
+  await chat.refresh();
+  calls = [];
+  await chat.startDebate('M01', 'M02', 'Kopi vs teh');
+  await chat.rerunMessage({ id: 'm9' });
+  await chat.forkMessage({ id: 'm9' });
+  await chat.regenerateMessage({ id: 'm8' });
+  const posts = calls.filter(c => c.method === 'POST').map(c => [c.url, c.body]);
+  assert.deepEqual(posts, [
+    ['/api/debate', { seatA: 'M01', seatB: 'M02', topic: 'Kopi vs teh', roomId: 'r2' }],
+    ['/api/message/m9/rerun', {}],
+    ['/api/message/m9/fork', {}],
+    ['/api/message/m8/regenerate', {}],
+  ]);
 });

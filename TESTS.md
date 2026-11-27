@@ -19,6 +19,21 @@ Untuk 19 fitur pendalaman (PIN/auth, log audit tool, cache respons, health check
 
 Dua perbaikan produksi ditemukan oleh tes ini: (1) restore backup kini selalu mempertahankan PINHash + WorkerToken lokal (sebelumnya backup rekayasa bisa menimpa PIN dan mengunci pemilik); (2) peta health in-memory dibersihkan saat provider dihapus.
 
+## Pendalaman tes frontend 6 kategori (27 Nov 2026)
+
+Untuk UI 19 fitur pendalaman (login PIN + Keamanan, Log Audit Tool, dialog debat, bantuan shortcut, mode kompak, editor urutan bicara, dropdown persona, arsip ruang, rerun/fork, pemilih reaksi, ekspor diskusi, form pasang skill, tabel latency, badge health, toggle cache respons) semua kategori tes frontend diperdalam. Semua suite hijau pada menjalankan terakhir (27 Nov 2026); `svelte-check` 0 error (1 peringatan lama di `+page.svelte`); `tests/binary.test.mjs` dilewati karena memakai port 3001 yang sedang dipakai service produksi.
+
+| Kategori | Perintah | Hasil |
+| --- | --- | --- |
+| Unit | `(cd frontend && npm run test:unit)` | **71 lulus** (sebelumnya 48): batas `humanSize` (0/999/1024/MB/GB), `splitMentions` (nama mirip awalan, `@` tengah kata, banyak mention), `highlightParts`, fence Markdown belum ditutup, skema link berbahaya ditolak, heading/list bertingkat, escape HTML mentah, semua binding shortcut, paritas kunci i18n ID/EN + fallback, `maybeNotify` (hanya tab tersembunyi + izin granted), interval polling visible/hidden, alur PIN dan rute debat/rerun/fork di `chat.svelte.ts`. |
+| Component & integration | `(cd frontend && npm run test:component)` | **38 lulus** (sebelumnya 22): render SSR DebateDialog (dua select, mulai nonaktif saat kursi sama), ShortcutHelpDialog, SettingsSecurity (PIN aktif/nonaktif), SettingsToolLog (kosong vs terisi), SeatInfoDialog + persona, MessageBubble reaksi (8 emoji + hitungan), PinnedBar ringkasan ruang, RoomBar (arsip tersembunyi, badge `99+`), editor urutan bicara, toggle cache/chain/density. Interaksi komponen↔API (persona diterapkan, density → kelas `density-compact`, penolakan pasang skill) diverifikasi di E2E karena SSR tidak bisa berinteraksi. |
+| E2E | `node tests/frontend-e2e-depth.mjs`, `node tests/frontend-e2e-depth-settings.mjs` | **23 + 10 PASS**: alur PIN penuh (pasang → login salah ditolak → benar masuk → logout), debat 5 tahap berurutan dengan label, fork (riwayat tersalin sampai titik fork), rerun (balasan lama hilang, baru muncul), reaksi naik/turun, arsip ruang sembunyi/pulih, ekspor diskusi (nama file `diskusi-musehood.html`), urutan bicara diikuti round-robin, shortcut Ctrl+K/`?`/Alt+1-2/Ctrl+Enter, persona diterapkan ke server, penolakan pasang skill (non-HTTPS + SSRF; jalur sukses/409 tidak bisa di-E2E karena backend mengambil URL sebelum cek duplikat — dicakup tes backend), density+cache+chain tersimpan, badge health, tabel latency, log tool terisi dari chat nyata. |
+| Accessibility | `node tests/frontend-a11y-depth.mjs` | **18 PASS**: axe pada login PIN, dialog debat, bantuan shortcut, info kursi, Keamanan, Log Audit Tool; Esc menutup dialog + fokus kembali ke pemicu; aria-live mengumumkan balasan debat/rerun; target reaksi ≥ 24px; label form pasang skill + dropdown persona; kontras mode kompak. |
+| Visual regression | `node tests/frontend-visual.mjs` | **12 PASS** (sebelumnya 5): baseline baru `login-pin`, `dialog-debat`, `dialog-shortcut`, `chat-kompak`, `bubble-tool-reaksi` (kartu tool + pil reaksi), `pengaturan-log-tool` (log terisi + Keamanan), `bilah-ruang-badge` (badge belum dibaca + ruang arsip tersembunyi). Baseline lama disegarkan untuk perubahan warna kontras; stabil tanpa `--update` (beda maks 0,036%). |
+| Cross-browser & perf | `node tests/frontend-perf.mjs` | **33 PASS** (sebelumnya 14): dialog debat/bantuan/pengaturan + login PIN di 1280/768/390px dan sentuh iPhone 13 tanpa overflow, login PIN via sentuh; ruang besar (seed `data.json`): render 300 pesan normal ~0,8–1,0 dtk vs kompak ~0,8–0,9 dtk, render 3000 pesan ~3,7 dtk, idle 3,5 dtk pada 3000 pesan ≤ 2 long task (total ≤ 132 ms), ketik 60 karakter pada 3000 pesan ~76–126 ms/karakter (dibatasi biaya frame browser untuk DOM besar di VM 1,5 CPU; pada 300 pesan ~15 ms/karakter), pencarian Ctrl+K pada 3000 pesan ~0,5–0,8 dtk, buka log tool 500 entri ~2,2–2,4 dtk. |
+
+Enam perbaikan produksi ditemukan oleh tes ini: (1) `humanSize` kini punya cabang GB (sebelumnya ≥ 1 GB tampil sebagai ribuan MB); (2) Log Audit Tool dimuat ulang setiap dialog pengaturan dibuka (sebelumnya basi/kosong karena komponen selalu ter-mount); (3) warna meta bubble pemilik + tautan mention digelapkan agar kontras axe stabil ≥ 4,5; (4) `/api/state` kini menyertakan `messageCount` per ruang — badge belum dibaca sebelumnya tidak pernah tampil (tes regresi Go `TestAPIStateRoomsIncludeMessageCount`); (5) form dialog debat + bagian fieldset Keamanan/Log Audit Tool kini ter-style seperti bagian pengaturan lain; (6) polling yang tidak membawa perubahan tidak lagi me-render ulang daftar pesan (signature state di `chat.svelte.ts` — sebelumnya long task 400–515 ms per poll pada ruang 3000 pesan) dan resize textarea composer hanya berjalan bila tinggi perlu berubah.
+
 ## E2E semua fitur + test live (26 Nov 2026)
 
 Dua lapis pengujian end-to-end yang memetakan **semua** fitur aplikasi sebagai alur pengguna:
@@ -40,14 +55,17 @@ Catatan perilaku yang terverifikasi e2e: dengan Diskusi Bergilir aktif, pesan bi
 | `go test -race -count=1 ./...` | Lulus. Race detector tidak melaporkan masalah. |
 | `go vet ./...` | Lulus. |
 | `MUSEHOOD_BROWSER=1 node --test tests/binary.test.mjs` | 2 tes lulus dengan `frontend/build/` disisihkan. Keduanya menjalankan salinan binary dari direktori kosong. |
-| `(cd frontend && npm run test:unit)` | **45 lulus**: helper format/API, parser Markdown, lazy-load syntax highlighting, composable `chat.svelte.ts`. |
-| `(cd frontend && npm run test:component)` | **21 lulus**: render SSR komponen Svelte (termasuk Markdown, blok kode, modal info kursi). |
+| `(cd frontend && npm run test:unit)` | **71 lulus**: helper format/API, parser Markdown, lazy-load syntax highlighting, composable `chat.svelte.ts`, i18n, shortcut. |
+| `(cd frontend && npm run test:component)` | **38 lulus**: render SSR komponen Svelte (termasuk Markdown, blok kode, modal info kursi, dialog debat/bantuan, panel Keamanan/Log Tool). |
 | `node tests/frontend-e2e.mjs` | **21 PASS**: chat, mention + modal info kursi, render Markdown + syntax highlighting, pin, ruang, pencarian, voting, persetujuan tool. |
 | `node tests/frontend-e2e-settings.mjs` | **20 PASS**: CRUD provider, fetch/test models, toggle, kursi custom, ruang, preset, statistik, backup/restore, ekspor. |
 | `node tests/frontend-e2e-actions.mjs` | **10 PASS**: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file. |
+| `node tests/frontend-e2e-depth.mjs` | **23 PASS**: PIN, debat 5 tahap, fork, rerun, reaksi, arsip ruang, ekspor diskusi, urutan bicara, shortcut. |
+| `node tests/frontend-e2e-depth-settings.mjs` | **10 PASS**: persona, pasang skill (penolakan), density/cache/chain, badge health, tabel latency, log tool. |
 | `node tests/frontend-a11y.mjs` | **20 PASS**: audit axe-core terang + gelap, nama aksesibel, keyboard/fokus, kontras WCAG, target sentuh. |
-| `node tests/frontend-visual.mjs` | **5 PASS**: screenshot 5 skenario vs baseline piksel. |
-| `node tests/frontend-perf.mjs` | **14 PASS**: viewport 320–1920px, emulasi sentuh iPhone, anggaran bundle <350 KB (aktual 248 KB). |
+| `node tests/frontend-a11y-depth.mjs` | **18 PASS**: axe permukaan baru, Esc + fokus kembali, aria-live, target reaksi, label form. |
+| `node tests/frontend-visual.mjs` | **12 PASS**: screenshot 12 skenario vs baseline piksel. |
+| `node tests/frontend-perf.mjs` | **33 PASS**: viewport 320–1920px + permukaan baru, emulasi sentuh iPhone, anggaran bundle <350 KB (aktual 303 KB), perf ruang 300/3000 pesan. |
 
 ## Backend dan API
 

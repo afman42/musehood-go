@@ -72,6 +72,57 @@ test('parseMarkdown: blok kode literal tanpa parse inline', () => {
   assert.deepEqual(blocks, [{ type: 'code', text: 'const x = "**bukan bold**";', lang: 'js' }]);
 });
 
+test('parseMarkdown: fence belum ditutup — sisa teks jadi blok kode', () => {
+  const blocks = parseMarkdown('Pembuka\n\n```python\nprint(1)\nprint(2)');
+  assert.deepEqual(blocks.map(b => b.type), ['p', 'code']);
+  assert.equal(blocks[1].text, 'print(1)\nprint(2)');
+  assert.equal(blocks[1].lang, 'python');
+});
+
+test('parseMarkdown: fence dengan spasi di info-string bukan fence', () => {
+  const blocks = parseMarkdown('```js extra\nconst x = 1;\n```');
+  assert.equal(blocks[0].type, 'p');
+});
+
+test('parseMarkdown: heading level 2-6 dan bukan heading tanpa spasi', () => {
+  const blocks = parseMarkdown('## Dua\n\n###### Enam\n\n#tanpa spasi');
+  assert.equal(blocks[0].type, 'h');
+  assert.equal(blocks[0].level, 2);
+  assert.equal(blocks[1].level, 6);
+  assert.equal(blocks[2].type, 'p');
+});
+
+test('parseMarkdown: daftar bertingkat dalam kutipan + format inline item', () => {
+  const blocks = parseMarkdown('> - **satu**\n> - dua `kode`\n\n1. **pertama**\n2) kedua');
+  assert.equal(blocks[0].type, 'quote');
+  assert.equal(blocks[0].blocks[0].type, 'ul');
+  assert.equal(blocks[0].blocks[0].items[0][0].type, 'strong');
+  assert.equal(blocks[0].blocks[0].items[1][1].type, 'code');
+  assert.equal(blocks[1].type, 'ol');
+  assert.equal(blocks[1].items.length, 2);
+});
+
+test('parseInline: HTML mentah tetap teks (tidak ada node HTML)', () => {
+  const out = parseInline('<script>alert(1)</script> dan <b>tebal</b>');
+  assert.deepEqual(out, [{ type: 'text', text: '<script>alert(1)</script> dan <b>tebal</b>' }]);
+});
+
+test('parseInline: skema tautan berbahaya ditolak, mailto diterima', () => {
+  for (const href of ['javascript:alert(1)', 'data:text/html;base64,x', 'ftp://example.com', '//example.com', 'vbscript:x']) {
+    const out = parseInline(`[klik](${href})`);
+    assert.equal(out[0].type, 'text', href);
+  }
+  const mail = parseInline('[surat](mailto:a@b.id)');
+  assert.deepEqual(mail, [{ type: 'link', text: 'surat', href: 'mailto:a@b.id' }]);
+  const upper = parseInline('[situs](HTTPS://example.com)');
+  assert.equal(upper[0].type, 'link');
+});
+
+test('parseInline: kode inline tak berpasangan tetap literal', () => {
+  assert.deepEqual(parseInline('pakai `saja'), [{ type: 'text', text: 'pakai `saja' }]);
+  assert.deepEqual(parseInline('`` kosong'), [{ type: 'text', text: '`` kosong' }]);
+});
+
 test('parseMarkdown: contoh gaya balasan AI', () => {
   const sample = 'Dari sisi **Pelaksana**, berikut draftnya:\n\n---\n\n> **Produk:** *Airport Asli*\n> - *Baterai:* tahan lama\n> - *Material:* batu\n\nBeri tahu saya!';
   const blocks = parseMarkdown(sample);

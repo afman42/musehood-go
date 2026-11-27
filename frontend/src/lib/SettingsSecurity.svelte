@@ -46,10 +46,10 @@
   {/if}
   <label>{current?.settings.hasPin ? 'PIN baru' : 'PIN'} <input bind:value={newPin} type="password" autocomplete="new-password" maxlength="64" placeholder="4–64 karakter"></label>
   <div class="settings-actions">
-    <button type="button" disabled={busy || newPin.trim().length < 4} onclick={() => changePin(newPin)}>{current?.settings.hasPin ? 'Ganti PIN' : 'Pasang PIN'}</button>
+    <button class="secondary-button" type="button" disabled={busy || newPin.trim().length < 4} onclick={() => changePin(newPin)}>{current?.settings.hasPin ? 'Ganti PIN' : 'Pasang PIN'}</button>
     {#if current?.settings.hasPin}
-      <button type="button" disabled={busy} onclick={() => changePin('')}>Hapus PIN</button>
-      <button type="button" disabled={busy} onclick={logout}>Keluar (logout)</button>
+      <button class="secondary-button" type="button" disabled={busy} onclick={() => changePin('')}>Hapus PIN</button>
+      <button class="secondary-button" type="button" disabled={busy} onclick={logout}>Keluar (logout)</button>
     {/if}
   </div>
 </fieldset>

@@ -21,6 +21,13 @@
     if (!loaded) void load();
   });
 
+  // Dipanggil Settings.open() agar log selalu segar saat dialog dibuka
+  // (komponen ini selalu terpasang, jadi muatan awal bisa sudah basi).
+  export function reload() {
+    loaded = false;
+    void load();
+  }
+
   function timeText(value: string) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString('id-ID');
@@ -31,7 +38,7 @@
   <legend>Log Audit Tool</legend>
   <p class="hint">100 pemakaian tool terakhir oleh kursi (server menyimpan maksimal 500 entri).</p>
   <div class="settings-actions">
-    <button type="button" onclick={load}>Segarkan</button>
+    <button class="secondary-button" type="button" onclick={load}>Segarkan</button>
   </div>
   {#if entries.length}
     <div class="table-scroll">

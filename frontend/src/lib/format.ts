@@ -3,7 +3,8 @@ import type { Attachment, Message, Seat } from './types';
 export function humanSize(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 export function isImageAttachment(att: Attachment): boolean {
