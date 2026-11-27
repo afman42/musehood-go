@@ -2,6 +2,23 @@
 
 Terakhir dijalankan 27 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
 
+## Pendalaman fitur putaran 2 — 26 fitur (27 Nov 2026)
+
+Implementasi 26 fitur pendalaman (perintah Arman: nomor 3,4,5,6,7,8,9,10,12,13,14,15,17,18,19,22,23,24,25,27,28,35,34,41,42,43,45) ditambah **30 fungsi tes baru** di 6 file `depth2_*_test.go`. Total kini **268 fungsi tes** (263 `internal/musehood` + 5 `main`); `go test ./... -timeout 600s -count=1` semua hijau; frontend unit **71** + component **38** hijau; `svelte-check` 0 error.
+
+| Grup | File | Isi |
+| --- | --- | --- |
+| A — Kursi (3,4,5,6) | `depth2_a_test.go` (4) | Kloning kursi menyalin konfigurasi; memori otomatis sesudah ringkasan ruang; budget harian melewati kursi; model per tugas (chat/tools/summary) tercatat di mock gateway. |
+| B — Gateway (7,8,9,10,12) | `depth2_b_test.go` (7) | Retry 500→sukses & 400 tanpa retry; circuit breaker membuka/menutup + badge health; parser streaming anthropic/gemini/ollama + mock SSE/NDJSON; tool-calling native + fallback teks; load balancing ke provider kedua. |
+| C — Percakapan (13,14,15,17,18) | `depth2_c_test.go` (5) | Edit+regenerasi (perilaku berubah: 202 + job baru); branching terisolasi; mode paralel konkuren; tag pesan + filter pencarian; cron mini (next-occurrence + penolakan range). |
+| D — Ruang & tool (19,22,23,24,25,27) | `depth2_d_test.go` (7) | Ikon/warna ruang + validasi; header tool kustom hasil substitusi (tidak masuk log audit); tool javascript di sandbox node + approval kode berbahaya; pipeline 2 langkah + larangan bersarang; tool nonaktif per ruang; hitungan pemakaian skill. |
+| E — Keamanan & data (28,35,34) | `depth2_e_test.go` (3) | Rate limit PIN (5 gagal → 429, IP lain bebas) + log audit; indeks full-text (AND multi-kata, substring sebagian, pesan terhapus hilang); backend SQLite roundtrip + migrasi dari data.json + pemilihan env. |
+| F — Integrasi (41,42,43,45) | `depth2_f_test.go` (4) | Webhook terkirim saat balasan selesai + URL privat ditolak; token API eksternal (benar 202, salah/kosong 401, bebas gerbang PIN, tidak bocor di state); jembatan Telegram via mock (update masuk jadi pesan, balasan terkirim, token tidak bocor); cek + terapkan update via mock GitHub (binary terganti, `.bak` tersimpan, restart di-stub). |
+
+Tiga regresi grup B ditemukan oleh suite penuh dan diperbaiki: (1) jalur tool native kini menghormati cache respons (sebelumnya pertanyaan identik selalu memukul gateway); (2) jalur native mengurai balasan SSE menjadi teks (sebelumnya payload mentah tampil sebagai balasan); (3) teks EN i18n menghindari apostrof ter-escape agar paritas tes i18n lulus. Tes lama yang disesuaikan dengan perilaku baru yang memang diperintahkan: edit pesan kini 202+regenerasi (3 tes), stres login memakai IP berbeda per percobaan agar tidak kena rate limit baru.
+
+Catatan penyimpanan (34): driver pure-Go `modernc.org/sqlite` v1.63.0 berhasil diunduh; backend SQLite menyimpan blob JSON yang sama di tabel kv `data.db`. Pemilihan: env `MUSEHOOD_STORAGE=sqlite|json`; tanpa env, SQLite hanya bila `data.db` sudah ada — produksi tetap JSON. Migrasi otomatis dari `data.json` saat tabel kosong; berkas JSON dipertahankan sebagai cadangan.
+
 ## Pendalaman tes backend 8 kategori (27 Nov 2026)
 
 Untuk 19 fitur pendalaman (PIN/auth, log audit tool, cache respons, health check, uji latency, pasang skill, persona, urutan bicara ruang, arsip ruang, rerun, fork, ekspor diskusi, reaksi, balasan berantai, debat, mode kompak, tool kustom http_post + parameter ber-tipe) ditambahkan **48 fungsi tes + 6 benchmark baru** di 8 file `depth_*_test.go`. Total kini **238 fungsi tes** (233 `internal/musehood` + 5 `main`) dan **12 benchmark** di 44 file `*_test.go`; cakupan pernyataan `internal/musehood` **82,8%** (`go test ./... -timeout 600s -count=1 -cover`, semua hijau).
