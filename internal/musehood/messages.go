@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin|regenerate|rerun|fork)$`)
+var messageActionRE = regexp.MustCompile(`^/api/message/([a-f0-9-]{36})/(edit|delete|react|pin|regenerate|rerun|fork|branch|tags)$`)
 
 var reactionEmojis = []string{"👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "👏"}
 
@@ -56,8 +56,26 @@ func (a *App) messageAction(w http.ResponseWriter, r *http.Request, id, action s
 		if err := readObject(w, r, &body); err != nil {
 			return 0, nil, err
 		}
+		// Edit pesan pemilik (fitur 13): teks diganti, balasan sesudahnya
+		// di ruang+branch yang sama dihapus, pekerjaan baru dibuat.
+		return a.respondLocked(202, func() (any, error) {
+			j, err := a.editMessageLocked(id, body.Text)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"jobId": j.ID}, nil
+		})
+	case "branch":
+		return a.respondLocked(200, func() (any, error) { return a.branchMessageLocked(id) })
+	case "tags":
+		var body struct {
+			Tags []string `json:"tags"`
+		}
+		if err := readObject(w, r, &body); err != nil {
+			return 0, nil, err
+		}
 		return a.respondLocked(200, func() (any, error) {
-			msg, err := a.editMessageLocked(id, body.Text)
+			msg, err := a.tagsMessageLocked(id, body.Tags)
 			if err != nil {
 				return nil, err
 			}
@@ -120,27 +138,36 @@ func (a *App) rerunMessageLocked(id string) (*job, error) {
 	if msg.AuthorType != "owner" {
 		return nil, problem(403, "Hanya pesan pemilik yang bisa dijalankan ulang dari sini.")
 	}
+	return a.truncateAndRerunLocked(msg)
+}
+
+// truncateAndRerunLocked menghapus pesan sesudah msg pada ruang+branch
+// yang sama (fitur 13 & 14), membatalkan pekerjaan terkait, lalu membuat
+// pekerjaan baru dari teks msg. Pemanggil wajib memegang a.mu; bila
+// penyimpanan gagal, keadaan dipulihkan penuh.
+func (a *App) truncateAndRerunLocked(msg *message) (*job, error) {
 	idx := -1
 	for i, m := range a.data.Messages {
-		if m.ID == id {
+		if m.ID == msg.ID {
 			idx = i
 			break
 		}
 	}
 	roomID := msg.RoomID
+	branch := msg.branchID()
 	removedJobs := map[string]bool{}
 	if msg.JobID != "" {
 		removedJobs[msg.JobID] = true
 	}
 	for _, m := range a.data.Messages[idx+1:] {
-		if m.RoomID == roomID && m.JobID != "" {
+		if m.RoomID == roomID && m.branchID() == branch && m.JobID != "" {
 			removedJobs[m.JobID] = true
 		}
 	}
 	previous := a.data
 	keptMessages := make([]*message, 0, len(a.data.Messages))
 	for i, m := range a.data.Messages {
-		if i > idx && m.RoomID == roomID {
+		if i > idx && m.RoomID == roomID && m.branchID() == branch {
 			continue
 		}
 		keptMessages = append(keptMessages, m)
@@ -168,7 +195,7 @@ func (a *App) rerunMessageLocked(id string) (*job, error) {
 	for i := range steps {
 		steps[i].Status = "pending"
 	}
-	j := &job{ID: uuid(), Prompt: msg.Text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps, RoomID: roomID}
+	j := &job{ID: uuid(), Prompt: msg.Text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps, RoomID: roomID, BranchID: branch}
 	a.data.Jobs = append(a.data.Jobs, j)
 	oldJobID := msg.JobID
 	msg.JobID = j.ID
@@ -216,11 +243,11 @@ func (a *App) forkMessageLocked(id string) (any, error) {
 		snippet = src.Name
 	}
 	forked := room{ID: newRoomID(), Name: "Fork: " + snippet, CreatedAt: now(),
-		SeatCodes: slices.Clone(src.SeatCodes), SeatOrder: slices.Clone(src.SeatOrder)}
+		SeatCodes: slices.Clone(src.SeatCodes), SeatOrder: slices.Clone(src.SeatOrder), ActiveBranch: msg.branchID()}
 	idMap := map[string]string{}
 	copied := []*message{}
 	for _, m := range a.data.Messages {
-		if m.RoomID != src.ID {
+		if m.RoomID != src.ID || m.branchID() != msg.branchID() {
 			continue
 		}
 		cp := *m
@@ -290,7 +317,7 @@ func (a *App) regenerateMessageLocked(id string) (*job, error) {
 	}
 	a.data.Messages = kept
 	j := &job{ID: uuid(), Prompt: prompt, Kind: "chat", CreatedAt: now(), Status: "processing",
-		Steps: []step{{Seat: msg.Seat, Kind: stepKind, Status: "pending"}}, RoomID: msg.RoomID}
+		Steps: []step{{Seat: msg.Seat, Kind: stepKind, Status: "pending"}}, RoomID: msg.RoomID, BranchID: msg.branchID()}
 	a.data.Jobs = append(a.data.Jobs, j)
 	if err := a.saveLocked(); err != nil {
 		a.data.Messages, a.data.Jobs = previousMessages, previousJobs
@@ -324,7 +351,11 @@ func (a *App) findMessageLocked(id string) *message {
 	return nil
 }
 
-func (a *App) editMessageLocked(id, text string) (*message, error) {
+// editMessageLocked mengedit pesan pemilik lalu menjalankan ulang diskusi
+// dari titik itu (fitur 13): teks diganti, pesan sesudahnya di
+// ruang+branch yang sama dihapus, pekerjaan terkait dibatalkan, dan
+// pekerjaan baru dibuat dari teks baru.
+func (a *App) editMessageLocked(id, text string) (*job, error) {
 	msg := a.findMessageLocked(id)
 	if msg == nil {
 		return nil, problem(404, "Pesan tidak ditemukan atau sudah dihapus.")
@@ -342,8 +373,124 @@ func (a *App) editMessageLocked(id, text string) (*message, error) {
 	previousText, previousEditedAt := msg.Text, msg.EditedAt
 	msg.Text = a.redactLocked(text)
 	msg.EditedAt = now()
-	if err := a.saveLocked(); err != nil {
+	j, err := a.truncateAndRerunLocked(msg)
+	if err != nil {
 		msg.Text, msg.EditedAt = previousText, previousEditedAt
+		return nil, err
+	}
+	return j, nil
+}
+
+// branchMessageLocked membuat branch percakapan baru (fitur 14) berisi
+// salinan pesan sampai titik yang dipilih pada branch yang sama, lalu
+// mengaktifkannya. Branch lama tetap utuh.
+func (a *App) branchMessageLocked(id string) (any, error) {
+	msg := a.findMessageLocked(id)
+	if msg == nil {
+		return nil, problem(404, "Pesan tidak ditemukan atau sudah dihapus.")
+	}
+	src := a.data.findRoom(msg.RoomID)
+	if src == nil {
+		return nil, problem(404, "Ruang pesan tidak ditemukan.")
+	}
+	branch := uuid()
+	idMap := map[string]string{}
+	copied := []*message{}
+	for _, m := range a.data.Messages {
+		if m.RoomID != src.ID || m.branchID() != msg.branchID() {
+			continue
+		}
+		cp := *m
+		cp.ID = uuid()
+		cp.BranchID = branch
+		cp.JobID = ""
+		cp.QueueID = ""
+		cp.Reactions = slices.Clone(m.Reactions)
+		cp.ToolCalls = slices.Clone(m.ToolCalls)
+		cp.ToolsUsed = slices.Clone(m.ToolsUsed)
+		cp.Tags = slices.Clone(m.Tags)
+		if m.ReplyTo != "" {
+			cp.ReplyTo = idMap[m.ReplyTo]
+		}
+		idMap[m.ID] = cp.ID
+		copied = append(copied, &cp)
+		if m.ID == id {
+			break
+		}
+	}
+	previous := a.data
+	previousBranch := src.ActiveBranch
+	a.data.Messages = append(a.data.Messages, copied...)
+	src.ActiveBranch = branch
+	if err := a.saveLocked(); err != nil {
+		a.data = previous
+		src.ActiveBranch = previousBranch
+		return nil, err
+	}
+	return map[string]any{"branchId": branch, "roomId": src.ID}, nil
+}
+
+// switchBranchLocked mengganti branch aktif satu ruang (fitur 14).
+func (a *App) switchBranchLocked(roomID, branchID string) (any, error) {
+	r := a.data.findRoom(roomID)
+	if r == nil {
+		return nil, problem(404, "Ruang tidak ditemukan.")
+	}
+	branchID = strings.TrimSpace(branchID)
+	if branchID == "" {
+		branchID = "main"
+	}
+	if branchID != "main" {
+		found := false
+		for _, m := range a.data.Messages {
+			if m.RoomID == r.ID && m.branchID() == branchID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, problem(404, "Branch tidak ditemukan.")
+		}
+	}
+	previous := r.ActiveBranch
+	r.ActiveBranch = branchID
+	if err := a.saveLocked(); err != nil {
+		r.ActiveBranch = previous
+		return nil, err
+	}
+	return map[string]any{"roomId": r.ID, "branchId": branchID}, nil
+}
+
+// tagsMessageLocked memasang tag pada pesan (fitur 17): maks 5 tag,
+// tiap tag maks 30 karakter, tanpa duplikat.
+func (a *App) tagsMessageLocked(id string, tags []string) (*message, error) {
+	msg := a.findMessageLocked(id)
+	if msg == nil {
+		return nil, problem(404, "Pesan tidak ditemukan atau sudah dihapus.")
+	}
+	if len(tags) > 5 {
+		return nil, problem(400, "Maksimal 5 tag per pesan.")
+	}
+	cleaned := []string{}
+	seen := map[string]bool{}
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		if jsLength(tag) > 30 || strings.ContainsAny(tag, "\x00\r\n") {
+			return nil, problem(400, "Tag maksimal 30 karakter tanpa baris baru.")
+		}
+		if seen[strings.ToLower(tag)] {
+			continue
+		}
+		seen[strings.ToLower(tag)] = true
+		cleaned = append(cleaned, a.redactLocked(tag))
+	}
+	previous := msg.Tags
+	msg.Tags = cleaned
+	if err := a.saveLocked(); err != nil {
+		msg.Tags = previous
 		return nil, err
 	}
 	return msg, nil

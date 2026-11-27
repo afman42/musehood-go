@@ -132,10 +132,10 @@ func (a *App) submitLocked(text, replyTo, imageURL string, att *attachment, room
 	for i := range steps {
 		steps[i].Status = "pending"
 	}
-	j := &job{ID: uuid(), Prompt: text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID}
+	j := &job{ID: uuid(), Prompt: text, Kind: kind, CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, BranchID: r.activeBranch()}
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
-	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL, Attachment: att, RoomID: r.ID})
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", ReplyTo: replyTo, ImageURL: imageURL, Attachment: att, RoomID: r.ID, BranchID: r.activeBranch()})
 	if kind == "task" {
 		a.data.Task = &activeTask{JobID: j.ID, Title: taskPrefix.ReplaceAllString(text, ""), CurrentStep: ptr(steps[0].Seat), Status: "processing", CreatedAt: now(), RoomID: r.ID}
 	}
@@ -201,11 +201,11 @@ func (a *App) submitDebateLocked(seatA, seatB, topic, roomID string) (*job, erro
 	for i := range steps {
 		steps[i].Status = "pending"
 	}
-	j := &job{ID: uuid(), Prompt: "Debat: " + topic, Kind: "debate", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID}
+	j := &job{ID: uuid(), Prompt: "Debat: " + topic, Kind: "debate", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, BranchID: r.activeBranch()}
 	ownerText := fmt.Sprintf("Debat: %s (@%s vs @%s)", topic, aSeat.Name, bSeat.Name)
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
-	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: ownerText, Status: "completed", RoomID: r.ID})
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: ownerText, Status: "completed", RoomID: r.ID, BranchID: r.activeBranch()})
 	if err := a.saveLocked(); err != nil {
 		a.data = previous
 		return nil, err
@@ -227,7 +227,7 @@ func (a *App) messageLocked(j *job, s *step, member seat) *message {
 			return a.data.Messages[i]
 		}
 	}
-	m := &message{ID: uuid(), CreatedAt: now(), AuthorType: "seat", Seat: member.Code, JobID: j.ID, Status: "typing", StatusText: member.Name + " sedang mengetik...", RoomID: j.RoomID}
+	m := &message{ID: uuid(), CreatedAt: now(), AuthorType: "seat", Seat: member.Code, JobID: j.ID, Status: "typing", StatusText: member.Name + " sedang mengetik...", RoomID: j.RoomID, BranchID: j.BranchID}
 	if s.Kind == "summary" {
 		m.Label = finalLabel
 	}
@@ -520,7 +520,7 @@ func (a *App) submitVoteLocked(roomID string) (*job, error) {
 	for _, code := range voters {
 		steps = append(steps, step{Seat: code, Kind: "vote", Status: "pending"})
 	}
-	j := &job{ID: uuid(), Prompt: target.Prompt, Kind: "vote", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, Candidates: ids}
+	j := &job{ID: uuid(), Prompt: target.Prompt, Kind: "vote", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, BranchID: r.activeBranch(), Candidates: ids}
 	a.data.Jobs = append(a.data.Jobs, j)
 	if err := a.saveLocked(); err != nil {
 		a.data = previous
@@ -557,6 +557,12 @@ func (a *App) advanceLocked(j *job) {
 	// Node may have saved the final step before persisting the job's completion.
 	if j.Index == len(j.Steps) {
 		a.completeJobLocked(j)
+		return
+	}
+	// Mode paralel (fitur 15): putaran chat multi-kursi gateway berjalan
+	// konkuren; selain itu jalur sekuensial di bawah.
+	if a.parallelEligibleLocked(j) {
+		a.advanceParallelLocked(j)
 		return
 	}
 	for j.Index < len(j.Steps) {
@@ -680,10 +686,6 @@ func (a *App) advanceLocked(j *job) {
 			// Rantai fallback per kursi: konfigurasi tiap model cadangan
 			// diselesaikan sekarang (resolusi alias butuh daftar provider)
 			// sebelum goroutine berjalan tanpa mutex.
-			type fallbackAttempt struct {
-				cfg    settings
-				member seat
-			}
 			var fallbacks []fallbackAttempt
 			for _, fb := range member.fallbackChain() {
 				fbCfg, resolved := a.data.resolveModelProviderLocked(a.data.Settings, fb)

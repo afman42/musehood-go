@@ -158,10 +158,10 @@ func (a *App) submitTemplateLocked(text, roomID, templateID string) (*job, error
 	if t.Instruction != "" {
 		prompt = t.Instruction + "\n\n" + text
 	}
-	j := &job{ID: uuid(), Prompt: prompt, Kind: "template", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID}
+	j := &job{ID: uuid(), Prompt: prompt, Kind: "template", CreatedAt: now(), Status: "processing", Steps: steps, RoomID: r.ID, BranchID: r.activeBranch()}
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
-	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", RoomID: r.ID})
+	a.data.Messages = append(a.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", JobID: j.ID, Text: text, Status: "completed", RoomID: r.ID, BranchID: r.activeBranch()})
 	if err := a.saveLocked(); err != nil {
 		a.data = previous
 		return nil, err
@@ -188,7 +188,7 @@ func (a *App) summarizeRoomLocked(roomID string) (*job, error) {
 		}
 	}
 	j := &job{ID: uuid(), Prompt: summaryPrompt, Kind: "roomsum", CreatedAt: now(), Status: "processing",
-		Steps: []step{{Seat: a.integratorSeat(), Kind: "roomsum", Status: "pending"}}, RoomID: r.ID}
+		Steps: []step{{Seat: a.integratorSeat(), Kind: "roomsum", Status: "pending"}}, RoomID: r.ID, BranchID: r.activeBranch()}
 	previous := a.data
 	a.data.Jobs = append(a.data.Jobs, j)
 	if err := a.saveLocked(); err != nil {

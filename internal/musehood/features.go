@@ -22,10 +22,20 @@ func (a *App) roomViewsLocked() []map[string]any {
 	views := []map[string]any{}
 	for _, r := range a.data.Rooms {
 		count := 0
+		branchCounts := map[string]int{}
+		branchOrder := []string{}
 		for _, m := range a.data.Messages {
 			if m.RoomID == r.ID {
 				count++
+				if branchCounts[m.branchID()] == 0 {
+					branchOrder = append(branchOrder, m.branchID())
+				}
+				branchCounts[m.branchID()]++
 			}
+		}
+		branches := make([]map[string]any, 0, len(branchOrder))
+		for _, id := range branchOrder {
+			branches = append(branches, map[string]any{"id": id, "messageCount": branchCounts[id]})
 		}
 		codes := r.SeatCodes
 		if codes == nil {
@@ -35,7 +45,7 @@ func (a *App) roomViewsLocked() []map[string]any {
 		if order == nil {
 			order = []string{}
 		}
-		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived, "summary": r.Summary, "summaryCount": r.SummaryCount})
+		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived, "summary": r.Summary, "summaryCount": r.SummaryCount, "activeBranch": r.activeBranch(), "branches": branches, "icon": r.Icon, "color": r.Color, "disabledTools": r.DisabledTools})
 	}
 	return views
 }
@@ -337,10 +347,11 @@ type searchFilters struct {
 	To              string // YYYY-MM-DD inklusif
 	HasImage        bool
 	IncludeArchived bool // sertakan ruang arsip (fitur 18)
+	Tag             string // filter tag pesan (fitur 17)
 }
 
 func (f searchFilters) active() bool {
-	return f.Seat != "" || f.Room != "" || f.From != "" || f.To != "" || f.HasImage || f.IncludeArchived
+	return f.Seat != "" || f.Room != "" || f.From != "" || f.To != "" || f.HasImage || f.IncludeArchived || f.Tag != ""
 }
 
 func (a *App) searchLocked(q string, f searchFilters) any {
@@ -374,6 +385,18 @@ func (a *App) searchLocked(q string, f searchFilters) any {
 		}
 		if f.HasImage && m.ImageURL == "" && (m.Attachment == nil || !strings.HasPrefix(m.Attachment.Mime, "image/")) {
 			continue
+		}
+		if f.Tag != "" {
+			found := false
+			for _, tag := range m.Tags {
+				if strings.EqualFold(tag, f.Tag) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
 		}
 		if !f.IncludeArchived {
 			if r := a.data.findRoom(m.RoomID); r != nil && r.Archived {

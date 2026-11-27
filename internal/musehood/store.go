@@ -287,6 +287,19 @@ type message struct {
 	// pratinjau hasil) untuk kartu hasil tool di tampilan.
 	ToolCalls  []toolCallRecord `json:"toolCalls,omitempty"`
 	BestAnswer bool             `json:"bestAnswer,omitempty"`
+	// BranchID adalah branch percakapan pesan ini (fitur 14). Kosong
+	// berarti branch utama "main".
+	BranchID string `json:"branchId,omitempty"`
+	// Tags adalah label bebas pemilik pada pesan (fitur 17), maks 5.
+	Tags []string `json:"tags,omitempty"`
+}
+
+// branchID mengembalikan branch pesan ini ("main" bila kosong).
+func (m *message) branchID() string {
+	if m.BranchID == "" {
+		return "main"
+	}
+	return m.BranchID
 }
 
 // toolCallRecord adalah satu pemanggilan tool oleh kursi untuk satu pesan.
@@ -327,6 +340,8 @@ type job struct {
 	Steps       []step `json:"steps"`
 	// RoomID adalah ruang tempat pekerjaan ini berjalan.
 	RoomID string `json:"roomId,omitempty"`
+	// BranchID adalah branch percakapan pekerjaan ini (fitur 14).
+	BranchID string `json:"branchId,omitempty"`
 	// Candidates adalah ID pesan jawaban yang dinilai pada pekerjaan voting.
 	Candidates []string `json:"candidates,omitempty"`
 }
@@ -361,6 +376,24 @@ type room struct {
 	// Archived menyembunyikan ruang dari bilah ruang; ruang arsip tetap
 	// bisa dicari (dengan parameter khusus) dan dipulihkan dari Pengaturan.
 	Archived bool `json:"archived,omitempty"`
+	// ActiveBranch adalah branch percakapan yang sedang ditampilkan
+	// (fitur 14). Kosong berarti "main".
+	ActiveBranch string `json:"activeBranch,omitempty"`
+	// Icon adalah emoji/teks pendek ruang (fitur 19, maks 8 rune).
+	Icon string `json:"icon,omitempty"`
+	// Color adalah warna aksen ruang berformat #rrggbb (fitur 19).
+	Color string `json:"color,omitempty"`
+	// DisabledTools adalah tool yang dinonaktifkan khusus di ruang ini
+	// (fitur 25), digabung dengan disabledTools kursi.
+	DisabledTools []string `json:"disabledTools,omitempty"`
+}
+
+// activeBranch mengembalikan branch aktif ruang ("main" bila kosong).
+func (r *room) activeBranch() string {
+	if r == nil || r.ActiveBranch == "" {
+		return "main"
+	}
+	return r.ActiveBranch
 }
 
 // presetSeat adalah salinan konfigurasi satu kursi di dalam preset.
@@ -1283,12 +1316,12 @@ func (a *App) stateLocked() any {
 	for i := range d.Providers {
 		d.Providers[i].APIKey = ""
 	}
-	// Tampilan klien hanya memuat pesan ruang aktif; pesan ruang lain tetap
-	// tersimpan dan bisa dibuka lewat pengalih ruang.
+	// Tampilan klien hanya memuat pesan ruang aktif pada branch aktif
+	// (fitur 14); pesan ruang/branch lain tetap tersimpan.
 	if active := d.activeRoom(); active != nil {
 		filtered := make([]*message, 0, len(d.Messages))
 		for _, m := range d.Messages {
-			if m.RoomID == active.ID {
+			if m.RoomID == active.ID && m.branchID() == active.activeBranch() {
 				filtered = append(filtered, m)
 			}
 		}

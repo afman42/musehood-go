@@ -15,7 +15,8 @@
   let dialog: HTMLDialogElement;
   let items = $state<ScheduledMessage[]>([]);
   let text = $state('');
-  let mode = $state<'once' | 'daily' | 'weekly' | 'interval'>('once');
+  let mode = $state<'once' | 'daily' | 'weekly' | 'interval' | 'cron'>('once');
+  let repeat = $state('0 7 * * *');
   let onceAt = $state('');
   let timeOfDay = $state('07:00');
   let weekday = $state(1);
@@ -33,6 +34,7 @@
   }
 
   function describe(item: ScheduledMessage): string {
+    if (item.repeat) return `Cron ${item.repeat}`;
     if (!item.recur) return `Sekali · ${item.nextAt ? new Date(item.nextAt).toLocaleString('id-ID') : ''}`;
     if (item.recur === 'daily') return `Harian · ${item.timeOfDay}`;
     if (item.recur === 'weekly') return `Mingguan · ${dayNames[item.weekday ?? 0]} ${item.timeOfDay}`;
@@ -52,6 +54,9 @@
       body.recur = 'daily'; body.timeOfDay = timeOfDay;
     } else if (mode === 'weekly') {
       body.recur = 'weekly'; body.timeOfDay = timeOfDay; body.weekday = weekday;
+    } else if (mode === 'cron') {
+      if (!repeat.trim()) { notify('Pola cron wajib diisi.', true); return; }
+      body.repeat = repeat.trim();
     } else {
       body.recur = 'interval'; body.intervalHours = intervalHours;
     }
@@ -94,6 +99,7 @@
       <option value="daily">{t('scheduleDaily')}</option>
       <option value="weekly">{t('scheduleWeekly')}</option>
       <option value="interval">Tiap N jam</option>
+      <option value="cron">Cron (5 kolom)</option>
     </select>
   </label>
   {#if mode === 'once'}
@@ -103,6 +109,9 @@
   {:else if mode === 'weekly'}
     <label>Hari<select aria-label="Hari mingguan" bind:value={weekday}>{#each dayNames as day, i (i)}<option value={i}>{day}</option>{/each}</select></label>
     <label>Jam<input aria-label="Jam mingguan" type="time" bind:value={timeOfDay}></label>
+  {:else if mode === 'cron'}
+    <label>Pola cron<input aria-label="Pola cron" type="text" placeholder="menit jam tgl bulan hari (mis. 0 7 * * *)" autocomplete="off" spellcheck="false" bind:value={repeat}></label>
+    <p class="section-hint">Format: menit jam tanggal bulan hari-minggu. Mendukung *, */n, angka, dan daftar koma. Contoh: "*/30 * * * *" tiap 30 menit, "0 7 * * 1" Senin 07.00.</p>
   {:else}
     <label>Interval (jam)<input aria-label="Interval jam" type="number" min="1" max="720" bind:value={intervalHours}></label>
   {/if}

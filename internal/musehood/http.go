@@ -67,6 +67,9 @@ type App struct {
 	// (fitur 7), hanya di memori.
 	breakerMu sync.Mutex
 	breakers  map[string]*circuitBreaker
+	// parallelRemaining menghitung langkah paralel yang belum selesai
+	// per pekerjaan (fitur 15).
+	parallelRemaining map[*job]int
 }
 type apiError struct {
 	status  int
@@ -367,7 +370,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					w.Header().Set("Allow", "POST, DELETE")
 					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 				}
-			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive") && r.Method == http.MethodPost {
+			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive" || parts[1] == "branch") && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else {
 				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
@@ -586,6 +589,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			To:            query.Get("to"),
 			HasImage:        query.Get("hasImage") == "1",
 			IncludeArchived: query.Get("includeArchived") == "1",
+			Tag:             query.Get("tag"),
 		}
 		return a.respondLocked(200, func() (any, error) { return a.searchLocked(query.Get("q"), filters), nil })
 	case "/api/vote":
@@ -765,6 +769,15 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					}
 					return a.jobResponseLocked(j), nil
 				})
+			}
+			if len(parts) == 2 && parts[1] == "branch" {
+				var body struct {
+					BranchID string `json:"branchId"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) { return a.switchBranchLocked(parts[0], body.BranchID) })
 			}
 			if len(parts) == 1 {
 				if r.Method == http.MethodDelete {

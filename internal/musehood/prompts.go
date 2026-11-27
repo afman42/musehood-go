@@ -91,10 +91,22 @@ func contextFor(d data, j *job) chatContext {
 			}
 		}
 	}
+	// Konteks hanya memakai pesan branch pekerjaan ini (fitur 14).
+	branch := j.BranchID
+	if branch == "" {
+		if r := d.findRoom(j.RoomID); r != nil {
+			branch = r.activeBranch()
+		} else {
+			branch = "main"
+		}
+	}
 	history := []contextMessage{}
 	for i := len(d.Messages) - 1; i >= 0 && len(history) < limit; i-- {
 		m := d.Messages[i]
 		if j.RoomID != "" && m.RoomID != j.RoomID {
+			continue
+		}
+		if m.branchID() != branch {
 			continue
 		}
 		if m.Status == "typing" || m.Status == "waiting" {

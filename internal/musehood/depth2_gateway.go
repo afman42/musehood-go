@@ -280,14 +280,16 @@ type nativeToolCall struct {
 }
 
 // parseNativeToolCalls mengambil tool_calls dari respons chat completions.
+// Respons non-JSON (teks polos dari gateway sederhana) diperlakukan
+// sebagai teks biasa.
 func parseNativeToolCalls(raw []byte) ([]nativeToolCall, string) {
 	var obj map[string]any
 	if json.Unmarshal(raw, &obj) != nil {
-		return nil, ""
+		return nil, strings.TrimSpace(string(raw))
 	}
 	choice := first(field(obj, "choices"))
 	message := field(choice, "message")
-	content, _ := field(message, "content").(string)
+	content := contentText(field(message, "content"))
 	var calls []nativeToolCall
 	rawCalls, _ := field(message, "tool_calls").([]any)
 	for _, item := range rawCalls {
@@ -315,6 +317,11 @@ func parseNativeToolCalls(raw []byte) ([]nativeToolCall, string) {
 			}
 		}
 		calls = append(calls, nativeToolCall{id: id, name: name, arg: arg})
+	}
+	if content == "" && len(calls) == 0 {
+		if text, err := eventText(obj); err == nil {
+			content = text
+		}
 	}
 	return calls, content
 }

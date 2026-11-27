@@ -61,13 +61,15 @@ func TestEditDeleteReplyReact(t *testing.T) {
 	ms := f.finish(2)
 	ownerID, replyID := idOf(ms[0]), idOf(ms[1])
 
-	// Edit pesan sendiri.
-	res, _, _ := f.raw("POST", "/api/message/"+ownerID+"/edit", strings.NewReader(`{"text":"teks baru"}`), "application/json")
-	if res != 200 {
+	// Edit pesan sendiri (fitur 13: edit menjalankan ulang diskusi, 202).
+	res, _, _ := f.raw("POST", "/api/message/"+ownerID+"/edit", strings.NewReader(`{"text":"@Opus teks baru"}`), "application/json")
+	if res != 202 {
 		t.Fatalf("edit status %d", res)
 	}
+	ms = f.finish(2)
+	replyID = idOf(ms[1])
 	m := findMessageBy(t, f, func(m object) bool { return idOf(m) == ownerID })
-	if m["text"] != "teks baru" || m["editedAt"] == nil {
+	if m["text"] != "@Opus teks baru" || m["editedAt"] == nil {
 		t.Fatal(m)
 	}
 	// Edit kosong ditolak, edit pesan kursi ditolak, ID tak dikenal 404.

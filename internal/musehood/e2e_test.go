@@ -244,7 +244,13 @@ func TestE2EAllFeatures(t *testing.T) {
 		m := f.finish(25)
 		ownerID := m[23]["id"].(string)
 		seatID := m[24]["id"].(string)
-		f.api("POST", "/api/message/"+ownerID+"/edit", object{"text": "sudah diedit"}, 200)
+		// Edit menjalankan ulang diskusi (fitur 13): balasan lama hilang,
+		// pekerjaan baru menunggu antrean Muse.
+		f.api("POST", "/api/message/"+ownerID+"/edit", object{"text": "sudah diedit"}, 202)
+		q = f.pending("chat")
+		f.api("POST", "/api/queue/muse/"+q["id"].(string), object{"text": "balasan kursi"}, 200)
+		m = f.finish(25)
+		seatID = m[24]["id"].(string)
 		f.api("POST", "/api/message/"+seatID+"/edit", object{"text": "tidak boleh"}, 403)
 		f.api("POST", "/api/message/"+ownerID+"/edit", object{"text": "  "}, 400)
 		f.api("POST", "/api/message/"+ownerID+"/react", object{"emoji": "👍"}, 200)

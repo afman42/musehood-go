@@ -2,6 +2,7 @@ package musehood
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,10 @@ type scheduledMessage struct {
 	TimeOfDay       string `json:"timeOfDay,omitempty"`
 	Weekday         int    `json:"weekday,omitempty"` // 0=Minggu..6=Sabtu (weekly)
 	IntervalHours   int    `json:"intervalHours,omitempty"`
+	// Repeat adalah pola mini-cron 5 kolom (menit jam tgl bulan
+	// hari-minggu) untuk pengulangan fleksibel (fitur 18). Bila terisi,
+	// ia mengalahkan Recur.
+	Repeat          string `json:"repeat,omitempty"`
 	TzOffsetMinutes int    `json:"tzOffsetMinutes,omitempty"` // offset zona pengguna (menit dari UTC, +420 = WIB)
 	Enabled         bool   `json:"enabled"`
 	NextAt          string `json:"nextAt,omitempty"`
@@ -32,6 +37,7 @@ type scheduledInput struct {
 	TimeOfDay       *string `json:"timeOfDay"`
 	Weekday         *int    `json:"weekday"`
 	IntervalHours   *int    `json:"intervalHours"`
+	Repeat          *string `json:"repeat"`
 	TzOffsetMinutes *int    `json:"tzOffsetMinutes"`
 	Enabled         *bool   `json:"enabled"`
 }
@@ -44,9 +50,121 @@ func formatScheduleTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.000Z")
 }
 
+// --- Mini-cron (fitur 18) ---
+
+// cronField adalah satu kolom pola cron yang sudah diuraikan.
+type cronField struct {
+	star   bool
+	values map[int]bool
+}
+
+func parseCronField(raw string, min, max int, sundaySeven bool) (cronField, error) {
+	field := cronField{values: map[int]bool{}}
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "*" {
+			field.star = true
+			continue
+		}
+		if strings.HasPrefix(item, "*/") {
+			step, err := strconv.Atoi(strings.TrimPrefix(item, "*/"))
+			if err != nil || step < 1 {
+				return field, problem(400, "Langkah cron tidak valid: "+item)
+			}
+			for v := min; v <= max; v += step {
+				field.values[v] = true
+			}
+			continue
+		}
+		value, err := strconv.Atoi(item)
+		if err != nil {
+			return field, problem(400, "Nilai cron tidak valid: "+item)
+		}
+		if sundaySeven && value == 7 {
+			value = 0
+		}
+		if value < min || value > max {
+			return field, problem(400, fmt.Sprintf("Nilai cron %d di luar rentang %d-%d.", value, min, max))
+		}
+		field.values[value] = true
+	}
+	return field, nil
+}
+
+func (f cronField) matches(value int) bool {
+	return f.star || f.values[value]
+}
+
+// cronSchedule adalah pola mini-cron 5 kolom yang sudah diuraikan.
+type cronSchedule struct {
+	minute, hour, dayOfMonth, month, dayOfWeek cronField
+}
+
+func parseCron(repeat string) (cronSchedule, error) {
+	parts := strings.Fields(strings.TrimSpace(repeat))
+	if len(parts) != 5 {
+		return cronSchedule{}, problem(400, "Pola cron harus 5 kolom: menit jam tanggal bulan hari-minggu.")
+	}
+	var err error
+	var sched cronSchedule
+	if sched.minute, err = parseCronField(parts[0], 0, 59, false); err != nil {
+		return sched, err
+	}
+	if sched.hour, err = parseCronField(parts[1], 0, 23, false); err != nil {
+		return sched, err
+	}
+	if sched.dayOfMonth, err = parseCronField(parts[2], 1, 31, false); err != nil {
+		return sched, err
+	}
+	if sched.month, err = parseCronField(parts[3], 1, 12, false); err != nil {
+		return sched, err
+	}
+	if sched.dayOfWeek, err = parseCronField(parts[4], 0, 6, true); err != nil {
+		return sched, err
+	}
+	return sched, nil
+}
+
+func (c cronSchedule) matches(t time.Time) bool {
+	if !c.minute.matches(t.Minute()) || !c.hour.matches(t.Hour()) || !c.month.matches(int(t.Month())) {
+		return false
+	}
+	domRestricted := !c.dayOfMonth.star
+	dowRestricted := !c.dayOfWeek.star
+	domOK := c.dayOfMonth.matches(t.Day())
+	dowOK := c.dayOfWeek.matches(int(t.Weekday()))
+	// Semantik cron standar: bila tanggal DAN hari-minggu sama-sama
+	// dibatasi, salah satu yang cocok sudah cukup (OR).
+	if domRestricted && dowRestricted {
+		return domOK || dowOK
+	}
+	return domOK && dowOK
+}
+
+// nextCronOccurrence mencari kemunculan berikutnya setelah from (menit
+// berikutnya ke atas) dalam zona jadwal, maks ~4 tahun pencarian.
+func nextCronOccurrence(sched cronSchedule, from time.Time, zone *time.Location) (time.Time, error) {
+	candidate := from.In(zone).Truncate(time.Minute).Add(time.Minute)
+	limit := candidate.AddDate(4, 0, 0)
+	for candidate.Before(limit) {
+		if sched.matches(candidate) {
+			return candidate, nil
+		}
+		candidate = candidate.Add(time.Minute)
+	}
+	return time.Time{}, problem(400, "Pola cron tidak punya kemunculan dalam 4 tahun ke depan.")
+}
+
 // computeNextAt menghitung waktu kirim berikutnya (UTC) untuk jadwal berulang.
 func computeNextAt(s scheduledMessage, from time.Time) (time.Time, error) {
 	zone := time.FixedZone("", s.TzOffsetMinutes*60)
+	if strings.TrimSpace(s.Repeat) != "" {
+		sched, err := parseCron(s.Repeat)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return nextCronOccurrence(sched, from, zone)
+	}
 	local := from.In(zone)
 	switch s.Recur {
 	case "daily", "weekly":
@@ -95,7 +213,7 @@ func (a *App) validateScheduledLocked(s *scheduledMessage) error {
 	if a.data.findRoom(s.RoomID) == nil {
 		return problem(400, "Ruang tidak ditemukan.")
 	}
-	if s.Recur == "" {
+	if s.Recur == "" && strings.TrimSpace(s.Repeat) == "" {
 		if s.SendAt == "" {
 			return problem(400, "Waktu kirim wajib diisi untuk pesan sekali kirim.")
 		}
@@ -142,6 +260,9 @@ func (a *App) createScheduledLocked(input scheduledInput) (scheduledMessage, err
 	if input.IntervalHours != nil {
 		s.IntervalHours = *input.IntervalHours
 	}
+	if input.Repeat != nil {
+		s.Repeat = strings.TrimSpace(*input.Repeat)
+	}
 	if input.TzOffsetMinutes != nil {
 		s.TzOffsetMinutes = *input.TzOffsetMinutes
 	}
@@ -187,6 +308,9 @@ func (a *App) updateScheduledLocked(id string, input scheduledInput) (scheduledM
 		}
 		if input.IntervalHours != nil {
 			s.IntervalHours = *input.IntervalHours
+		}
+		if input.Repeat != nil {
+			s.Repeat = strings.TrimSpace(*input.Repeat)
 		}
 		if input.TzOffsetMinutes != nil {
 			s.TzOffsetMinutes = *input.TzOffsetMinutes
@@ -250,7 +374,7 @@ func (a *App) runSchedulesLocked() {
 		}
 		changed = true
 		s.LastSentAt = now()
-		if s.Recur == "" {
+		if s.Recur == "" && strings.TrimSpace(s.Repeat) == "" {
 			continue // sekali kirim: buang dari daftar
 		}
 		if nextAt, err := computeNextAt(s, nowTime); err == nil {

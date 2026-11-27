@@ -6,7 +6,7 @@
   let {
     message, seat, seats, own, name, avatar, quoted, quotedAuthorName,
     editing, editText = $bindable(''), reactOpen, emojis, query,
-    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick, onRegenerate, onRerun, onFork, onExport,
+    onReply, onToggleReactPicker, onReact, onPin, onEditStart, onEditSave, onEditCancel, onDelete, onJumpQuote, onImageLoad, onMentionClick, onRegenerate, onRerun, onFork, onExport, onBranch, onTags,
   }: {
     message: Message;
     seat: Seat | undefined;
@@ -36,7 +36,16 @@
     onRerun: () => void;
     onFork: () => void;
     onExport: () => void;
+    onBranch: () => void;
+    onTags: (tags: string[]) => void;
   } = $props();
+
+  function editTags() {
+    const current = (message.tags ?? []).join(', ');
+    const input = window.prompt('Tag pesan (pisahkan koma, maks 5):', current);
+    if (input === null) return;
+    onTags(input.split(',').map((tag) => tag.trim()).filter(Boolean));
+  }
 
   const clock = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit' });
   const date = $derived(new Date(message.createdAt));
@@ -96,6 +105,9 @@
     {:else if message.toolsUsed?.length}
       <div class="tools-used" aria-label="Tool yang dipakai">{#each message.toolsUsed as tool, toolIndex (toolIndex)}<span class="tool-chip">🔧 {tool}</span>{/each}</div>
     {/if}
+    {#if message.tags?.length}
+      <div class="tag-bar" aria-label="Tag pesan">{#each message.tags as tag (tag)}<span class="tool-chip">🏷 {tag}</span>{/each}</div>
+    {/if}
     {#if message.reactions?.length}
       <div class="reaction-bar">
         {#each message.reactions as reaction (reaction.emoji)}
@@ -121,6 +133,8 @@
         {#if own}<button class="msg-action" type="button" aria-label="Jalankan ulang dari sini" title="Jalankan ulang dari sini" onclick={onRerun}>↻</button>{/if}
         {#if !own}<button class="msg-action" type="button" aria-label="Buat ulang balasan" title="Buat ulang balasan" onclick={onRegenerate}>↻</button>{/if}
         <button class="msg-action" type="button" aria-label="Fork ke ruang baru" title="Fork ke ruang baru" onclick={onFork}>⑂</button>
+        <button class="msg-action" type="button" aria-label="Branch dari sini" title="Branch dari sini" onclick={onBranch}>⎇</button>
+        <button class="msg-action" type="button" aria-label="Ubah tag" title="Ubah tag" onclick={editTags}>🏷</button>
         <button class="msg-action" type="button" aria-label="Ekspor diskusi ini" title="Ekspor diskusi ini" onclick={onExport}>⬇</button>
         <button class="msg-action" type="button" aria-label="Hapus pesan" title="Hapus" onclick={onDelete}>🗑</button>
       </div>

@@ -79,6 +79,9 @@ const dict: Record<string, Record<Locale, string>> = {
   nativeToolsHint: { id: 'Untuk protokol openai, tool dikirim sebagai tools[] dan tool_calls dibaca dari respons. Bila provider menolak, otomatis jatuh ke protokol teks. Non-streaming.', en: 'For the openai protocol, tools are sent as tools[] and tool_calls are read from the response. If the provider rejects them, it falls back to the text protocol. Non-streaming.' },
   loadBalance: { id: 'Load balancing antar provider', en: 'Load balancing across providers' },
   loadBalanceHint: { id: 'Bila provider kursi gagal total (setelah retry dan fallback), provider lain dengan model bernama sama dicoba berurutan.', en: 'When a seat\'s provider fails completely (after retries and fallbacks), other providers with the same model name are tried in order.' },
+  parallelMode: { id: 'Mode paralel', en: 'Parallel mode' },
+  parallelModeHint: { id: 'Kursi-kursi gateway dalam satu putaran diskusi chat menjawab bersamaan, bukan bergiliran. Tidak berlaku bila ada kursi antrean Muse atau balasan berantai aktif.', en: 'Gateway seats in one chat round answer concurrently instead of taking turns. Not applied when a Muse queue seat participates or chain replies are on.' },
+  tagFilter: { id: 'Tag', en: 'Tag' },
 };
 
 function loadLocale(): Locale {
