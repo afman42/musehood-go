@@ -82,7 +82,7 @@ func BenchmarkBuildToolInstructionsAllowlist(b *testing.B) {
 	s := seat{Code: "M01", DisabledTools: []string{"run_code", "run_shell", "delete_file", "http_post"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		out := app.buildToolInstructions(true, s)
+		out := app.buildToolInstructions(true, s, nil)
 		if out == "" {
 			b.Fatal("instruksi kosong")
 		}

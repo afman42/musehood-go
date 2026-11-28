@@ -72,6 +72,12 @@ Tool yang tersedia:
 - text_to_speech: ubah teks menjadi file audio WAV di folder kerja. Baris pertama argumen (opsional): lang=id atau lang=en; baris berikutnya: teks (maks 1000 karakter).
 - http_post: kirim permintaan POST JSON ke URL. Baris pertama argumen: URL; baris berikutnya: isi JSON. Memerlukan persetujuan pemilik.
 - password_gen: buat password acak kuat. Argumen (opsional): panjang 8-128 (bawaan 16), tambahkan "nosymbol" untuk tanpa simbol.
+- ask_question: berhenti dan bertanya kepada pemilik dengan pilihan jawaban; jawaban pemilik menjadi hasil tool. Baris pertama argumen: pertanyaan; baris berikutnya: pilihan jawaban (maks 6). Pemilik juga dapat menjawab bebas.
+- spawn_subagent: mulai sesi anak di ruang baru untuk kursi lain (atau kursimu sendiri) dan lanjutkan pekerjaanmu; hasilnya dibaca dengan check_subagent. Baris pertama argumen (opsional): "seat:<kode kursi>"; baris berikutnya: prompt untuk sesi anak.
+- check_subagent: baca status/hasil sesi anak. Argumen: id ruang atau id pekerjaan dari hasil spawn_subagent.
+- browser_open: render halaman web dengan browser Chromium headless (termasuk konten JavaScript) dan kembalikan teksnya. Argumen: URL lengkap (http/https).
+- browser_screenshot: ambil screenshot halaman ter-render; gambar terlampir pada balasanmu. Argumen: URL lengkap (http/https).
+- browser_links: daftar tautan dari halaman ter-render. Argumen: URL lengkap (http/https).
 
 Tool proyek coding bekerja pada proyek bernama. Awali argumen dengan baris "project:<nama>" untuk memilih proyek (tanpa itu dipakai proyek "default"). Path selalu relatif terhadap folder proyek.
 - create_project: buat proyek baru. Baris 1: nama proyek; baris 2: template (go, node, python, web).
@@ -97,6 +103,9 @@ Tool proyek coding bekerja pada proyek bernama. Awali argumen dengan baris "proj
 - export_project: ekspor proyek sebagai zip yang bisa diunduh. Argumen: kosongkan.
 - import_project: impor proyek dari zip di folder uploads. Argumen: nama file zip. Menimpa proyek lama memerlukan persetujuan pemilik.
 - env_file: kelola file .env proyek. Argumen: "list", "get <KUNCI>" (nilai ter-mask), "set <KUNCI>=<nilai>", atau "delete <KUNCI>".
+- worktree_create: buat git worktree proyek pada branch "wt-<nama>" di folder <proyek>-wt/<nama> (proyek harus sudah punya commit). Argumen: nama worktree.
+- worktree_list: daftar worktree proyek. Argumen: kosongkan.
+- worktree_remove: hapus worktree proyek. Argumen: nama worktree; tambahkan "force" untuk menghapus worktree kotor (persetujuan pemilik).
 
 Gunakan tool hanya bila benar-benar perlu (mis. butuh info terkini dari web atau isi file). Bila tidak perlu, jawab langsung tanpa blok tool.`
 
@@ -108,9 +117,10 @@ const codeToolInstruction = `
 - run_lint: lint proyek (go vet + gofmt -l, py_compile + ruff, eslint bila terpasang). Argumen: kosongkan (atau awalan project:<nama>).
 - format_code: format kode proyek (gofmt, black/prettier bila tersedia). Argumen: kosongkan (atau awalan project:<nama>).
 - run_server: jalankan dev server proyek sebagai proses latar di 127.0.0.1. Argumen: perintah server (mis. "go run .", "npm start", "python3 -m http.server"), atau "status"/"stop". Satu server per proyek.
-- allowlist_shell: jalankan perintah aman tanpa persetujuan (ls, cat, head, tail, wc, pwd, echo, grep, find tanpa -exec, du, df, go/node/python3 --version, git status/log/diff) di folder proyek. Tanpa metakarakter shell.`
+- allowlist_shell: jalankan perintah aman tanpa persetujuan (ls, cat, head, tail, wc, pwd, echo, grep, find tanpa -exec, du, df, go/node/python3 --version, git status/log/diff) di folder proyek. Tanpa metakarakter shell.
+- execute: jalankan JavaScript di sandbox yang sama (maks 30 detik) dengan fungsi tool(nama, argumen) untuk memanggil tool lain dari dalam kode (maks 20 panggilan; setiap panggilan melewati cek izin/persetujuan yang sama). Argumen: kode JavaScript; gunakan await tool("web_search", "...") dan console.log/return untuk hasil. Kode berbahaya memerlukan persetujuan pemilik.`
 
-func (a *App) buildToolInstructions(code bool, s seat) string {
+func (a *App) buildToolInstructions(code bool, s seat, mcpServers []mcpServerConfig) string {
 	text := toolInstructions
 	if code {
 		text += codeToolInstruction
@@ -149,6 +159,7 @@ func (a *App) buildToolInstructions(code bool, s seat) string {
 		}
 		text += fmt.Sprintf("\n- %s: %s. Argumen: %s.%s", tool.Name, tool.Description, hint, extra)
 	}
+	text += a.mcpInstructionLines(s, mcpServers)
 	return text
 }
 
@@ -365,6 +376,23 @@ func (a *App) runToolInner(ctx context.Context, cfg settings, s seat, name, arg 
 		return a.toolHTTPPost(ctx, s, arg), ""
 	case "password_gen":
 		return toolPasswordGen(arg), ""
+	case "ask_question":
+		return a.toolAskQuestion(ctx, s, arg), ""
+	case "spawn_subagent":
+		return a.toolSpawnSubagent(ctx, s, arg), ""
+	case "check_subagent":
+		return a.toolCheckSubagent(arg), ""
+	case "browser_open":
+		return a.toolBrowserOpen(ctx, arg), ""
+	case "browser_screenshot":
+		return a.toolBrowserScreenshot(ctx, arg)
+	case "browser_links":
+		return a.toolBrowserLinks(ctx, arg), ""
+	case "execute":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolExecute(ctx, cfg, s, arg, code), ""
 	case "run_code":
 		if !code {
 			return "Error: tool coding dimatikan di Pengaturan.", ""
@@ -451,7 +479,16 @@ func (a *App) runToolInner(ctx context.Context, cfg settings, s seat, name, arg 
 		return a.toolImportProject(ctx, s, arg), ""
 	case "env_file":
 		return a.toolEnvFile(arg), ""
+	case "worktree_create":
+		return a.toolWorktreeCreate(ctx, arg), ""
+	case "worktree_list":
+		return a.toolWorktreeList(ctx, arg), ""
+	case "worktree_remove":
+		return a.toolWorktreeRemove(ctx, s, arg), ""
 	default:
+		if strings.HasPrefix(name, "mcp_") {
+			return a.runMCPTool(ctx, cfg, s, name, arg), ""
+		}
 		if tool, ok := a.findCustomTool(name); ok {
 			return a.runCustomToolCfg(ctx, cfg, s, tool, arg, code), ""
 		}
@@ -787,6 +824,28 @@ func (a *App) executeCode(ctx context.Context, interpreter, ext, code string) st
 	return a.executeCodeStdin(ctx, interpreter, ext, code, "")
 }
 
+// sandboxBwrapArgs menyusun argumen bubblewrap untuk menjalankan
+// interpreter di folder kerja sandbox: filesystem di luar folder kerja
+// tidak terlihat, tanpa jaringan, sebagai user nobody.
+func sandboxBwrapArgs(dir, interpreter, name string, timeout time.Duration) []string {
+	return []string{
+		"--ro-bind", "/usr", "/usr",
+		"--ro-bind", "/lib", "/lib",
+		"--ro-bind", "/lib64", "/lib64",
+		"--ro-bind", "/bin", "/bin",
+		"--ro-bind", "/etc/alternatives", "/etc/alternatives",
+		"--dev", "/dev",
+		"--tmpfs", "/tmp",
+		"--bind", dir, "/work",
+		"--chdir", "/work",
+		"--unshare-user", "--unshare-ipc", "--unshare-net", "--unshare-uts", "--unshare-cgroup",
+		"--die-with-parent",
+		"--uid", "65534", "--gid", "65534",
+		"--clearenv", "--setenv", "PATH", "/usr/bin:/bin",
+		"timeout", fmt.Sprint(int(timeout.Seconds())), interpreter, name,
+	}
+}
+
 // executeCodeStdin seperti executeCode, tetapi memberi stdin ke proses
 // (dipakai tool kustom javascript, fitur 23).
 func (a *App) executeCodeStdin(ctx context.Context, interpreter, ext, code, stdin string) string {
@@ -801,22 +860,7 @@ func (a *App) executeCodeStdin(ctx context.Context, interpreter, ext, code, stdi
 	}
 	defer os.Remove(full)
 
-	bwrapArgs := []string{
-		"--ro-bind", "/usr", "/usr",
-		"--ro-bind", "/lib", "/lib",
-		"--ro-bind", "/lib64", "/lib64",
-		"--ro-bind", "/bin", "/bin",
-		"--ro-bind", "/etc/alternatives", "/etc/alternatives",
-		"--dev", "/dev",
-		"--tmpfs", "/tmp",
-		"--bind", dir, "/work",
-		"--chdir", "/work",
-		"--unshare-user", "--unshare-ipc", "--unshare-net", "--unshare-uts", "--unshare-cgroup",
-		"--die-with-parent",
-		"--uid", "65534", "--gid", "65534",
-		"--clearenv", "--setenv", "PATH", "/usr/bin:/bin",
-		"timeout", fmt.Sprint(int(codeTimeout.Seconds())), interpreter, name,
-	}
+	bwrapArgs := sandboxBwrapArgs(dir, interpreter, name, codeTimeout)
 	runCtx, cancel := context.WithTimeout(ctx, codeTimeout+15*time.Second)
 	defer cancel()
 

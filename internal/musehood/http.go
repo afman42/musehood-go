@@ -57,6 +57,15 @@ type App struct {
 	closed          bool
 	approvalMu      sync.Mutex
 	approvals       map[string]*approval
+	// questionMu/questions adalah pertanyaan kursi yang menunggu
+	// jawaban pemilik (tool ask_question), hanya di memori.
+	questionMu sync.Mutex
+	questions  map[string]*question
+	// mcpMu/mcpCache/mcpRefreshing adalah cache daftar tool server
+	// MCP (60 dtk), hanya di memori.
+	mcpMu         sync.Mutex
+	mcpCache      map[string]mcpCacheEntry
+	mcpRefreshing map[string]bool
 	cacheMu         sync.Mutex
 	cache           map[string]cacheEntry
 	cacheHits       int64
@@ -184,6 +193,11 @@ func New(opts Options) (*App, error) {
 	a.rememberKeyLocked(d.WorkerToken)
 	for _, p := range d.Providers {
 		a.rememberKeyLocked(p.APIKey)
+	}
+	for _, server := range d.Settings.MCPServers {
+		for _, value := range server.Env {
+			a.rememberKeyLocked(value)
+		}
 	}
 	if err := a.saveLocked(); err != nil {
 		return nil, err
@@ -370,7 +384,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	switch path {
 	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools", "/api/tool-log", "/api/personas", "/api/update/check", "/api/roles":
 		want = http.MethodGet
-	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled", "/api/templates", "/api/chains":
+	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled", "/api/templates", "/api/chains", "/api/mcp-servers":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.Header().Set("Allow", "GET, POST")
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
@@ -465,6 +479,16 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			}
 		} else if strings.HasPrefix(path, "/api/approvals/") && !strings.Contains(strings.TrimPrefix(path, "/api/approvals/"), "/") {
 			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/questions/") && !strings.Contains(strings.TrimPrefix(path, "/api/questions/"), "/") {
+			want = http.MethodPost
+		} else if strings.HasPrefix(path, "/api/mcp-servers/") {
+			rest := strings.TrimPrefix(path, "/api/mcp-servers/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 2 && parts[1] == "delete" && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else {
+				return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
+			}
 		} else if strings.HasPrefix(path, "/api/templates/") && !strings.Contains(strings.TrimPrefix(path, "/api/templates/"), "/") {
 			if r.Method == http.MethodDelete {
 				want = http.MethodDelete
@@ -691,7 +715,23 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 				builtin = append(builtin, name)
 			}
 			sort.Strings(builtin)
-			return map[string]any{"tools": a.loadCustomTools(), "builtin": builtin}, nil
+			return map[string]any{"tools": a.loadCustomTools(), "builtin": builtin, "mcp": a.mcpToolViews(a.data.Settings.MCPServers)}, nil
+		})
+	case "/api/mcp-servers":
+		if r.Method == http.MethodGet {
+			return a.respondLocked(200, func() (any, error) {
+				return map[string]any{"servers": a.mcpServerViewsLocked()}, nil
+			})
+		}
+		var input mcpServerConfig
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(200, func() (any, error) {
+			if err := a.upsertMCPServerLocked(input); err != nil {
+				return nil, err
+			}
+			return map[string]any{"servers": a.mcpServerViewsLocked()}, nil
 		})
 	case "/api/tool-log":
 		limit := 100
@@ -917,6 +957,35 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 				return 0, nil, problem(404, "Permintaan persetujuan tidak ditemukan atau sudah kedaluwarsa.")
 			}
 			return a.respondLocked(200, func() (any, error) { return a.stateLocked(), nil })
+		}
+		if strings.HasPrefix(path, "/api/questions/") {
+			id := strings.TrimPrefix(path, "/api/questions/")
+			var body struct {
+				Answer string `json:"answer"`
+			}
+			if err := readObject(w, r, &body); err != nil {
+				return 0, nil, err
+			}
+			if len([]rune(body.Answer)) > maxAnswerChars {
+				return 0, nil, problem(400, "Jawaban terlalu panjang.")
+			}
+			if !a.answerQuestion(id, body.Answer) {
+				return 0, nil, problem(404, "Pertanyaan tidak ditemukan atau sudah kedaluwarsa.")
+			}
+			return a.respondLocked(200, func() (any, error) { return a.stateLocked(), nil })
+		}
+		if strings.HasPrefix(path, "/api/mcp-servers/") {
+			rest := strings.TrimPrefix(path, "/api/mcp-servers/")
+			parts := strings.Split(rest, "/")
+			if len(parts) == 2 && parts[1] == "delete" {
+				return a.respondLocked(200, func() (any, error) {
+					if err := a.deleteMCPServerLocked(parts[0]); err != nil {
+						return nil, err
+					}
+					return map[string]any{"servers": a.mcpServerViewsLocked()}, nil
+				})
+			}
+			return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
 		}
 		if strings.HasPrefix(path, "/api/rooms/") {
 			rest := strings.TrimPrefix(path, "/api/rooms/")

@@ -529,6 +529,20 @@ func (a *App) backup(w http.ResponseWriter, r *http.Request) {
 	d.Settings.PINHash = ""
 	d.Settings.APIToken = ""
 	d.Settings.TelegramBotToken = ""
+	// Nilai env server MCP tidak ikut cadangan (hanya nama kuncinya).
+	if len(d.Settings.MCPServers) > 0 {
+		servers := slices.Clone(d.Settings.MCPServers)
+		for i := range servers {
+			if len(servers[i].Env) > 0 {
+				env := make(map[string]string, len(servers[i].Env))
+				for key := range servers[i].Env {
+					env[key] = ""
+				}
+				servers[i].Env = env
+			}
+		}
+		d.Settings.MCPServers = servers
+	}
 	d.WorkerToken = ""
 	raw, err := json.MarshalIndent(a.safeLocked(d), "", "  ")
 	a.mu.Unlock()
@@ -591,6 +605,22 @@ func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 			incoming.Settings.APIKey = old.APIKey
 		}
 	}
+	// Nilai env server MCP yang kosong di cadangan diisi ulang dari
+	// server bernama sama yang sudah tersimpan di mesin ini.
+	for i := range incoming.Settings.MCPServers {
+		for key, value := range incoming.Settings.MCPServers[i].Env {
+			if value != "" {
+				continue
+			}
+			for _, old := range a.data.Settings.MCPServers {
+				if old.Name == incoming.Settings.MCPServers[i].Name {
+					if oldValue, ok := old.Env[key]; ok {
+						incoming.Settings.MCPServers[i].Env[key] = oldValue
+					}
+				}
+			}
+		}
+	}
 	// PIN dan token pekerja tidak ikut cadangan (backup selalu
 	// mengosongkannya); yang aktif di mesin ini selalu dipertahankan agar
 	// file restore yang disusun manual tidak bisa mengunci pemilik keluar
@@ -599,6 +629,23 @@ func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 	incoming.WorkerToken = a.data.WorkerToken
 	incoming.migrateRooms()
 	incoming.migrateProviders()
+	// Server MCP dari cadangan disaring: hanya konfigurasi valid dan
+	// maksimal maxMCPServers yang dipertahankan.
+	{
+		valid := incoming.Settings.MCPServers[:0]
+		seen := map[string]bool{}
+		for _, server := range incoming.Settings.MCPServers {
+			if validateMCPServer(server) != nil || seen[server.Name] {
+				continue
+			}
+			seen[server.Name] = true
+			valid = append(valid, server)
+			if len(valid) >= maxMCPServers {
+				break
+			}
+		}
+		incoming.Settings.MCPServers = valid
+	}
 	// Pekerjaan yang belum selesai dari cadangan tidak punya file antrean di
 	// mesin ini; reset langkah aktifnya agar dijalankan ulang, bukan macet.
 	for _, j := range incoming.Jobs {
@@ -634,6 +681,11 @@ func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 	a.rememberKeyLocked(a.data.Settings.APIKey)
 	for _, p := range a.data.Providers {
 		a.rememberKeyLocked(p.APIKey)
+	}
+	for _, server := range a.data.Settings.MCPServers {
+		for _, value := range server.Env {
+			a.rememberKeyLocked(value)
+		}
 	}
 	_ = a.cancelQueueLocked()
 	a.tickLocked()

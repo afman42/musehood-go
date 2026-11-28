@@ -514,6 +514,11 @@ export function createChat(hooks: ChatHooks = {}) {
     await refresh();
   }
 
+  async function answerQuestion(id: string, answer: string) {
+    await api(`/api/questions/${id}`, { answer });
+    await refresh();
+  }
+
   function clearSearchResults() {
     clearTimeout(searchTimer);
     serverResults = [];
@@ -642,6 +647,7 @@ export function createChat(hooks: ChatHooks = {}) {
     scheduleSearch,
     clearSearchResults,
     decideApproval,
+    answerQuestion,
     rateMessage,
     startABTest,
     pickABWinner,

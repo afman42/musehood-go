@@ -1,6 +1,6 @@
 package musehood
 
-// Tes berat sapu bersih 65 tool bawaan (27 Nov 2026): tiap tool dipanggil
+// Tes berat sapu bersih 75 tool bawaan (28 Nov 2026): tiap tool dipanggil
 // sekali dengan argumen valid minimal dan sekali dengan argumen invalid.
 // Tool jaringan dimock lewat toolHTTPClient (RoundTripper palsu) +
 // lookupIP yang mengembalikan IP publik, tanpa melemahkan penjaga SSRF.
@@ -176,6 +176,16 @@ func TestHeavyAllBuiltinTools(t *testing.T) {
 		{"export_project", "project:uji-proyek", ".zip", "project:tidak-ada", ".zip"}, // proyek tak ada = ekspor kosong (longgar)
 		{"import_project", "tidak-ada.zip", "Error", "", "Error"},
 		{"env_file", "project:uji-proyek\nlist", "", "project:uji-proyek\nperintah-aneh", "Error"},
+		{"ask_question", "Pilih warna?\nMerah\nBiru", "tidak menjawab", "", "Error"}, // approvalTimeout 150ms di tes ini
+		{"spawn_subagent", "seat:M01\nHalo subagent uji", "Sesi subagent dimulai", "", "Error"},
+		{"check_subagent", "id-tidak-ada", "tidak ditemukan", "", "Error"},
+		{"execute", "console.log(\"halo execute\")", "halo execute", "", "Error"},
+		{"worktree_create", "project:uji-proyek\ncabang-a", "belum punya commit", "project:uji-proyek\nNama Buruk", "Error"},
+		{"worktree_list", "project:uji-proyek", "Worktree proyek", "project:Nama Buruk", "Error"},
+		{"worktree_remove", "project:uji-proyek\ntidak-ada", "tidak ditemukan", "project:uji-proyek\nNama Buruk", "Error"},
+		{"browser_open", "https://example.com/halaman", "", "bukan-url", "Error"},
+		{"browser_screenshot", "https://example.com", "", "bukan-url", "Error"},
+		{"browser_links", "https://example.com/halaman", "", "bukan-url", "Error"},
 	}
 
 	if len(cases) != len(builtinToolNames) {

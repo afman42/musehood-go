@@ -12,6 +12,7 @@
   import SettingsTemplates from './SettingsTemplates.svelte';
   import SettingsStats from './SettingsStats.svelte';
   import SettingsToolLog from './SettingsToolLog.svelte';
+  import SettingsMCP from './SettingsMCP.svelte';
   import SettingsSecurity from './SettingsSecurity.svelte';
   import SettingsBackup from './SettingsBackup.svelte';
   import type { Notice, ReviewLevel, RoomEdit, SeatEdit, State } from './types';
@@ -29,6 +30,7 @@
   let fileInput: HTMLInputElement;
   let providersPanel = $state<ReturnType<typeof SettingsProviders>>();
   let toolLogPanel = $state<ReturnType<typeof SettingsToolLog>>();
+  let mcpPanel = $state<ReturnType<typeof SettingsMCP>>();
   let uploadTarget = '';
   let groupName = $state('');
   let ownerName = $state('');
@@ -128,6 +130,7 @@
       syncSeats();
       providersPanel?.resetForm();
       toolLogPanel?.reload();
+      mcpPanel?.reload();
       saveStatus = '';
       if (!dialog.open) dialog.showModal();
     } catch (error) { notify(errorText(error), true); }
@@ -213,6 +216,7 @@
     <SettingsTemplates {current} {refresh} {notify} />
     <SettingsStats {current} />
     <SettingsToolLog bind:this={toolLogPanel} {notify} />
+    <SettingsMCP bind:this={mcpPanel} {notify} />
     <SettingsSecurity {current} {notify} {refresh} />
     <SettingsBackup {current} {refresh} {notify} onSync={syncSeats} />
     <section class="settings-section danger-section">

@@ -178,7 +178,7 @@ func TestLoadCustomToolsValidation(t *testing.T) {
 		t.Fatal("cuaca harus ditemukan")
 	}
 	// Instruksi memuat tool kustom.
-	instructions := app.buildToolInstructions(false, seat{})
+	instructions := app.buildToolInstructions(false, seat{}, nil)
 	if !strings.Contains(instructions, "- cuaca: Cuaca kota. Argumen: nama kota.") {
 		t.Fatalf("instruksi tanpa tool kustom: %q", instructions[len(instructions)-200:])
 	}

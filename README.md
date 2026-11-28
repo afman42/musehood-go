@@ -135,7 +135,7 @@ API: `POST /api/upload-file` (→ `{url, name, size, mime}`), `GET /uploads/<fil
 
 ## Tool untuk kursi gateway
 
-Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran tool per balasan). Protokolnya berbasis teks — model menulis blok `<<TOOL:nama>>argumen<</TOOL>>`, server menjalankan tool-nya, lalu hasil tool dikirim kembali sebagai pesan lanjutan — sehingga bekerja di semua provider/protokol, termasuk jembatan CLI yang hanya mengembalikan teks. Selama tool berjalan, status mengetik menampilkan aktivitasnya ("Plamo menjalankan web_search…"); hasilnya tampil sebagai **kartu tool** di bawah balasan (klik untuk melihat argumen + hasil). Toggle **"Tool untuk kursi gateway"** di Pengaturan mengendalikan semuanya (bawaan aktif), dan tiap kursi dapat menonaktifkan tool tertentu (allowlist per kursi). Total **65 tool bawaan** (36 tool umum + 29 tool coding proyek):
+Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran tool per balasan). Protokolnya berbasis teks — model menulis blok `<<TOOL:nama>>argumen<</TOOL>>`, server menjalankan tool-nya, lalu hasil tool dikirim kembali sebagai pesan lanjutan — sehingga bekerja di semua provider/protokol, termasuk jembatan CLI yang hanya mengembalikan teks. Selama tool berjalan, status mengetik menampilkan aktivitasnya ("Plamo menjalankan web_search…"); hasilnya tampil sebagai **kartu tool** di bawah balasan (klik untuk melihat argumen + hasil). Toggle **"Tool untuk kursi gateway"** di Pengaturan mengendalikan semuanya (bawaan aktif), dan tiap kursi dapat menonaktifkan tool tertentu (allowlist per kursi). Total **75 tool bawaan** (36 tool umum + 29 tool coding proyek + 10 tool gaya OpenCode):
 
 | Tool | Fungsi |
 | --- | --- |
@@ -172,6 +172,13 @@ Kursi gateway dapat bertindak memakai tool saat menjawab (maksimal 3 putaran too
 | `password_gen` | Password acak kuat (8–128 karakter, opsi `nosymbol`) |
 | `run_code` | Jalankan Python/JavaScript di sandbox terisolasi |
 | `run_shell` | Jalankan perintah shell di sandbox yang sama |
+| `ask_question` | Kursi bertanya ke pemilik (baris pertama = pertanyaan, baris berikutnya = pilihan jawaban maks 6); pekerjaan menunggu jawaban (timeout 180 dtk), jawaban bebas selalu bisa lewat banner pertanyaan di chat atau `POST /api/questions/{id}` |
+| `spawn_subagent` | Mulai sesi anak di ruang baru "Sub: …" (baris pertama opsional `seat:<kode>`, lalu prompt); kursi di ruang sub tidak boleh spawn lagi (kedalaman maks 1); ringkasan anak diposting ke ruang induk saat selesai |
+| `check_subagent` | Baca balasan terakhir sesi anak dari id yang diberikan `spawn_subagent` (atau status masih berjalan) |
+| `execute` | Code Mode: jalankan JavaScript di sandbox dengan jembatan RPC — kode memanggil `await tool("nama", "argumen")` dan host menjalankan tool itu dengan cek izin/allowlist/audit/persetujuan yang sama (maks 20 panggilan, timeout 30 dtk; `execute` bersarang dilarang) |
+| `browser_open` | Render halaman web dengan Chromium headless lalu ekstrak teks DOM hasil render (penjaga SSRF, timeout 45 dtk) |
+| `browser_screenshot` | Screenshot PNG halaman ter-render; gambar terlampir pada balasan |
+| `browser_links` | Daftar tautan dari DOM ter-render (maks 50, tanpa duplikat) |
 
 ### Tool coding proyek
 
@@ -206,10 +213,13 @@ Tool coding bekerja pada **proyek bernama** di folder `projects/<nama>/` di dire
 | `export_project` | Zip proyek ke `exports/` dan kembalikan URL unduhan `/exports/<nama>.zip` |
 | `import_project` | Impor zip dari `uploads/` menjadi proyek (penjaga zip-slip; menimpa proyek lama = persetujuan) |
 | `env_file` | Kelola `.env` proyek: `list`/`get` (nilai ter-mask)/`set`/`delete`; nilai tidak masuk log audit tool |
+| `worktree_create` | `git worktree add` di `projects/<proyek>-wt/<nama>` dengan branch `wt-<nama>` (proyek harus punya minimal 1 commit) |
+| `worktree_list` | Daftar worktree proyek (path + branch) |
+| `worktree_remove` | Hapus worktree proyek; `force` = persetujuan pemilik (kind `delete`) |
 
 Tool eksekusi proyek memakai sandbox bubblewrap yang sama dengan `run_code` (user `nobody`, tanpa jaringan, folder proyek ter-bind rw, toolchain Go ter-bind read-only di `/goroot`), dengan batas cgroup lebih longgar (1 GB memori) dan timeout 120–180 detik. `run_server` adalah pengecualian: namespace jaringan tidak diputus agar server bisa dijangkau di 127.0.0.1, tetapi filesystem tetap terisolasi dan `HOST=127.0.0.1` dipaksakan. Tool git menulis menjalankan `git` langsung di folder proyek dengan identitas `musehood-go <musehood@local>`.
 
-Beberapa tool memakai binary sistem bila tersedia dan gagal dengan pesan jelas bila tidak ada: `ocr_image` → `tesseract-ocr`, `text_to_speech` → `espeak-ng`, `pdf_text` → `pdftotext` (poppler-utils), `screenshot_url` → Chromium. Di Debian/Ubuntu: `apt install tesseract-ocr espeak-ng poppler-utils`.
+Beberapa tool memakai binary sistem bila tersedia dan gagal dengan pesan jelas bila tidak ada: `ocr_image` → `tesseract-ocr`, `text_to_speech` → `espeak-ng`, `pdf_text` → `pdftotext` (poppler-utils), `screenshot_url` dan tool `browser_*` → Chromium. Di Debian/Ubuntu: `apt install tesseract-ocr espeak-ng poppler-utils`. Binary Chromium dicari dari env `MUSEHOOD_CHROMIUM`/`CHROME_BIN`, PATH, lalu cache Playwright (`~/.cache/ms-playwright/chromium-*/`); pasang dengan `npx playwright install chromium` bila belum ada. Batasan jujur tool browser: hanya render + teks + tautan + screenshot lewat CLI Chromium — tidak ada klik, isi form, atau Lighthouse (itu butuh CDP, tidak diimplementasikan).
 
 ### Sandbox kode dan persetujuan pemilik
 
@@ -222,7 +232,7 @@ Seperti mode approval pada agent terminal (mis. Hermes), tindakan berisiko menun
 - Semua `delete_file`.
 - Semua `http_post` (URL + isi JSON ditampilkan pada banner).
 
-API: `POST /api/approvals/{id}` dengan `{approved: bool}`; permintaan yang menunggu muncul sebagai `pendingApprovals` di `/api/state` (kind `code`/`shell`/`delete`/`http`/`git`).
+API: `POST /api/approvals/{id}` dengan `{approved: bool}`; permintaan yang menunggu muncul sebagai `pendingApprovals` di `/api/state` (kind `code`/`shell`/`delete`/`http`/`git`/`mcp`). Pertanyaan kursi yang menunggu jawaban muncul sebagai `pendingQuestions` di `/api/state` dan dijawab lewat `POST /api/questions/{id}` dengan `{answer}`.
 
 ### Docker
 
@@ -254,6 +264,14 @@ Selain tool bawaan, tambahkan tool sendiri lewat definisi JSON di `tools/<nama>.
 ```
 
 Tipe yang tersedia: `http_get` (GET ke URL template; `{{param}}` diganti dari baris argumen berurutan, `{{arg}}` = seluruh argumen; melewati penjaga SSRF; field opsional `userAgent` dan `headers` template), `http_post` (POST JSON dari template body — **persetujuan pemilik**), `shell` (perintah template dijalankan di sandbox yang sama dengan `run_shell` — selalu memerlukan persetujuan pemilik dan toggle tool coding aktif), `javascript` (field `code` dijalankan via sandbox node, argumen JSON via stdin, stdout = hasil), dan `pipeline` (field `steps`, maks 5 tool berantai, tanpa pipeline bersarang). Parameter boleh berupa string (legacy) atau objek `{name, type: string|number|bool, required, hint}` yang divalidasi sebelum jalan. Nama tool harus huruf kecil/angka/underscore dan tidak boleh menabrak tool bawaan. Daftar tool kustom: `GET /api/tools`. Contoh siap pakai ada di `tools/cuaca.json`.
+
+### Server MCP (Model Context Protocol)
+
+Kursi dapat memakai tool dari server MCP eksternal (transport stdio). Kelola server lewat Pengaturan → **Server MCP** (maks 5 server: nama, perintah, argumen satu per baris, env `KUNCI=nilai` per baris) atau API `GET/POST /api/mcp-servers` + `POST /api/mcp-servers/{name}/delete`. Nilai env tidak pernah ditampilkan kembali (hanya nama kuncinya) dan dikosongkan di file backup, sama seperti API key provider.
+
+Setiap panggilan menjalankan proses server sekali (initialize → tools/list atau tools/call → proses dimatikan; timeout daftar 15 dtk, panggilan 60 dtk) agar sederhana dan aman — tidak ada proses server yang dibiarkan hidup. Daftar tool di-cache 60 detik dan di-refresh di latar belakang, jadi tool server yang baru ditambahkan bisa butuh sampai ±60 detik untuk muncul (jalur panggilan tool selalu mengambil daftar segar bila cache kosong). Tool terekspos ke kursi sebagai `mcp_<server>_<tool>` (maks 50 tool per server, nama disanitasi), muncul di `GET /api/tools` dengan sumber `mcp`, tercatat di log audit, dan **setiap panggilan memerlukan persetujuan pemilik** (kind `mcp`) karena tool eksternal dapat melakukan apa saja. Argumen tool = JSON objek argumen tool; teks bebas dibungkus sebagai `{"arg": …}`.
+
+Batasan jujur: hanya transport stdio (bukan HTTP/SSE), tanpa sampling/roots MCP, dan server MCP tidak terisolasi sandbox — perintah server berjalan sebagai user yang menjalankan aplikasi, jadi hanya pasang server yang kamu percaya.
 
 ## Statistik pemakaian
 
@@ -353,11 +371,14 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | GET | `/api/providers/{id}/models` | Daftar model provider |
 | POST | `/api/providers/{id}/test-models` | Tes sampai 10 model |
 | POST | `/api/approvals/{id}` | `{approved}` untuk persetujuan tool berisiko |
+| POST | `/api/questions/{id}` | `{answer}` untuk menjawab pertanyaan kursi (`ask_question`) |
+| GET/POST | `/api/mcp-servers` | Daftar server MCP (nilai env tidak ditampilkan) / tambah-ubah server |
+| POST | `/api/mcp-servers/{name}/delete` | Hapus server MCP |
 | POST | `/api/vote` | Voting jawaban terbaik diskusi terakhir |
 | GET | `/api/stats` | Statistik pemakaian per kursi/model |
 | GET | `/api/search?q=…` | Pencarian lintas ruang; filter `seat`, `room`, `from`, `to`, `hasImage=1` |
 | GET | `/api/skills` | Daftar skill yang tersedia (nama, deskripsi, sumber: lokal/skills.sh/claude) |
-| GET | `/api/tools` | `{tools, builtin}` — tool kustom dari folder `tools/` + daftar tool bawaan |
+| GET | `/api/tools` | `{tools, builtin, mcp}` — tool kustom dari folder `tools/`, daftar tool bawaan, dan tool MCP terekspos |
 | GET | `/api/backup` | Unduh cadangan (API key dikosongkan) |
 | POST | `/api/restore` | Pulihkan cadangan (maks 32 MB, key lama dipertahankan) |
 | GET | `/api/export` | Ekspor chat (JSON/HTML, sadar ruang) |
@@ -433,6 +454,6 @@ node tests/frontend-perf.mjs
 
 `tests/live-e2e.mjs` menjalankan binary asli terhadap gateway mock dan menguji 49 skenario end-to-end. Uji Chromium menggunakan instalasi Playwright lokal. Isi `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` bila menggunakan executable Chromium dari lokasi lain. Lihat hasil dan cakupan pengujian di [TESTS.md](TESTS.md).
 
-Suite backend (`internal/musehood/*_test.go` + `main_test.go`, 308 fungsi tes + 12 benchmark) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model + rantai fallback, persetujuan via API, tool kustom, voting, isolasi ruang, streaming SSE + fallback, regenerate, pesan terjadwal + jadwal berulang, template diskusi, ringkasan + kompaksi konteks, pencarian berfilter, sematan ruang + tema), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom, terjemahan, kurs, QR, RSS, transkrip YouTube, `http_post` berpersetujuan — resolver DNS di-stub ke IP publik dan URL API diganti server lokal dalam tes, penjaga SSRF produksi tidak dilemahkan), pengetesan berat (konkurensi 100 POST bersamaan, fuzz 31 endpoint × 23 payload, 5000 pesan, semua 65 tool bawaan dengan argumen valid + invalid, SQLite 1000 pesan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
+Suite backend (`internal/musehood/*_test.go` + `main_test.go`, 316 fungsi tes + 12 benchmark) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model + rantai fallback, persetujuan via API, tool kustom, voting, isolasi ruang, streaming SSE + fallback, regenerate, pesan terjadwal + jadwal berulang, template diskusi, ringkasan + kompaksi konteks, pencarian berfilter, sematan ruang + tema), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom, terjemahan, kurs, QR, RSS, transkrip YouTube, `http_post` berpersetujuan — resolver DNS di-stub ke IP publik dan URL API diganti server lokal dalam tes, penjaga SSRF produksi tidak dilemahkan), pengetesan berat (konkurensi 100 POST bersamaan, fuzz 31 endpoint × 23 payload, 5000 pesan, semua 75 tool bawaan dengan argumen valid + invalid, SQLite 1000 pesan), tool gaya OpenCode (alur tanya-jawab + timeout, spawn/check subagent + penolakan kedalaman 2, Code Mode RPC + batas panggilan, worktree git nyata, degradasi + render Chromium nyata, server MCP palsu stdio + persetujuan + redaksi env), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
 
 Suite frontend mencakup: unit (76 tes: `frontend/tests/unit/`, helper format/API, parser Markdown, lazy-load syntax highlighting + composable `chat.svelte.ts` yang dikompilasi dan dijalankan di Node dengan fetch/document stub, via `node --test`), komponen (38 tes: `frontend/tests/component/`, render SSR komponen Svelte), E2E UI (`tests/frontend-e2e.mjs` 21 + `frontend-e2e-depth.mjs` 23 + `frontend-e2e-depth-settings.mjs` 10: chat, mention + modal info kursi, render Markdown + syntax highlighting, pengaturan, pin, ruang, pencarian, voting, persetujuan tool, alur PIN, debat, fork, rerun, reaksi, arsip, ekspor, urutan kursi, shortcut; `tests/frontend-e2e-settings.mjs` 20: CRUD provider + fetch/test models, toggle, kursi custom, kelola ruang, preset, statistik, backup/restore, ekspor; `tests/frontend-e2e-actions.mjs` 10: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file), aksesibilitas (`tests/frontend-a11y.mjs` 20 + `frontend-a11y-depth.mjs` 18: audit axe-core mode terang + gelap, nama aksesibel, alt, keyboard/fokus, kontras WCAG, target sentuh), visual regression (`tests/frontend-visual.mjs`: screenshot 12 skenario vs baseline piksel di `tests/visual-baselines/`), cross-browser/performance (`tests/frontend-perf.mjs` 33: viewport 320–1920px, emulasi sentuh iPhone, anggaran timing/bundle/polling — Chromium saja karena unduhan browser lain diblokir di VM pengembangan), pengetesan berat UI (`frontend-e2e-heavy.mjs` 26 + `frontend-heavy-stress.mjs` 16 + `frontend-a11y-heavy.mjs` 16 + `frontend-visual-heavy.mjs` 8 baseline), dan performa tombol (`tests/frontend-buttons-perf.mjs` 10: tema <300 ms tanpa longtask, rating optimistis, spinner dialog malas, prefetch tanpa fetch tool-log, spinner ganti ruang).

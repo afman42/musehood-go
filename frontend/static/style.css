@@ -219,6 +219,12 @@ html.dark .tool-chip{background:#243528;color:#9db8a2;border-color:#33473a}
 .approval-actions{display:flex;gap:8px;justify-content:flex-end}
 html.dark .approval-banner{background:#33290f;border-color:#6b5518}
 html.dark .approval-title{color:#e8c97a}
+.question-banner{border-color:#9db8e8;background:#eef4ff}
+html.dark .question-banner{background:#16233c;border-color:#39548a}
+.question-text{font-size:13px;margin:0 0 10px;white-space:pre-wrap}
+.question-options{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.question-free{display:flex;gap:8px}
+.question-free input{flex:1;min-width:0}
 
 /* Utilitas jarak (pengganti inline style agar lolos CSP style-src-attr) */
 .mt-10{margin-top:10px}

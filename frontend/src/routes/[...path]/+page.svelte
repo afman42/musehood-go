@@ -11,6 +11,7 @@
   import { parseSlashCommand, slashMessageText, SLASH_HELP_TEXT } from '../../lib/slash';
   import { nextRating } from '../../lib/rating';
   import ApprovalBanner from '../../lib/ApprovalBanner.svelte';
+  import QuestionBanner from '../../lib/QuestionBanner.svelte';
   import { createChat } from '../../lib/chat.svelte';
   import { errorText } from '../../lib/api';
   import { emptySearchFilters, type Attachment, type Message, type SearchFilters, type SearchResult, type Seat } from '../../lib/types';
@@ -697,6 +698,9 @@
   </section>
   {#if current?.pendingApprovals?.length}
     <ApprovalBanner approvals={current.pendingApprovals} onDecide={(id, approved) => chat.decideApproval(id, approved).catch(e => chat.notify(errorText(e), true))} />
+  {/if}
+  {#if current?.pendingQuestions?.length}
+    <QuestionBanner questions={current.pendingQuestions} onAnswer={(id, answer) => chat.answerQuestion(id, answer).catch(e => chat.notify(errorText(e), true))} />
   {/if}
   <Composer bind:this={composer} bind:text {submitting} {asking} {voting} {uploadingImage} {uploadingFile} {uploadProgress}
     {replyTo} replyAuthorName={replyTo ? authorName(replyTo) : ''} {pendingImage} {pendingFile}

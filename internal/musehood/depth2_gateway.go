@@ -339,7 +339,7 @@ func (a *App) chatWithNativeTools(ctx context.Context, cfg settings, s seat, his
 	if s.Model == nil || *s.Model == "" {
 		return workerReply{}, false, nil
 	}
-	defs := nativeToolDefinitions(a.buildToolInstructions(code, s))
+	defs := nativeToolDefinitions(a.buildToolInstructions(code, s, cfg.MCPServers))
 	if len(defs) == 0 {
 		return workerReply{}, false, nil
 	}

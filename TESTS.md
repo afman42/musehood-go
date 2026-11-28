@@ -1,6 +1,21 @@
 # Pengujian Musehood Go
 
-Terakhir dijalankan 27 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
+Terakhir dijalankan 28 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
+
+## 6 tool gaya OpenCode (28 Nov 2026)
+
+Sepuluh tool bawaan baru (total 75) dari pesanan "implementasi semuanya" gaya OpenCode, dengan **9 fungsi tes Go baru** di `internal/musehood/tools_opencode_test.go` + **10 kasus baru** di `heavy_tools_test.go` (semua 75 tool bawaan kini diuji argumen valid + invalid) + **5 tes component baru** (`tests/component/opencode-components.test.mjs`):
+
+- `ask_question`: alur tanya → pemilik menjawab via API (pilihan + jawaban bebas) → hasil tool; timeout = hasil informatif "tidak menjawab"; argumen tidak valid ditolak.
+- `spawn_subagent`/`check_subagent`: spawn membuat ruang sub + job, check membaca balasan, ringkasan diposting ke ruang induk, spawn dari ruang sub ditolak (kedalaman 2), kursi tujuan harus gateway.
+- `execute` (Code Mode): RPC JSON-lines memanggil tool lain (`current_time`) dari JS sandbox, nilai return, batas 20 panggilan, `execute` bersarang diblokir, `throw` → teks error.
+- `worktree_create/list/remove`: proyek tanpa commit ditolak dengan pesan jelas; commit nyata via git, create/list/remove, duplikat + nama tidak valid ditolak.
+- `browser_open/screenshot/links`: degradasi tanpa Chromium (pesan instalasi bahasa Indonesia), penjaga SSRF loopback, ekstraksi tautan; render nyata Chromium pada URL `data:` dengan konten yang disuntikkan JS (dilewati bila Chromium tidak ada). Klik/form/Lighthouse tidak diimplementasikan (butuh CDP).
+- MCP stdio: server MCP palsu (script Python JSON-RPC) → initialize + tools/list + tools/call; nilai env tidak bocor ke respons API/state; tool muncul di `GET /api/tools`; panggilan butuh persetujuan kind `mcp` (timeout = ditolak); tool tak dikenal ditolak; batas 5 server; hapus server + 404.
+
+Bug ditemukan + diperbaiki saat pengetesan: map cache MCP `mcpRefreshing` tidak pernah diinisialisasi → panic "assignment to entry in nil map" saat memegang mutex cache → deadlock permanen pada `GET /api/tools`. Diperbaiki dengan inisialisasi map di bawah lock + `defer Unlock` di ketiga jalur cache.
+
+Total sesudah batch ini: **316 fungsi tes Go** (`go test -list`) + 12 benchmark, unit **76**, component **43**, `svelte-check` 0 error, `go vet` bersih, suite Go penuh hijau (123 dtk).
 
 ## Pendalaman fitur gelombang 3 + code splitting + perbaikan tombol (27 Nov 2026, v1.9.0)
 

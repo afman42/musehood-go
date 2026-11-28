@@ -117,6 +117,9 @@ var builtinToolNames = map[string]bool{
 	"outline": true, "find_references": true, "dependency_graph": true,
 	"todo_scan": true, "complexity_report": true, "generate_tests": true,
 	"export_project": true, "import_project": true, "env_file": true,
+	"ask_question": true, "spawn_subagent": true, "check_subagent": true,
+	"execute": true, "worktree_create": true, "worktree_list": true, "worktree_remove": true,
+	"browser_open": true, "browser_screenshot": true, "browser_links": true,
 }
 
 func (a *App) toolsDir() string {

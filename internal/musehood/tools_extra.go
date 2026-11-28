@@ -52,9 +52,11 @@ func (a *App) toolGit(ctx context.Context, arg string) string {
 }
 
 func findChromeBinary() string {
-	if env := strings.TrimSpace(os.Getenv("CHROME_BIN")); env != "" {
-		if _, err := os.Stat(env); err == nil {
-			return env
+	for _, envName := range []string{"MUSEHOOD_CHROMIUM", "CHROME_BIN"} {
+		if env := strings.TrimSpace(os.Getenv(envName)); env != "" {
+			if _, err := os.Stat(env); err == nil {
+				return env
+			}
 		}
 	}
 	for _, name := range []string{"chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome"} {
@@ -63,21 +65,33 @@ func findChromeBinary() string {
 		}
 	}
 	home, _ := os.UserHomeDir()
-	matches, _ := filepath.Glob(filepath.Join(home, ".cache", "ms-playwright", "chromium-*", "chrome-linux", "chrome"))
-	if len(matches) > 0 {
-		return matches[len(matches)-1]
+	for _, pattern := range []string{
+		filepath.Join(home, ".cache", "ms-playwright", "chromium-*", "chrome-linux", "chrome"),
+		filepath.Join(home, ".cache", "ms-playwright", "chromium-*", "chrome-linux64", "chrome"),
+		filepath.Join(home, ".cache", "ms-playwright", "chromium_headless_shell-*", "chrome-linux", "headless_shell"),
+		filepath.Join(home, ".cache", "ms-playwright", "chromium_headless_shell-*", "chrome-linux64", "headless_shell"),
+	} {
+		if matches, _ := filepath.Glob(pattern); len(matches) > 0 {
+			return matches[len(matches)-1]
+		}
 	}
 	return ""
 }
+
+// findChromium adalah titik override untuk tes (degradasi tanpa
+// Chromium dapat diuji dengan menggantinya menjadi fungsi kosong).
+var findChromium = findChromeBinary
+
+const chromiumMissingError = "Error: browser Chromium tidak ditemukan di server. Pasang dengan: npx playwright install chromium (atau atur MUSEHOOD_CHROMIUM ke path binary Chromium)."
 
 func (a *App) toolScreenshotURL(ctx context.Context, arg string) (string, string) {
 	raw := strings.TrimSpace(arg)
 	if err := checkPublicURL(ctx, raw); err != nil {
 		return "Error: " + err.Error(), ""
 	}
-	chrome := findChromeBinary()
+	chrome := findChromium()
 	if chrome == "" {
-		return "Error: browser Chromium tidak ditemukan di server (atur CHROME_BIN).", ""
+		return chromiumMissingError, ""
 	}
 	dir := a.sandboxDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {

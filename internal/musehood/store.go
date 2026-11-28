@@ -202,6 +202,10 @@ type settings struct {
 	// "inbox" (hanya pesan di ruang utama), "webhook", atau "telegram".
 	// Kosong berarti "inbox".
 	DailySummaryChannel string `json:"dailySummaryChannel,omitempty"`
+	// MCPServers adalah konfigurasi server MCP stdio (maks 5) yang
+	// tool-nya diekspos ke kursi sebagai mcp_<server>_<tool>. Nilai
+	// env tidak pernah keluar lewat state/cadangan.
+	MCPServers []mcpServerConfig `json:"mcpServers,omitempty"`
 }
 
 func (s settings) responseCacheOn() bool {
@@ -456,6 +460,10 @@ type room struct {
 	// Participants adalah nama tamu terdaftar di ruang ini (fitur 21,
 	// ruang bersama multi-pengguna), maks 10 nama unik.
 	Participants []string `json:"participants,omitempty"`
+	// SubagentOf adalah ID ruang induk bila ruang ini adalah ruang
+	// subagent (sesi anak dari tool spawn_subagent). Kosong = ruang
+	// biasa. Ruang subagent tidak boleh men-spawn subagent lagi.
+	SubagentOf string `json:"subagentOf,omitempty"`
 }
 
 // activeBranch mengembalikan branch aktif ruang ("main" bila kosong).
@@ -1440,6 +1448,21 @@ func (a *App) stateLocked() any {
 	d.Settings.PINHash = ""
 	d.Settings.APIToken = ""
 	d.Settings.TelegramBotToken = ""
+	// Nilai env server MCP tidak pernah keluar lewat state (hanya nama
+	// kuncinya); salin irisan + peta agar data asli tidak ikut berubah.
+	if len(d.Settings.MCPServers) > 0 {
+		servers := slices.Clone(d.Settings.MCPServers)
+		for i := range servers {
+			if len(servers[i].Env) > 0 {
+				env := make(map[string]string, len(servers[i].Env))
+				for key := range servers[i].Env {
+					env[key] = ""
+				}
+				servers[i].Env = env
+			}
+		}
+		d.Settings.MCPServers = servers
+	}
 	d.WorkerToken = ""
 	d.ToolLog = nil
 	// Chunk dokumen terlampir (fitur 26) tidak ikut state agar polling
@@ -1471,6 +1494,7 @@ func (a *App) stateLocked() any {
 			Total   int `json:"total"`
 		} `json:"presence"`
 		PendingApprovals []approval     `json:"pendingApprovals"`
+		PendingQuestions []question     `json:"pendingQuestions"`
 		Reactions        map[string]any `json:"reactions"`
 		Ratings          map[string]any `json:"ratings"`
 	}{d, views, a.roomViewsLocked(), struct {
@@ -1481,7 +1505,7 @@ func (a *App) stateLocked() any {
 	}{d.Settings, len(key) > 0, hasPin, hasTelegramToken}, struct {
 		Present int `json:"present"`
 		Total   int `json:"total"`
-	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.reactionsStatsLocked(), a.ratingsStatsLocked()}
+	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.pendingQuestions(), a.reactionsStatsLocked(), a.ratingsStatsLocked()}
 }
 
 type nameUpdate struct {

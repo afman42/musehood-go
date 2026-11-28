@@ -378,6 +378,8 @@ func (a *App) completeJobLocked(j *job) {
 	if j.Kind == "vote" {
 		a.tallyVotesLocked(j)
 	}
+	// Sesi subagent: posting ringkasan hasil ke ruang induk.
+	a.postSubagentSummaryLocked(j)
 	a.saveJobLocked()
 }
 
@@ -766,6 +768,9 @@ func (a *App) advanceLocked(j *job) {
 }
 func (a *App) runLocked(j *job, s *step, member seat, m *message, worker bool, run func(context.Context) (workerReply, error)) {
 	ctx, cancel := context.WithCancel(a.ctx)
+	// Konteks tool: pekerjaan + ruang yang sedang berjalan, dipakai
+	// tool yang butuh konteks ruang (spawn_subagent).
+	ctx = context.WithValue(ctx, toolRunInfoKey{}, toolRunInfo{JobID: j.ID, RoomID: j.RoomID})
 	a.running[j] = cancel
 	a.wg.Go(func() {
 		defer cancel()

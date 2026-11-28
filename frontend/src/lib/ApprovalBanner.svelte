@@ -12,6 +12,7 @@
     if (approval.kind === 'delete') return `⚠ ${who} ingin menghapus file:`;
     if (approval.kind === 'http') return `⚠ ${who} ingin mengirim POST HTTP:`;
     if (approval.kind === 'git') return `⚠ ${who} ingin menjalankan operasi git:`;
+    if (approval.kind === 'mcp') return `⚠ ${who} ingin memanggil tool MCP eksternal:`;
     return `⚠ ${who} ingin menjalankan kode ${approval.language ?? ''} yang terdeteksi berbahaya:`;
   }
 </script>

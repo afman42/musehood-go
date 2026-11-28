@@ -46,7 +46,7 @@ export type Message = {
 };
 export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
 export type RoomBranch = { id: string; messageCount: number };
-export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; seatOrder?: string[]; messageCount?: number; pinned?: boolean; archived?: boolean; active?: boolean; activeBranch?: string; branches?: RoomBranch[]; icon?: string; color?: string; disabledTools?: string[]; participants?: string[] };
+export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; seatOrder?: string[]; messageCount?: number; pinned?: boolean; archived?: boolean; active?: boolean; activeBranch?: string; branches?: RoomBranch[]; icon?: string; color?: string; disabledTools?: string[]; participants?: string[]; subagentOf?: string };
 export type ProviderHealth = { ok: boolean; latencyMs: number; checkedAt: string; error?: string; circuit?: string };
 export type ToolLogEntry = { time: string; seatCode: string; seatName: string; tool: string; arg?: string; ok: boolean; durationMs: number };
 export type Persona = { id: string; name: string; role: string; prompt: string; disabledTools?: string[]; skills?: string[] };
@@ -67,13 +67,16 @@ export const emptySearchFilters = (): SearchFilters => ({ seat: '', room: '', fr
 export type GatewayProvider = { id: string; name: string; alias?: string; baseUrl: string; protocol: GatewayProtocol; hasApiKey: boolean; active: boolean; priceInputPer1M?: number; priceOutputPer1M?: number; health?: ProviderHealth };
 export type ProviderModelTest = { model: string; ok: boolean; latencyMs?: number; reply?: string; error?: string };
 export type Connection = { models: string[]; testedAt: string };
-export type Approval = { id: string; seatCode: string; seatName: string; kind: 'code' | 'shell' | 'delete' | 'http' | 'git'; language?: string; detail: string; createdAt: string };
+export type Approval = { id: string; seatCode: string; seatName: string; kind: 'code' | 'shell' | 'delete' | 'http' | 'git' | 'mcp'; language?: string; detail: string; createdAt: string };
+export type Question = { id: string; seatCode: string; seatName: string; text: string; options?: string[]; createdAt: string };
+export type McpServerView = { name: string; command: string; args: string[]; envKeys: string[] };
 export type State = {
   group: Identity; owner: Identity; seats: Seat[]; settings: Settings; providers: GatewayProvider[]; messages: Message[];
   presence: { present: number; total: number }; connection: Connection | null;
   rooms: Room[]; activeRoomId: string; presets?: SeatPreset[]; stats?: Record<string, UsageStat>;
   templates?: DiscussionTemplate[]; scheduled?: ScheduledMessage[];
   pendingApprovals?: Approval[];
+  pendingQuestions?: Question[];
   reactions?: ReactionStats;
   ratings?: RatingStats;
   chains?: PromptChain[];

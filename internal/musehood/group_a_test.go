@@ -38,7 +38,7 @@ func TestDisabledToolsPerSeat(t *testing.T) {
 		{"code": "M01", "disabledTools": []string{"web_search", "run_code"}},
 	}}, 200)
 	s := f.app.data.Seats[2] // M01
-	instructions := f.app.buildToolInstructions(true, s)
+	instructions := f.app.buildToolInstructions(true, s, nil)
 	if strings.Contains(instructions, "- web_search:") || strings.Contains(instructions, "- run_code:") {
 		t.Fatal("instruksi tool harus menyembunyikan tool yang dinonaktifkan")
 	}

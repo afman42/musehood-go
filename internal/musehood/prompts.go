@@ -155,7 +155,7 @@ func (a *App) gatewayMessages(s seat, d data, j *job) []gatewayMessage {
 		}
 	}
 	if d.Settings.toolsOn() {
-		system += a.buildToolInstructions(d.Settings.codeToolOn(), s)
+		system += a.buildToolInstructions(d.Settings.codeToolOn(), s, d.Settings.MCPServers)
 	}
 	history := []gatewayMessage{{"system", system}}
 	for _, m := range contextFor(d, j).Messages {
