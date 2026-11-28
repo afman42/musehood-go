@@ -2,6 +2,8 @@
 
 Grup chat lokal berbahasa Indonesia untuk Arman dan tujuh kursi AI. Backend Go (standard library + satu dependensi: driver SQLite pure-Go `modernc.org/sqlite` untuk backend penyimpanan opsional). Frontend SvelteKit 3, Svelte 5, dan TypeScript dibangun sebagai SPA dan disertakan di binary Go. Rilis terakhir: **v1.10.0** (28 Nov 2026, 40 binary lintas platform di [GitHub Releases](https://github.com/afman42/musehood-go/releases/tag/v1.10.0)).
 
+Panduan penggunaan (cara memakai kursi, tool, panel kerja ruang, persetujuan pemilik, katalog 111 tool, contoh alur kerja): [USAGE.md](USAGE.md).
+
 ## Mulai
 
 Gunakan Go **1.27.4** dan Node.js **24** untuk build pada VM ini.
