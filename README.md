@@ -1,6 +1,6 @@
 # Musehood Go
 
-Grup chat lokal berbahasa Indonesia untuk Arman dan tujuh kursi AI. Backend Go (standard library + satu dependensi: driver SQLite pure-Go `modernc.org/sqlite` untuk backend penyimpanan opsional). Frontend SvelteKit 3, Svelte 5, dan TypeScript dibangun sebagai SPA dan disertakan di binary Go. Rilis terakhir: **v1.8.0** (binary lintas platform di GitHub Releases).
+Grup chat lokal berbahasa Indonesia untuk Arman dan tujuh kursi AI. Backend Go (standard library + satu dependensi: driver SQLite pure-Go `modernc.org/sqlite` untuk backend penyimpanan opsional). Frontend SvelteKit 3, Svelte 5, dan TypeScript dibangun sebagai SPA dan disertakan di binary Go. Rilis terakhir: **v1.9.0** (binary lintas platform di GitHub Releases).
 
 ## Mulai
 
@@ -263,7 +263,7 @@ Tipe yang tersedia: `http_get` (GET ke URL template; `{{param}}` diganti dari ba
 
 Selain fitur inti di atas, aplikasi punya lapisan pendalaman (semua dapat diatur dari Pengaturan):
 
-- **Keamanan**: PIN aplikasi (hash + sesi cookie HMAC 7 hari; endpoint pekerja Muse memakai token pekerja terpisah), audit login (maks 200, FIFO) + rate limit PIN (5 gagal/IP/5 menit → 429 selama 5 menit), log audit tool (maks 500, FIFO — argumen `env_file set` di-redact).
+- **Keamanan**: PIN aplikasi (hash + sesi cookie HMAC 7 hari; endpoint pekerja Muse memakai token pekerja terpisah; `/api/pin` menerbitkan cookie sesi seperti login sehingga sesi tidak langsung terkunci sesudah PIN dipasang), audit login (maks 200, FIFO) + rate limit PIN (5 gagal/IP/5 menit → 429 selama 5 menit), log audit tool (maks 500, FIFO — argumen `env_file set` di-redact).
 - **Kursi**: persona preset (6 bawaan: reviewer ketat, penulis santai, analis data, programmer, penerjemah, tutor sabar), kloning kursi, memori otomatis dari ringkasan ruang, budget harian per kursi (kursi dilewati + catatan sekali per job bila habis), model per jenis tugas (chat/tools/summary), urutan bicara per ruang.
 - **Gateway**: circuit breaker per provider (5 gagal berurutan → buka 60 detik → half-open), retry otomatis 429/5xx (maks 2×, backoff 1 dtk/3 dtk, `Retry-After` dihormati maks 10 dtk), cache respons (TTL 10 menit, non-streaming tanpa tool), health check provider berkala (5 menit) + uji latency berperingkat, load balancing antar provider bermodel sama, tool-calling native OpenAI (fallback protokol teks).
 - **Percakapan**: edit pesan + regenerasi dari pesan pemilik, branching dalam ruang (cabang aktif dipilih via chip), mode paralel (kursi menjawab bersamaan, integrator terakhir), tag pesan (maks 5) + filter pencarian, jadwal berulang mini-cron (5 field), balasan berantai antar kursi, mode debat (pro/kontra/rebuttal/kesimpulan), fork pesan ke ruang baru, ekspor satu diskusi, statistik reaksi emoji.
@@ -275,9 +275,26 @@ Selain fitur inti di atas, aplikasi punya lapisan pendalaman (semua dapat diatur
 - **Penyimpanan**: backend SQLite opsional (kv-blob `data.db`, migrasi otomatis dari `data.json` yang dipertahankan sebagai cadangan) via env `MUSEHOOD_STORAGE=sqlite|json`; tanpa env, SQLite hanya dipakai bila `data.db` sudah ada — produksi bawaan tetap JSON.
 - **UI**: shortcut keyboard (Ctrl/Cmd+K cari, Ctrl/Cmd+Enter kirim, Alt+1–9 ruang, `?` bantuan), mode kompak.
 
+### Pendalaman fitur gelombang 3 (v1.9.0)
+
+- **Ruang multi-pengguna**: tiap ruang punya daftar peserta (`room.Participants`); pesan mencatat pengirimnya (`message.Author`) dan composer menyediakan pemilih pengirim. API: `POST /api/rooms/{id}/participants` (+ `/remove`).
+- **Preset peran kursi**: 6 preset peran siap pakai (`seat.RolePreset`, `GET /api/roles`) yang mengisi peran + prompt kursi sekali klik.
+- **Uji A/B model**: satu prompt dijalankan ke dua model/kursi berdampingan (`POST /api/abtest`), pemilik memilih pemenang (`/pick`); hasil tercatat di statistik.
+- **Rantai prompt**: pipeline langkah bernama yang dapat dipakai ulang (CRUD `/api/chains` + `/run`, maks 20 rantai, 6 langkah per rantai); tiap langkah adalah pesan pemilik/kursi berurutan.
+- **Koreksi otomatis balasan**: bila diaktifkan (`settings.AutoReview` + `settings.ReviewerSeat`), balasan kursi ditinjau kursi peninjau sebelum tampil; teks asli tersimpan (`message.OriginalText`).
+- **Lampiran dokumen (RAG)**: unggah dokumen per ruang (multipart, maks 5 MB; PDF diekstrak via `pdftotext` bila tersedia), dipecah menjadi chunk 1200/200 karakter, dan 3 chunk paling relevan disisipkan ke prompt kursi. API: `POST/GET/DELETE /api/rooms/{id}/documents`.
+- **Ringkasan harian terjadwal**: ringkasan ruang dikirim tiap hari pada jam yang diatur (`DailySummaryEnabled/Time/Channel`, zona WIB) ke inbox aplikasi, webhook, atau Telegram.
+- **Offline PWA penuh**: service worker `musehood-v2` menyimpan snapshot `/api/state`; pesan yang ditulis saat offline masuk antrean lokal dan terkirim otomatis saat koneksi kembali.
+- **Ekspor Markdown**: `GET /api/export?format=markdown` menghasilkan Markdown ber-frontmatter YAML yang siap dibuka di Notion/Obsidian.
+- **Rating balasan**: pemilik memberi 👍/👎 pada balasan kursi (`POST /api/message/{id}/rate`); statistik per kursi/model tampil di Pengaturan.
+- **Deteksi Ollama lokal**: aplikasi mendeteksi server Ollama di localhost/LAN (`GET /api/ollama/detect`) dan dapat menambahkannya sebagai provider sekali klik (`POST /api/ollama/add`).
+- **Perintah /slash**: `/ringkas`, `/terjemah`, `/kode`, `/gambar`, `/bantu` di composer (terakhir dijawab lokal tanpa gateway).
+
+Responsivitas tombol juga diperbaiki di v1.9.0: ganti tema kini optimistis (tampilan berubah seketika, penyimpanan menyusul — terukur 5–23 ms, sebelumnya 1,2–1,9 detik), dialog yang dimuat malas (Pengaturan + 7 dialog) menampilkan spinner "Memuat…" bila butuh >150 ms dan chunk-nya di-prefetch saat aplikasi idle, aksi rating/pin/reaksi/hapus bersifat optimistis, dan ganti ruang menampilkan indikator "Memuat ruang…" bila lambat. Code splitting membuat muatan awal turun menjadi **229 KB** (JS+CSS yang benar-benar diunduh); panel Pengaturan (82 KB) baru diunduh saat pertama dibuka.
+
 ## PWA, tema, dan bahasa
 
-- **PWA**: aplikasi dapat di-install (manifest + ikon 192/512 + service worker). Service worker meng-cache shell aplikasi dan memakai network-first untuk `/api/` sehingga data selalu segar.
+- **PWA**: aplikasi dapat di-install (manifest + ikon 192/512 + service worker `musehood-v2`). Service worker meng-cache shell aplikasi, menyimpan snapshot `/api/state` untuk mode offline, dan memakai network-first untuk `/api/` sehingga data selalu segar; pesan yang ditulis saat offline masuk antrean lokal dan terkirim saat koneksi kembali.
 - **Tema**: Terang / Gelap / **Otomatis** (mengikuti sistem) dan ukuran font Kecil/Sedang/Besar — diatur di Pengaturan → Diskusi, tersimpan sebagai `settings.theme`/`settings.fontSize`.
 - **Bahasa antarmuka**: Indonesia / English untuk chrome utama (composer, baris ruang, pencarian, dialog jadwal, label pengaturan); balasan kursi tidak diterjemahkan. Pilihan tersimpan di browser.
 - **Aksesibilitas**: menghormati `prefers-reduced-motion` dan mengumumkan balasan kursi baru lewat region `aria-live` untuk pembaca layar.
@@ -357,6 +374,13 @@ Backend memeriksa file setiap 750 ms. Selama menunggu, chat menampilkan indikato
 | POST | `/api/seats/{code}/persona` / `/clone` | Terapkan persona; kloning kursi |
 | POST | `/api/rooms/{id}/archive` | Arsipkan/pulihkan ruang |
 | POST | `/api/message/{id}/rerun` / `/fork` / `/branch` / `/tags` | Ulangi dari pesan pemilik; fork ke ruang baru; cabang; tag pesan |
+| POST | `/api/message/{id}/rate` | Beri rating 👍/👎 pada balasan kursi |
+| POST/DELETE | `/api/rooms/{id}/participants` (+ `/remove`) | Kelola peserta ruang multi-pengguna |
+| POST/GET/DELETE | `/api/rooms/{id}/documents` | Unggah/daftar/hapus dokumen RAG per ruang (multipart, maks 5 MB) |
+| GET | `/api/roles` | Daftar preset peran kursi |
+| POST | `/api/abtest` (+ `/pick`) | Uji A/B dua model/kursi; pilih pemenang |
+| GET/POST/DELETE | `/api/chains` (+ `/run`) | Rantai prompt: daftar/buat/hapus; jalankan rantai |
+| GET/POST | `/api/ollama/detect` / `/api/ollama/add` | Deteksi server Ollama lokal/LAN; tambahkan sebagai provider |
 | POST | `/api/debate` | Debat dua kursi (pro/kontra/rebuttal/kesimpulan) |
 | GET | `/api/export?message=…` | Ekspor satu diskusi (HTML/JSON) |
 | GET | `/api/tool-log` | Log audit pemakaian tool |
@@ -378,6 +402,8 @@ Browser mengambil hasil job dari `/api/state`. Semua error API memakai `{error}`
 Terukur di VM pengembangan (RAM tersedia ~400 MB, GOMAXPROCS=2):
 
 - `/api/state` lokal: median **2 ms** per request; proses server memakai **~10 MB** RAM; binary ~21 MB (termasuk driver SQLite pure-Go).
+- Muatan awal frontend (JS+CSS yang benar-benar diunduh): **229 KB** sesudah code splitting (panel Pengaturan 82 KB + 7 dialog dimuat malas saat pertama dibuka, lalu di-prefetch saat idle).
+- Ganti tema: **5–23 ms** (optimistis, tanpa render ulang daftar pesan); render awal 1000 pesan ±2,9 detik; rating optimistis 12–86 ms klik→aktif.
 - `run_code` Python: **~50 ms** per eksekusi (termasuk startup sandbox + interpreter); JavaScript **~93 ms**.
 - Deteksi pola berbahaya: 47 µs; tulis+baca file sandbox: 22 µs.
 
@@ -407,6 +433,6 @@ node tests/frontend-perf.mjs
 
 `tests/live-e2e.mjs` menjalankan binary asli terhadap gateway mock dan menguji 49 skenario end-to-end. Uji Chromium menggunakan instalasi Playwright lokal. Isi `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` bila menggunakan executable Chromium dari lokasi lain. Lihat hasil dan cakupan pengujian di [TESTS.md](TESTS.md).
 
-Suite backend (`internal/musehood/*_test.go` + `main_test.go`, 276 fungsi tes, cakupan 80,5%) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model + rantai fallback, persetujuan via API, tool kustom, voting, isolasi ruang, streaming SSE + fallback, regenerate, pesan terjadwal + jadwal berulang, template diskusi, ringkasan + kompaksi konteks, pencarian berfilter, sematan ruang + tema), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom, terjemahan, kurs, QR, RSS, transkrip YouTube, `http_post` berpersetujuan — resolver DNS di-stub ke IP publik dan URL API diganti server lokal dalam tes, penjaga SSRF produksi tidak dilemahkan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
+Suite backend (`internal/musehood/*_test.go` + `main_test.go`, 308 fungsi tes + 12 benchmark) mencakup: unit (parsing, tool, gambar, ruang), API/endpoint + kontrak respons (status, bentuk JSON, redaksi kredensial, validasi), database/penyimpanan (roundtrip `data.json`, data rusak, migrasi, konkurensi, restore termasuk penolakan file >32MB), keamanan (matriks SSRF, traversal sandbox, zip-slip, pola kode berbahaya, gerbang persetujuan), integrasi/E2E layanan (injeksi skill, fallback model + rantai fallback, persetujuan via API, tool kustom, voting, isolasi ruang, streaming SSE + fallback, regenerate, pesan terjadwal + jadwal berulang, template diskusi, ringkasan + kompaksi konteks, pencarian berfilter, sematan ruang + tema), jalur sukses tool jaringan (`fetch_url`, `web_search`, `http_get` kustom, terjemahan, kurs, QR, RSS, transkrip YouTube, `http_post` berpersetujuan — resolver DNS di-stub ke IP publik dan URL API diganti server lokal dalam tes, penjaga SSRF produksi tidak dilemahkan), pengetesan berat (konkurensi 100 POST bersamaan, fuzz 31 endpoint × 23 payload, 5000 pesan, semua 65 tool bawaan dengan argumen valid + invalid, SQLite 1000 pesan), dan performa/beban/stres (300 request konkuren, 24 pesan konkuren, state 3.000 pesan, throughput `run_code` — dilewati pada `go test -short`).
 
-Suite frontend mencakup: unit (71 tes: `frontend/tests/unit/`, helper format/API, parser Markdown, lazy-load syntax highlighting + composable `chat.svelte.ts` yang dikompilasi dan dijalankan di Node dengan fetch/document stub, via `node --test`), komponen (38 tes: `frontend/tests/component/`, render SSR komponen Svelte), E2E UI (`tests/frontend-e2e.mjs` 21 + `frontend-e2e-depth.mjs` 23 + `frontend-e2e-depth-settings.mjs` 10: chat, mention + modal info kursi, render Markdown + syntax highlighting, pengaturan, pin, ruang, pencarian, voting, persetujuan tool, alur PIN, debat, fork, rerun, reaksi, arsip, ekspor, urutan kursi, shortcut; `tests/frontend-e2e-settings.mjs` 20: CRUD provider + fetch/test models, toggle, kursi custom, kelola ruang, preset, statistik, backup/restore, ekspor; `tests/frontend-e2e-actions.mjs` 10: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file), aksesibilitas (`tests/frontend-a11y.mjs` 20 + `frontend-a11y-depth.mjs` 18: audit axe-core mode terang + gelap, nama aksesibel, alt, keyboard/fokus, kontras WCAG, target sentuh), visual regression (`tests/frontend-visual.mjs`: screenshot 12 skenario vs baseline piksel di `tests/visual-baselines/`), dan cross-browser/performance (`tests/frontend-perf.mjs` 33: viewport 320–1920px, emulasi sentuh iPhone, anggaran timing/bundle/polling — Chromium saja karena unduhan browser lain diblokir di VM pengembangan).
+Suite frontend mencakup: unit (76 tes: `frontend/tests/unit/`, helper format/API, parser Markdown, lazy-load syntax highlighting + composable `chat.svelte.ts` yang dikompilasi dan dijalankan di Node dengan fetch/document stub, via `node --test`), komponen (38 tes: `frontend/tests/component/`, render SSR komponen Svelte), E2E UI (`tests/frontend-e2e.mjs` 21 + `frontend-e2e-depth.mjs` 23 + `frontend-e2e-depth-settings.mjs` 10: chat, mention + modal info kursi, render Markdown + syntax highlighting, pengaturan, pin, ruang, pencarian, voting, persetujuan tool, alur PIN, debat, fork, rerun, reaksi, arsip, ekspor, urutan kursi, shortcut; `tests/frontend-e2e-settings.mjs` 20: CRUD provider + fetch/test models, toggle, kursi custom, kelola ruang, preset, statistik, backup/restore, ekspor; `tests/frontend-e2e-actions.mjs` 10: edit/hapus pesan, reaksi, balas/kutip, unggah gambar & file), aksesibilitas (`tests/frontend-a11y.mjs` 20 + `frontend-a11y-depth.mjs` 18: audit axe-core mode terang + gelap, nama aksesibel, alt, keyboard/fokus, kontras WCAG, target sentuh), visual regression (`tests/frontend-visual.mjs`: screenshot 12 skenario vs baseline piksel di `tests/visual-baselines/`), cross-browser/performance (`tests/frontend-perf.mjs` 33: viewport 320–1920px, emulasi sentuh iPhone, anggaran timing/bundle/polling — Chromium saja karena unduhan browser lain diblokir di VM pengembangan), pengetesan berat UI (`frontend-e2e-heavy.mjs` 26 + `frontend-heavy-stress.mjs` 16 + `frontend-a11y-heavy.mjs` 16 + `frontend-visual-heavy.mjs` 8 baseline), dan performa tombol (`tests/frontend-buttons-perf.mjs` 10: tema <300 ms tanpa longtask, rating optimistis, spinner dialog malas, prefetch tanpa fetch tool-log, spinner ganti ruang).

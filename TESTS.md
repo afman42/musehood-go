@@ -2,6 +2,16 @@
 
 Terakhir dijalankan 27 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
 
+## Pendalaman fitur gelombang 3 + code splitting + perbaikan tombol (27 Nov 2026, v1.9.0)
+
+12 fitur gelombang 3 (ruang multi-pengguna, preset peran kursi, uji A/B model, rantai prompt, koreksi otomatis, dokumen RAG, ringkasan harian, offline PWA penuh, ekspor Markdown Notion/Obsidian, rating balasan, deteksi Ollama, perintah /slash) ditambah **10 fungsi tes baru** di `depth3_test.go` → total **286 fungsi tes** saat itu; unit frontend naik ke **76**, component **38**, `svelte-check` 0 error. Terverifikasi live: rantai prompt dijalankan ujung-ke-ujung lewat gateway asli, peserta ruang/rating/ekspor/deteksi Ollama dicek lewat API.
+
+**Code splitting**: panel Pengaturan (82 KB) + 7 dialog (Mention, Info Kursi, Jadwal, Debat, A/B, Shortcut, Ruang) dimuat malas via dynamic import. Muatan awal (JS+CSS yang benar-benar diunduh) turun dari ±328 KB menjadi **229 KB**; `frontend-perf.mjs` kini menerapkan ambang <350 KB pada muatan awal dan **lulus** (margin 121 KB). Efek samping baik: baseline visual `login-pin` diperbarui — toast error "PIN diperlukan" di layar login hilang (penyebabnya: panel Log Tool yang selalu ter-mount memanggil `/api/tool-log` saat muat halaman → 401).
+
+**Perbaikan tombol lambat** (keluhan pemilik: tombol tema + Pengaturan lama): terukur sebelumnya tema 1.224 ms lokal / 1.902 ms lewat tunnel (menunggu server + render ulang semua bubble), Pengaturan 1.695 ms klik pertama (chunk 82 KB tanpa indikator). Sesudah perbaikan: tema optimistis **5–23 ms** tanpa longtask, Pengaturan dingin 705 ms / hangat 262 ms dengan spinner bila >150 ms + prefetch chunk saat idle, rating optimistis 12–86 ms, render awal 1000 pesan 4.201 → ±2.900 ms. Audit 45 tombol (ruang 300 pesan, Playwright) — semua aman; yang memang butuh waktu (debat, voting, A/B) bersifat job-based dan sudah berindikator. Tes baru `tests/frontend-buttons-perf.mjs` **10/10** (tema <300 ms tanpa longtask, rating optimistis, spinner saat chunk ditunda, prefetch tanpa fetch `/api/tool-log`, spinner ganti ruang). Bug produk ditemukan + diperbaiki: `/api/pin` kini menerbitkan cookie sesi (sebelumnya sesi langsung 401 sesudah PIN pertama dipasang, tombol Keluar tidak pernah muncul) — ada tes regresinya.
+
+Total akhir v1.9.0: **308 fungsi tes Go** (termasuk pengetesan berat di bawah) + 12 benchmark, unit **76**, component **38**, semua suite hijau.
+
 ## Tool coding proyek + Docker (27 Nov 2026)
 
 29 tool coding baru (`tools_code*.go`, total 65 tool bawaan) diuji oleh 7 fungsi tes di `tools_code_test.go`:
@@ -225,4 +235,4 @@ Perubahan produksi (testability, perilaku sama): `approvalTimeout` const → var
 
 - Firefox/WebKit: unduhan browser diblokir runtime (403) — cross-browser hanya Chromium multi-viewport + emulasi iPhone 13.
 - Timeout approval 180 detik asli diuji lewat var yang diperpendek (jalur kode sama).
-- `frontend-perf.mjs`: ukuran bundle JS+CSS 349,79 KB membulat 350 → gagal ambang `< 350 KB` (sudah di ambang sejak fitur depth3, bukan dari perubahan ini).
+- `frontend-perf.mjs`: ukuran bundle JS+CSS 349,79 KB membulat 350 → gagal ambang `< 350 KB` (sudah di ambang sejak fitur depth3, bukan dari perubahan ini). **Teratasi di v1.9.0**: code splitting menurunkan muatan awal menjadi 229 KB dan ambang kini diterapkan pada muatan awal — tes lulus (lihat bagian gelombang 3 di atas).
