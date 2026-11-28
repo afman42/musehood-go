@@ -2,7 +2,7 @@
 
 Terakhir dijalankan 28 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
 
-## 13 item gaya omp + skenario agen (28 Nov 2026)
+## 13 item gaya omp + skenario agen (28 Nov 2026, v1.10.0)
 
 36 tool bawaan baru (total **111**) dari pesanan "implementasi semuanya" gaya omp, dengan **14 fungsi tes Go baru** di `internal/musehood/tools_omp_test.go` + **8 skenario agen** di `internal/musehood/agent_scenarios_test.go` + **36 kasus baru** di `heavy_tools_test.go` (semua 111 tool bawaan diuji argumen valid + invalid):
 
@@ -23,7 +23,9 @@ Bug ditemukan + diperbaiki saat pengetesan: (1) kernel eval mati di produksi kar
 
 Total sesudah batch ini: **338 fungsi tes Go** (`go test -list`) + 12 benchmark, unit **76**, component **43**, `svelte-check` 0 error, `go vet` bersih, suite Go penuh hijau.
 
-## 6 tool gaya OpenCode (28 Nov 2026)
+Dirilis sebagai **v1.10.0** (28 Nov 2026, tag `cf87afb9` di remote main `0128947b`, **40/40 asset** binary lintas platform ter-upload dan terverifikasi via API; build release OK=40, FAIL=5 cgo android/ios, SKIP=2 wasm — sama seperti rilis sebelumnya). Rilis: https://github.com/afman42/musehood-go/releases/tag/v1.10.0
+
+## 6 tool gaya OpenCode (28 Nov 2026, v1.10.0)
 
 Sepuluh tool bawaan baru (total 75) dari pesanan "implementasi semuanya" gaya OpenCode, dengan **9 fungsi tes Go baru** di `internal/musehood/tools_opencode_test.go` + **10 kasus baru** di `heavy_tools_test.go` (semua 75 tool bawaan kini diuji argumen valid + invalid) + **5 tes component baru** (`tests/component/opencode-components.test.mjs`):
 
