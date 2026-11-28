@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -204,7 +204,7 @@ func (a *App) toolEnvFile(arg string) string {
 		if len(keys) == 0 {
 			return fmt.Sprintf("File .env proyek %q kosong atau belum ada.", project)
 		}
-		sort.Strings(keys)
+		slices.Sort(keys)
 		return fmt.Sprintf("Kunci .env proyek %q: %s", project, strings.Join(keys, ", "))
 	case strings.HasPrefix(trimmed, "get "):
 		key := strings.TrimSpace(strings.TrimPrefix(trimmed, "get "))

@@ -18,7 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -470,7 +470,7 @@ func (a *App) toolCSVJSON(arg string) string {
 		for key := range keySet {
 			headers = append(headers, key)
 		}
-		sort.Strings(headers)
+		slices.Sort(headers)
 		var buf bytes.Buffer
 		writer := csv.NewWriter(&buf)
 		_ = writer.Write(headers)

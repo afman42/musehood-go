@@ -1,11 +1,12 @@
 package musehood
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -228,8 +229,8 @@ func (a *App) toolDependencyGraph(arg string) string {
 		if len(internal)+len(external) == 0 {
 			return true
 		}
-		sort.Strings(internal)
-		sort.Strings(external)
+		slices.Sort(internal)
+		slices.Sort(external)
 		line := rel + " →"
 		if len(internal) > 0 {
 			line += " internal: " + strings.Join(internal, ", ")
@@ -243,7 +244,7 @@ func (a *App) toolDependencyGraph(arg string) string {
 	if len(out) == 0 {
 		return fmt.Sprintf("Tidak ada dependensi terdeteksi di proyek %q.", project)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return truncateToolResult(fmt.Sprintf("Peta dependensi proyek %q:\n%s", project, strings.Join(out, "\n")))
 }
 
@@ -333,7 +334,7 @@ func (a *App) toolComplexityReport(arg string) string {
 	if len(stats) == 0 {
 		return fmt.Sprintf("Proyek %q kosong.", project)
 	}
-	sort.Slice(stats, func(i, j int) bool { return stats[i].total > stats[j].total })
+	slices.SortFunc(stats, func(a, b fileStat) int { return cmp.Compare(b.total, a.total) })
 	var out []string
 	out = append(out, "10 file terbesar (total/kode/kosong/komentar):")
 	for i, st := range stats {
@@ -342,7 +343,7 @@ func (a *App) toolComplexityReport(arg string) string {
 		}
 		out = append(out, fmt.Sprintf("%s: %d/%d/%d/%d", st.rel, st.total, st.code, st.blank, st.comment))
 	}
-	sort.Slice(spans, func(i, j int) bool { return spans[i].length > spans[j].length })
+	slices.SortFunc(spans, func(a, b funcSpan) int { return cmp.Compare(b.length, a.length) })
 	if len(spans) > 0 {
 		out = append(out, "Fungsi terpanjang:")
 		for i, sp := range spans {

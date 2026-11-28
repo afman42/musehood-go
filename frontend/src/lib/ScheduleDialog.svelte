@@ -120,7 +120,7 @@
     <h3 class="schedule-list-title">Jadwal aktif ({items.length})</h3>
     <ul class="schedule-list">
       {#each items as item (item.id)}
-        <li class="schedule-item" class:disabled={!item.enabled}>
+        <li class={['schedule-item', { disabled: !item.enabled }]}>
           <div>
             <strong>{item.text.slice(0, 80)}</strong>
             <small>{describe(item)}{item.nextAt && item.recur ? ` · berikutnya ${new Date(item.nextAt).toLocaleString('id-ID')}` : ''}</small>

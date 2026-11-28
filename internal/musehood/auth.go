@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -177,7 +178,11 @@ func (a *App) appendLoginLogLocked(ip string, success bool) {
 	if len(a.data.LoginLog) > loginLogMaxEvents {
 		a.data.LoginLog = a.data.LoginLog[len(a.data.LoginLog)-loginLogMaxEvents:]
 	}
-	_ = a.saveLocked()
+	// Audit log bersifat best-effort: kegagalan simpan tidak boleh
+	// menggagalkan login, tapi harus terlihat di log.
+	if err := a.saveLocked(); err != nil {
+		log.Print("Gagal menyimpan log masuk. Periksa penyimpanan lokal.")
+	}
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) (int, json.RawMessage, error) {

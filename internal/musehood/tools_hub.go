@@ -3,7 +3,7 @@ package musehood
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -71,7 +71,7 @@ func (a *App) hubProcessIDs() []string {
 	if cdpBrowserAlive() {
 		ids = append(ids, "browser (Chromium CDP)")
 	}
-	sort.Strings(ids)
+	slices.Sort(ids)
 	return ids
 }
 

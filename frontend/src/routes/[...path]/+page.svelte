@@ -217,6 +217,11 @@
   });
 
   onMount(() => {
+    // Skeleton statis dari app.html digantikan UI asli begitu aplikasi
+    // mount; sesudah ini tidak pernah muncul lagi (polling tidak
+    // menyentuhnya).
+    document.getElementById('app-skeleton')?.remove();
+    document.getElementById('app-skeleton-status')?.remove();
     chat.startPolling();
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => { /* PWA opsional */ });
@@ -623,7 +628,7 @@
     {#if activeRoom?.branches && activeRoom.branches.length > 1}
       <nav class="room-bar branch-bar" aria-label="Branch percakapan">
         {#each activeRoom.branches as branch, index (branch.id)}
-          <button class="room-chip" class:active={(activeRoom.activeBranch ?? 'main') === branch.id} type="button" title={`Branch ${index + 1} (${branch.messageCount} pesan)`} onclick={() => chat.switchBranch(activeRoom.id, branch.id).catch((e) => chat.notify(errorText(e), true))}>{branch.id === 'main' ? '⎇ Utama' : `⎇ Branch ${index + 1}`}</button>
+          <button class={['room-chip', { active: (activeRoom.activeBranch ?? 'main') === branch.id }]} type="button" title={`Branch ${index + 1} (${branch.messageCount} pesan)`} onclick={() => chat.switchBranch(activeRoom.id, branch.id).catch((e) => chat.notify(errorText(e), true))}>{branch.id === 'main' ? '⎇ Utama' : `⎇ Branch ${index + 1}`}</button>
         {/each}
       </nav>
     {/if}

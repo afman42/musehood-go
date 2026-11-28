@@ -31,7 +31,7 @@ func TestHeavySQLiteThousandMessages(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		d.Messages = append(d.Messages, &message{
 			ID: fmt.Sprintf("sqlite-%04d", i), CreatedAt: now(), AuthorType: "owner",
-			Text: fmt.Sprintf("Pesan sqlite nomor %d dengan isi yang cukup panjang.", i),
+			Text:   fmt.Sprintf("Pesan sqlite nomor %d dengan isi yang cukup panjang.", i),
 			Status: "completed", RoomID: roomID, BranchID: "main",
 		})
 	}

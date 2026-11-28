@@ -196,7 +196,7 @@ func TestUnitValidateToolParams(t *testing.T) {
 		{"abc", "harus berupa angka"},
 		{"", "wajib diisi"},
 		{"42\nbukan-bool", "harus berupa boolean"},
-		{"42\n1", ""},  // ParseBool menerima 1/0
+		{"42\n1", ""}, // ParseBool menerima 1/0
 		{"42\n0", ""},
 		{"42\nTRUE", ""},
 		{"42", ""}, // parameter opsional sesudahnya boleh tidak diisi

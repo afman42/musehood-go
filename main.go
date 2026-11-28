@@ -91,7 +91,7 @@ func run() error {
 	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.host, strconv.Itoa(cfg.port)))
 	if err != nil {
-		return fmt.Errorf("alamat %s tidak dapat dibuka", net.JoinHostPort(cfg.host, strconv.Itoa(cfg.port)))
+		return fmt.Errorf("alamat %s tidak dapat dibuka: %w", net.JoinHostPort(cfg.host, strconv.Itoa(cfg.port)), err)
 	}
 	defer listener.Close()
 
@@ -99,7 +99,7 @@ func run() error {
 		DataDir: cfg.dataDir, Frontend: frontend, TrustedHosts: cfg.trustedHosts, Version: version,
 	})
 	if err != nil {
-		return errors.New("periksa data.json, aset frontend, dan izin penyimpanan lokal")
+		return fmt.Errorf("periksa data.json, aset frontend, dan izin penyimpanan lokal: %w", err)
 	}
 	defer app.Close()
 
@@ -112,7 +112,7 @@ func run() error {
 	select {
 	case err := <-serveDone:
 		if !errors.Is(err, http.ErrServerClosed) {
-			return errors.New("listener berhenti")
+			return fmt.Errorf("listener berhenti: %w", err)
 		}
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

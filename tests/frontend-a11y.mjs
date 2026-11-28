@@ -14,6 +14,12 @@ const gateway = await startGateway();
 const browser = await launchBrowser();
 
 async function axeAudit(page, label) {
+  // Tunggu animasi masuk pesan (fade-in 0,28 dtk) selesai: axe yang
+  // berjalan di tengah animasi mengukur warna pada opacity < 1 dan
+  // melaporkan pelanggaran kontras semu.
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.message')].every(el => getComputedStyle(el).opacity === '1')
+  ).catch(() => { /* lanjut audit apa adanya bila tak kunjung stabil */ });
   await page.addScriptTag({ path: axePath });
   const results = await page.evaluate(async () => {
     const out = await window.axe.run(document, { resultTypes: ['violations'] });

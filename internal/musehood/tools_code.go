@@ -2,11 +2,12 @@ package musehood
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -194,7 +195,7 @@ func (a *App) toolCreateProject(arg string) string {
 		}
 		written = append(written, rel)
 	}
-	sort.Strings(written)
+	slices.Sort(written)
 	return fmt.Sprintf("Proyek %q dibuat dari template %s: %s. Pakai awalan \"project:%s\" pada tool proyek lain untuk bekerja di proyek ini.", name, template, strings.Join(written, ", "), name)
 }
 
@@ -215,7 +216,7 @@ func (a *App) toolListTree(arg string) string {
 		if err != nil {
 			return
 		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+		slices.SortFunc(entries, func(a, b os.DirEntry) int { return cmp.Compare(a.Name(), b.Name()) })
 		for _, entry := range entries {
 			if count >= 500 {
 				return
@@ -470,6 +471,6 @@ func (a *App) toolFindFiles(arg string) string {
 	if len(found) == 0 {
 		return fmt.Sprintf("Tidak ada file cocok dengan %q di proyek %q.", pattern, project)
 	}
-	sort.Strings(found)
+	slices.Sort(found)
 	return truncateToolResult(fmt.Sprintf("%d file cocok dengan %q di proyek %q:\n%s", len(found), pattern, project, strings.Join(found, "\n")))
 }

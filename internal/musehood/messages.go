@@ -696,7 +696,7 @@ func slugifyFilename(name string) string {
 // redaction path as GET /api/state.
 func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 	if err := method(w, r, http.MethodGet); err != nil {
-		a.writeJSON(w, 0, nil, err)
+		a.writeJSON(w, r, 0, nil, err)
 		return
 	}
 	format := r.URL.Query().Get("format")
@@ -704,7 +704,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		format = "json"
 	}
 	if format != "json" && format != "md" && format != "html" && format != "markdown" {
-		a.writeJSON(w, 0, nil, problem(400, "Format ekspor harus json, md, html, atau markdown."))
+		a.writeJSON(w, r, 0, nil, problem(400, "Format ekspor harus json, md, html, atau markdown."))
 		return
 	}
 	a.mu.Lock()
@@ -714,7 +714,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if rm == nil {
 		a.mu.Unlock()
-		a.writeJSON(w, 0, nil, problem(400, "Ruang tidak ditemukan."))
+		a.writeJSON(w, r, 0, nil, problem(400, "Ruang tidak ditemukan."))
 		return
 	}
 	roomName := rm.Name
@@ -738,7 +738,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		}
 		if targetIdx < 0 {
 			a.mu.Unlock()
-			a.writeJSON(w, 0, nil, problem(400, "Pesan untuk ekspor tidak ditemukan."))
+			a.writeJSON(w, r, 0, nil, problem(400, "Pesan untuk ekspor tidak ditemukan."))
 			return
 		}
 		target := roomMessages[targetIdx]
@@ -821,17 +821,17 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 	rawMessages, merr := json.Marshal(a.safeLocked(roomMessages))
 	a.mu.Unlock()
 	if err != nil || merr != nil {
-		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
+		a.writeJSON(w, r, 0, nil, problem(500, "Gagal menyusun ekspor."))
 		return
 	}
 	stateMap := map[string]any{}
 	if err := json.Unmarshal(rawState, &stateMap); err != nil {
-		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
+		a.writeJSON(w, r, 0, nil, problem(500, "Gagal menyusun ekspor."))
 		return
 	}
 	var roomMessagesAny []any
 	if err := json.Unmarshal(rawMessages, &roomMessagesAny); err != nil {
-		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
+		a.writeJSON(w, r, 0, nil, problem(500, "Gagal menyusun ekspor."))
 		return
 	}
 	stateMap["messages"] = roomMessagesAny
@@ -852,10 +852,10 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		}
 		raw, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
-			a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun ekspor."))
+			a.writeJSON(w, r, 0, nil, problem(500, "Gagal menyusun ekspor."))
 			return
 		}
-		w.Header().Set("Content-Disposition", "attachment; filename=\"" + filenamePrefix + ".json\"")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+filenamePrefix+".json\"")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Write(append(raw, '\n'))
 		return
@@ -887,7 +887,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 	messages, _ := stateMap["messages"].([]any)
 
 	if format == "html" {
-		w.Header().Set("Content-Disposition", "attachment; filename=\"" + filenamePrefix + ".html\"")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+filenamePrefix+".html\"")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"utf-8\"><title>Riwayat %s — %s</title><style>body{font-family:system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;line-height:1.5}h2{border-bottom:1px solid #ccc;padding-bottom:.3rem}.msg{margin:1rem 0}.meta{color:#666;font-size:.85em}.err{color:#b00;white-space:pre-wrap}pre{white-space:pre-wrap;font:inherit}@media print{body{margin:0}}</style></head><body>", html.EscapeString(groupName), html.EscapeString(roomName))
@@ -925,7 +925,7 @@ func (a *App) exportChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Disposition", "attachment; filename=\"" + filenamePrefix + ".md\"")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filenamePrefix+".md\"")
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "# Riwayat %s — Ruang %s\n\n", groupName, roomName)

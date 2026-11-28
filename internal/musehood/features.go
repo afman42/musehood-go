@@ -437,7 +437,7 @@ type searchFilters struct {
 	From            string // YYYY-MM-DD inklusif
 	To              string // YYYY-MM-DD inklusif
 	HasImage        bool
-	IncludeArchived bool // sertakan ruang arsip (fitur 18)
+	IncludeArchived bool   // sertakan ruang arsip (fitur 18)
 	Tag             string // filter tag pesan (fitur 17)
 }
 
@@ -532,7 +532,7 @@ func (a *App) searchLocked(q string, f searchFilters) any {
 // statistik) sebagai JSON. Kunci API tidak pernah ikut: semua key dikosongkan.
 func (a *App) backup(w http.ResponseWriter, r *http.Request) {
 	if err := method(w, r, http.MethodGet); err != nil {
-		a.writeJSON(w, 0, nil, err)
+		a.writeJSON(w, r, 0, nil, err)
 		return
 	}
 	a.mu.Lock()
@@ -564,12 +564,14 @@ func (a *App) backup(w http.ResponseWriter, r *http.Request) {
 	raw, err := json.MarshalIndent(a.safeLocked(d), "", "  ")
 	a.mu.Unlock()
 	if err != nil {
-		a.writeJSON(w, 0, nil, problem(500, "Gagal menyusun cadangan."))
+		a.writeJSON(w, r, 0, nil, problem(500, "Gagal menyusun cadangan."))
 		return
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="cadangan-musehood.json"`)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Write(append(raw, '\n'))
+	// Content-Encoding gzip transparan bagi browser: berkas yang
+	// disimpan tetap JSON utuh, hanya transfernya yang lebih kecil.
+	w.Write(gzipJSONBody(w, r, append(raw, '\n')))
 }
 
 // restore mengganti seluruh data dengan isi file cadangan. Kunci API yang
@@ -577,35 +579,35 @@ func (a *App) backup(w http.ResponseWriter, r *http.Request) {
 // file cadangan tidak memuat kunci.
 func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 	if err := method(w, r, http.MethodPost); err != nil {
-		a.writeJSON(w, 0, nil, err)
+		a.writeJSON(w, r, 0, nil, err)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32*1024*1024)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		a.writeJSON(w, 0, nil, problem(400, "Isi cadangan tidak dapat dibaca."))
+		a.writeJSON(w, r, 0, nil, problem(400, "Isi cadangan tidak dapat dibaca."))
 		return
 	}
 	var incoming data
 	if json.Unmarshal(raw, &incoming) != nil || len(incoming.Seats) < 7 || incoming.Messages == nil {
-		a.writeJSON(w, 0, nil, problem(400, "File cadangan tidak valid."))
+		a.writeJSON(w, r, 0, nil, problem(400, "File cadangan tidak valid."))
 		return
 	}
 	for i, def := range defaultSeats {
 		if incoming.Seats[i].Code != def.code {
-			a.writeJSON(w, 0, nil, problem(400, "Urutan kursi cadangan tidak valid."))
+			a.writeJSON(w, r, 0, nil, problem(400, "Urutan kursi cadangan tidak valid."))
 			return
 		}
 	}
 	for _, m := range incoming.Messages {
 		if m == nil {
-			a.writeJSON(w, 0, nil, problem(400, "Pesan cadangan tidak valid."))
+			a.writeJSON(w, r, 0, nil, problem(400, "Pesan cadangan tidak valid."))
 			return
 		}
 	}
 	for _, j := range incoming.Jobs {
 		if j == nil || j.Index < 0 || j.Index > len(j.Steps) {
-			a.writeJSON(w, 0, nil, problem(400, "Pekerjaan cadangan tidak valid."))
+			a.writeJSON(w, r, 0, nil, problem(400, "Pekerjaan cadangan tidak valid."))
 			return
 		}
 	}
@@ -697,7 +699,7 @@ func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 	if err := a.saveLocked(); err != nil {
 		a.data = previous
 		a.mu.Unlock()
-		a.writeJSON(w, 0, nil, err)
+		a.writeJSON(w, r, 0, nil, err)
 		return
 	}
 	a.rememberKeyLocked(a.data.Settings.APIKey)

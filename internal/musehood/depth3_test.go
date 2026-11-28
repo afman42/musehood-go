@@ -51,9 +51,9 @@ func TestRoomParticipants(t *testing.T) {
 	f := setup(t, nil)
 	roomID := f.state()["activeRoomId"].(string)
 	f.api("POST", "/api/rooms/"+roomID+"/participants", object{"name": "Budi"}, 200)
-	f.api("POST", "/api/rooms/"+roomID+"/participants", object{"name": "budi"}, 400)   // duplikat case-insensitive
-	f.api("POST", "/api/rooms/"+roomID+"/participants", object{"name": "Arman"}, 400)  // nama pemilik
-	f.api("POST", "/api/rooms/"+roomID+"/participants", object{"name": "  "}, 400)     // kosong
+	f.api("POST", "/api/rooms/"+roomID+"/participants", object{"name": "budi"}, 400)  // duplikat case-insensitive
+	f.api("POST", "/api/rooms/"+roomID+"/participants", object{"name": "Arman"}, 400) // nama pemilik
+	f.api("POST", "/api/rooms/"+roomID+"/participants", object{"name": "  "}, 400)    // kosong
 	f.api("POST", "/api/rooms/tidak-ada/participants", object{"name": "Sari"}, 404)
 	room := roomByID(f.state(), roomID)
 	participants, _ := room["participants"].([]any)
@@ -555,15 +555,15 @@ func TestExportMarkdown(t *testing.T) {
 func TestOllamaDetectAdd(t *testing.T) {
 	// Validasi host.
 	for raw, ok := range map[string]bool{
-		"http://127.0.0.1:11434":  true,
-		"http://localhost:11434":  true,
-		"http://192.168.1.10":     true,
-		"http://10.0.0.5:11434":   true,
-		"http://172.20.0.9":       true,
-		"http://172.32.0.9":       false,
-		"http://8.8.8.8":          false,
-		"https://example.com":     false,
-		"ftp://127.0.0.1":         false,
+		"http://127.0.0.1:11434": true,
+		"http://localhost:11434": true,
+		"http://192.168.1.10":    true,
+		"http://10.0.0.5:11434":  true,
+		"http://172.20.0.9":      true,
+		"http://172.32.0.9":      false,
+		"http://8.8.8.8":         false,
+		"https://example.com":    false,
+		"ftp://127.0.0.1":        false,
 	} {
 		_, err := validateOllamaBaseURL(raw)
 		if (err == nil) != ok {

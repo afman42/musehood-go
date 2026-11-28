@@ -21,7 +21,12 @@ type sqliteStore struct {
 }
 
 func openSQLiteStore(dir string) (*sqliteStore, error) {
-	db, err := sql.Open("sqlite", filepath.Join(dir, "data.db"))
+	// busy_timeout: proses lain (mis. instans lama saat restart tumpang
+	// tindih) tidak langsung gagal "database is locked". WAL: pembaca
+	// tidak memblokir penulis. MaxOpenConns(1) tetap menyerialkan
+	// akses dalam proses ini.
+	dsn := "file:" + filepath.Join(dir, "data.db") + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}

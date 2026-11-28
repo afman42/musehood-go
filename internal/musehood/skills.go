@@ -1,9 +1,10 @@
 package musehood
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -139,7 +140,7 @@ func (a *App) scanSkills() []skillDef {
 			skills = append(skills, skill)
 		}
 	}
-	sort.Slice(skills, func(i, j int) bool { return skills[i].Name < skills[j].Name })
+	slices.SortFunc(skills, func(a, b skillDef) int { return cmp.Compare(a.Name, b.Name) })
 	return skills
 }
 

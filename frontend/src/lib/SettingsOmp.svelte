@@ -10,14 +10,21 @@
 
   let githubToken = $state('');
   let lspText = $state('');
-  let lspLoaded = $state(false);
+  // Penjaga muatan sekali jalan: sengaja NON-reaktif agar $effect
+  // tidak berlangganan variabel yang ditulisnya sendiri (fetch ganda
+  // saat reload()).
+  let lspLoaded = false;
   let tools = $state<string[]>([]);
   let memories = $state<DurableMemory[]>([]);
-  let loaded = $state(false);
+  let loaded = false;
   let saving = $state(false);
 
   const settings = $derived(current?.settings);
-  const policies = $derived(settings?.toolPolicies ?? {});
+  // Salinan lokal optimistis: perubahan kebijakan cepat beruntun harus
+  // menumpuk di atas perubahan sebelumnya, bukan menimpa dari prop
+  // server yang belum segar (lost update).
+  let localPolicies = $state<Record<string, string> | null>(null);
+  const policies = $derived(localPolicies ?? settings?.toolPolicies ?? {});
 
   async function load() {
     try {
@@ -37,16 +44,24 @@
     if (!loaded) void load();
   });
 
+  function fillLspText() {
+    if (settings) lspText = Object.entries(settings.lspServers ?? {}).map(([lang, cmd]) => `${lang}=${cmd}`).join('\n');
+  }
+
   $effect(() => {
     if (!lspLoaded && settings) {
-      lspText = Object.entries(settings.lspServers ?? {}).map(([lang, cmd]) => `${lang}=${cmd}`).join('\n');
+      fillLspText();
       lspLoaded = true;
     }
   });
 
   export function reload() {
+    localPolicies = null;
     loaded = false;
-    lspLoaded = false;
+    // Segarkan teks LSP dari nilai server secara eksplisit: penjaga
+    // non-reaktif tidak lagi memicu $effect di atas.
+    fillLspText();
+    lspLoaded = true;
     void load();
   }
 
@@ -89,9 +104,10 @@
     const next = { ...policies };
     if (policy === 'allow') delete next[tool];
     else next[tool] = policy;
+    localPolicies = next;
     try {
       await mutate('/api/settings', { settings: { toolPolicies: next } });
-    } catch (error) { notify(errorText(error), true); }
+    } catch (error) { localPolicies = null; notify(errorText(error), true); }
   }
 
   async function deleteMemory(id: string) {
@@ -114,7 +130,7 @@
   <button class="secondary-button" type="button" disabled={saving} onclick={saveToken}>Simpan token</button>
 
   <label>Server LSP per bahasa (satu per baris: bahasa=perintah)
-    <textarea class="omp-textarea" bind:value={lspText} placeholder={'go=gopls\npython=pylsp'} rows="3"></textarea>
+    <textarea class="omp-textarea" bind:value={lspText} placeholder="go=gopls&#10;python=pylsp" rows="3"></textarea>
   </label>
   <span class="field-hint">Kosong = bawaan (go→gopls, python→pylsp, typescript→typescript-language-server, rust→rust-analyzer) bila terpasang.</span>
   <button class="secondary-button" type="button" disabled={saving} onclick={saveLSP}>Simpan server LSP</button>
@@ -135,7 +151,7 @@
     {#each tools as tool (tool)}
       <div class="policy-row">
         <code>{tool}</code>
-        <select value={policies[tool] ?? 'allow'} onchange={(e) => void setPolicy(tool, (e.currentTarget as HTMLSelectElement).value)}>
+        <select aria-label={`Kebijakan tool ${tool}`} value={policies[tool] ?? 'allow'} onchange={(e) => void setPolicy(tool, (e.currentTarget as HTMLSelectElement).value)}>
           <option value="allow">allow</option>
           <option value="prompt">prompt</option>
           <option value="deny">deny</option>

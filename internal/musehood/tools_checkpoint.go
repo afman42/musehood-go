@@ -88,14 +88,16 @@ func (a *App) rewindRoomLocked(r *room, cp *roomCheckpoint) int {
 		kept = append(kept, m)
 	}
 	a.data.Messages = kept
-	// Buang checkpoint yang menunjuk pesan yang sudah dipotong.
-	remaining := r.Checkpoints[:0]
-	for _, other := range r.Checkpoints {
-		if other.CreatedAt <= cp.CreatedAt {
-			remaining = append(remaining, other)
+	// Buang checkpoint yang lebih baru dari titik rewind berdasarkan
+	// urutan slice (bukan perbandingan CreatedAt: checkpoint yang
+	// dibuat pada milidetik yang sama akan lolos perbandingan string
+	// dan menunjuk pesan yang sudah dipotong — bug ronde 2).
+	for i := range r.Checkpoints {
+		if r.Checkpoints[i].ID == cp.ID {
+			r.Checkpoints = r.Checkpoints[:i+1]
+			break
 		}
 	}
-	r.Checkpoints = remaining
 	return removed
 }
 

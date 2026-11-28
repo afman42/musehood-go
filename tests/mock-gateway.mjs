@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 export const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMQyQ75DwADPQHTHNReowAAAABJRU5ErkJggg==', 'base64');
 export const fixtureKey = 'browser-fixture-only-9876';
 export const original401 = 'auth asli';
-const models = ['sse', 'array', 'plain', 'delta', 'image', 'denied', 'key-echo', 'toolcode'];
+const models = ['sse', 'array', 'plain', 'delta', 'image', 'denied', 'key-echo', 'toolcode', 'toolquestion'];
 const anthropicModels = ['sse-anthropic', 'json-anthropic'];
 const geminiModels = ['gemini-mock'];
 const ollamaModels = ['ndjson-ollama', 'json-ollama'];
@@ -136,6 +136,7 @@ export async function mockGateway(port = 0) {
       else if (body.model === 'delta') content = 'Balasan delta';
       else if (body.model === 'plain') content = 'Balasan polos';
       else if (body.model === 'toolcode') content = allText.includes('Hasil tool') ? 'Kode selesai diproses.' : '<<TOOL:run_code>>python\nimport os; os.system("echo halo-dari-mock")<</TOOL>>';
+      else if (body.model === 'toolquestion') content = allText.includes('Hasil tool') ? 'Siap, jawabanmu tercatat.' : '<<TOOL:ask_question>>Pilih warna favorit?\nMerah\nBiru\nHijau<</TOOL>>';
       if (content !== null) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
@@ -156,6 +157,13 @@ export async function mockGateway(port = 0) {
         const joined = (body.messages || []).map(m => typeof m.content === 'string' ? m.content : '').join('\n');
         if (joined.includes('Hasil tool')) return json(200, { choices: [{ message: { content: 'Kode selesai diproses.' } }] });
         return json(200, { choices: [{ message: { content: '<<TOOL:run_code>>python\nimport os; os.system("echo halo-dari-mock")<</TOOL>>' } }] });
+      }
+      case 'toolquestion': {
+        // Model yang bertanya ke pemilik lewat ask_question (memicu
+        // QuestionBanner), lalu menjawab final setelah menerima jawaban.
+        const joined = (body.messages || []).map(m => typeof m.content === 'string' ? m.content : '').join('\n');
+        if (joined.includes('Hasil tool')) return json(200, { choices: [{ message: { content: 'Siap, jawabanmu tercatat.' } }] });
+        return json(200, { choices: [{ message: { content: '<<TOOL:ask_question>>Pilih warna favorit?\nMerah\nBiru\nHijau<</TOOL>>' } }] });
       }
       default: return json(400, { error: 'Gunakan model chat mock' });
     }

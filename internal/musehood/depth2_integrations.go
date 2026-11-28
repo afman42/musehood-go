@@ -198,9 +198,13 @@ func (a *App) telegramPollOnce(cfg settings, offset int64) {
 		}
 		if update.Message != nil && update.Message.Text != "" &&
 			strconv.FormatInt(update.Message.Chat.ID, 10) == a.data.Settings.TelegramChatID {
-			_, _ = a.submitLocked(update.Message.Text, "", "", nil, a.data.ActiveRoomID, "", false)
+			if _, err := a.submitLocked(update.Message.Text, "", "", nil, a.data.ActiveRoomID, "", false); err != nil {
+				log.Printf("telegram: pesan masuk gagal diproses: %v", err)
+			}
 		}
-		_ = a.saveLocked()
+		if err := a.saveLocked(); err != nil {
+			log.Print("telegram: gagal menyimpan offset. Periksa penyimpanan lokal.")
+		}
 		a.mu.Unlock()
 	}
 }

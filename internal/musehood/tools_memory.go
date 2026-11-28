@@ -1,10 +1,11 @@
 package musehood
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -42,7 +43,7 @@ func searchMemories(memories []durableMemory, query string, limit int) []durable
 		}
 	}
 	// Terbaru dulu.
-	sort.Slice(hits, func(i, j int) bool { return hits[i].CreatedAt > hits[j].CreatedAt })
+	slices.SortFunc(hits, func(a, b durableMemory) int { return cmp.Compare(b.CreatedAt, a.CreatedAt) })
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}

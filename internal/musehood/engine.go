@@ -168,6 +168,7 @@ func (a *App) saveJobLocked() {
 		log.Print("Gagal menyimpan pekerjaan Musehood. Periksa penyimpanan lokal.")
 	}
 }
+
 // submitDebateLocked membuat pekerjaan debat dua kursi (fitur 15):
 // A pro → B kontra → A sanggahan → B sanggahan → integrator kesimpulan.
 func (a *App) submitDebateLocked(seatA, seatB, topic, roomID string) (*job, error) {
@@ -253,6 +254,7 @@ func (a *App) messageLocked(j *job, s *step, member seat) *message {
 	a.saveJobLocked()
 	return m
 }
+
 // chainPrevLocked mengembalikan pesan kursi sebelumnya pada diskusi
 // bergilir bila balasan berantai aktif (fitur 14).
 func (a *App) chainPrevLocked(j *job) (*message, string, bool) {

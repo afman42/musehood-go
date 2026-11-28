@@ -1,6 +1,6 @@
 # Panduan Penggunaan Musehood Go
 
-Panduan praktis memakai Musehood Go: grup chat lokal untuk Arman dan tujuh kursi AI (Muse, Opus, Plamo, GLM, Argon, Deepseek, Fable). Rilis terakhir: **v1.10.0** (28 Nov 2026) — [GitHub Releases](https://github.com/afman42/musehood-go/releases/tag/v1.10.0). Lihat juga [README.md](README.md) untuk arsitektur dan [TESTS.md](TESTS.md) untuk cakupan pengujian.
+Panduan praktis memakai Musehood Go: grup chat lokal untuk Arman dan tujuh kursi AI (Muse, Opus, Plamo, GLM, Argon, Deepseek, Fable). Rilis terakhir: **v1.11.0** (28 Nov 2026) — [GitHub Releases](https://github.com/afman42/musehood-go/releases/tag/v1.11.0). Lihat juga [README.md](README.md) untuk arsitektur dan [TESTS.md](TESTS.md) untuk cakupan pengujian.
 
 ## 1. Cara dasar
 
@@ -299,6 +299,6 @@ Panggil `POST /api/autoresearch` dengan `{"project":"latihan","script":"bench.sh
 
 ## 9. Tautan
 
-- Rilis terakhir: **v1.10.0** — https://github.com/afman42/musehood-go/releases/tag/v1.10.0
+- Rilis terakhir: **v1.11.0** — https://github.com/afman42/musehood-go/releases/tag/v1.11.0
 - [README.md](README.md) — arsitektur, konfigurasi gateway, API lengkap, penyimpanan, Docker
 - [TESTS.md](TESTS.md) — cakupan pengujian (338 fungsi tes Go, termasuk 8 skenario agen gabungan)

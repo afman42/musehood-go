@@ -7,6 +7,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +42,43 @@ func TestSecuritySSRFMatrix(t *testing.T) {
 	// IP publik literal lolos (tanpa DNS).
 	if err := checkPublicURL(ctx, "https://8.8.8.8/dns"); err != nil {
 		t.Fatalf("IP publik harus lolos: %v", err)
+	}
+}
+
+// TestSecurityRedirectGuard memastikan hop redirect divalidasi ulang
+// dengan penjaga SSRF: URL publik yang me-redirect ke alamat privat
+// tidak boleh diikuti.
+func TestSecurityRedirectGuard(t *testing.T) {
+	mkReq := func(raw string) *http.Request {
+		req, err := http.NewRequest(http.MethodGet, raw, nil)
+		if err != nil {
+			t.Fatalf("NewRequest %q: %v", raw, err)
+		}
+		return req
+	}
+	if err := checkRedirectPublic(mkReq("http://127.0.0.1:3001/api/state"), nil); err == nil {
+		t.Fatal("redirect ke loopback harus ditolak")
+	}
+	if err := checkRedirectPublic(mkReq("http://169.254.169.254/latest/meta-data"), nil); err == nil {
+		t.Fatal("redirect ke metadata cloud harus ditolak")
+	}
+	if err := checkRedirectPublic(mkReq("https://8.8.8.8/dns"), nil); err != nil {
+		t.Fatalf("redirect ke IP publik harus lolos: %v", err)
+	}
+	via := make([]*http.Request, 5)
+	if err := checkRedirectPublic(mkReq("https://8.8.8.8/dns"), via); err == nil {
+		t.Fatal("redirect melebihi 5 hop harus ditolak")
+	}
+	// End-to-end: server yang me-redirect ke loopback tidak boleh diikuti.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://127.0.0.1:9/rahasia", http.StatusFound)
+	}))
+	defer srv.Close()
+	client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: checkRedirectPublic}
+	resp, err := client.Get(srv.URL)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("klien tidak boleh mengikuti redirect ke loopback")
 	}
 }
 

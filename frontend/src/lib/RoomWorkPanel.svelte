@@ -85,15 +85,15 @@
         <span class="work-label">Checklist</span>
         {#each todos as todo (todo.id)}
           <div class="todo-row">
-            <button class="todo-mark" type="button" title="Ubah status" onclick={() => void onTodoStatus(todo.id, nextStatus[todo.status] ?? 'pending')}>{statusMark[todo.status] ?? '○'}</button>
-            <span class="todo-text" class:done={todo.status === 'done'}>{todo.text}</span>
-            <select class="todo-select" value={todo.status} onchange={(e) => void onTodoStatus(todo.id, (e.currentTarget as HTMLSelectElement).value)}>
+            <button class="todo-mark" type="button" title="Ubah status" aria-label={`Ubah status todo ${todo.text}`} onclick={() => void onTodoStatus(todo.id, nextStatus[todo.status] ?? 'pending')}>{statusMark[todo.status] ?? '○'}</button>
+            <span class={['todo-text', { done: todo.status === 'done' }]}>{todo.text}</span>
+            <select class="todo-select" aria-label={`Status todo ${todo.text}`} value={todo.status} onchange={(e) => void onTodoStatus(todo.id, (e.currentTarget as HTMLSelectElement).value)}>
               <option value="pending">pending</option>
               <option value="active">active</option>
               <option value="done">done</option>
               <option value="blocked">blocked</option>
             </select>
-            <button class="todo-del" type="button" title="Hapus todo" onclick={() => void onDeleteTodo(todo.id)}>✕</button>
+            <button class="todo-del" type="button" title="Hapus todo" aria-label={`Hapus todo ${todo.text}`} onclick={() => void onDeleteTodo(todo.id)}>✕</button>
           </div>
         {/each}
         <form class="todo-add" onsubmit={submitTodo}>

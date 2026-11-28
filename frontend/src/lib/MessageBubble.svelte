@@ -53,7 +53,7 @@
   const date = $derived(new Date(message.createdAt));
 </script>
 
-<article class="message" class:message-owner={own} class:message-final={message.label} data-message-id={message.id}>
+<article class={['message', { 'message-owner': own, 'message-final': message.label }]} data-message-id={message.id}>
   <img class="message-avatar" src={avatar} alt={name}>
   <div class="bubble">
     <div class="message-meta"><span class="author-name">{name}</span><span class="author-role">{own ? (message.author ? 'Peserta' : 'Pemilik') : seat?.role ?? ''}</span><time datetime={message.createdAt} title={date.toLocaleString('id-ID')}>{clock.format(date)}</time>{#if message.editedAt}<span class="edited-label" title="Diedit {new Date(message.editedAt).toLocaleString('id-ID')}">(diedit)</span>{/if}{#if message.pinned}<span class="pin-label" title="Pesan tersemat">📌</span>{/if}{#if message.abGroup}<span class="ab-label" title="Uji A/B">Uji A/B · Model {message.abLabel}{#if message.model} · {message.model}{/if}</span>{/if}{#if message.chainId}<span class="chain-label" title="Langkah rantai prompt">⛓ Langkah {message.chainStep}</span>{/if}</div>
@@ -99,12 +99,12 @@
         </a>
       {/if}
     {/if}
-    {#if message.status === 'typing' || message.status === 'waiting'}<p class="typing-status" class:waiting={message.status === 'waiting'}><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>{message.statusText || `${name} sedang mengetik...`}</p>{/if}
+    {#if message.status === 'typing' || message.status === 'waiting'}<p class={['typing-status', { waiting: message.status === 'waiting' }]}><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>{message.statusText || `${name} sedang mengetik...`}</p>{/if}
     {#if message.error}<pre class="provider-error" aria-label="Error asli provider">{message.error}</pre>{/if}
     {#if message.toolCalls?.length}
       <div class="tool-cards" aria-label="Hasil tool">
         {#each message.toolCalls as call, callIndex (callIndex)}
-          <details class="tool-card" class:tool-fail={!call.ok}>
+          <details class={['tool-card', { 'tool-fail': !call.ok }]}>
             <summary>🔧 {call.name}{call.ok ? '' : ' · gagal'}</summary>
             {#if call.arg}<p class="tool-arg"><strong>Argumen:</strong> {call.arg}</p>{/if}
             {#if call.result}<pre class="tool-result">{call.result}</pre>{/if}
@@ -120,7 +120,7 @@
     {#if message.reactions?.length}
       <div class="reaction-bar">
         {#each message.reactions as reaction (reaction.emoji)}
-          <button class="reaction-pill" type="button" class:mine={reaction.byOwner} title="Reaksi pemilik" onclick={() => onReact(reaction.emoji)}>{reaction.emoji} {reaction.count}</button>
+          <button class={['reaction-pill', { mine: reaction.byOwner }]} type="button" title="Reaksi pemilik" onclick={() => onReact(reaction.emoji)}>{reaction.emoji} {reaction.count}</button>
         {/each}
       </div>
     {/if}
@@ -137,7 +137,7 @@
             </div>
           {/if}
         </div>
-        <button class="msg-action" class:pin-active={message.pinned} type="button" aria-label={message.pinned ? 'Lepas sematan' : 'Sematkan pesan'} title={message.pinned ? 'Lepas sematan' : 'Sematkan'} onclick={onPin}>📌</button>
+        <button class={['msg-action', { 'pin-active': message.pinned }]} type="button" aria-label={message.pinned ? 'Lepas sematan' : 'Sematkan pesan'} title={message.pinned ? 'Lepas sematan' : 'Sematkan'} onclick={onPin}>📌</button>
         {#if own}<button class="msg-action" type="button" aria-label="Ubah pesan" title="Ubah" onclick={onEditStart}>✎</button>{/if}
         {#if own}<button class="msg-action" type="button" aria-label="Jalankan ulang dari sini" title="Jalankan ulang dari sini" onclick={onRerun}>↻</button>{/if}
         {#if !own}<button class="msg-action" type="button" aria-label="Buat ulang balasan" title="Buat ulang balasan" onclick={onRegenerate}>↻</button>{/if}
@@ -150,8 +150,8 @@
     {/if}
     {#if !own && message.status === 'completed'}
       <div class="rating-bar" aria-label="Nilai balasan ini">
-        <button class="rating-button" class:active={message.rating === 1} type="button" aria-label="Balasan bagus" title="Bagus" onclick={() => onRate(1)}>👍</button>
-        <button class="rating-button" class:active={message.rating === -1} type="button" aria-label="Balasan kurang" title="Kurang" onclick={() => onRate(-1)}>👎</button>
+        <button class={['rating-button', { active: message.rating === 1 }]} type="button" aria-label="Balasan bagus" title="Bagus" onclick={() => onRate(1)}>👍</button>
+        <button class={['rating-button', { active: message.rating === -1 }]} type="button" aria-label="Balasan kurang" title="Kurang" onclick={() => onRate(-1)}>👎</button>
         {#if message.abGroup && !message.abWinner}<button class="secondary-button ab-pick" type="button" onclick={onPickAB}>Pilih ini</button>{/if}
       </div>
     {/if}

@@ -58,11 +58,21 @@ function effectiveDark(settings: State['settings']): boolean {
   return theme === 'dark' || (theme === 'auto' && typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 }
 
+// Tema terpilih disimpan lokal agar skrip pra-paint di app.html bisa
+// memasang kelas `dark` (dan mewarnai skeleton muatan awal) sebelum
+// state server tiba — tanpa ini skeleton/tema berkedip salah warna.
+export function persistTheme(dark: boolean) {
+  try {
+    localStorage.setItem('musehood-theme', dark ? 'dark' : 'light');
+  } catch { /* penyimpanan lokal opsional */ }
+}
+
 function applyTheme(result: State) {
   const serverDark = effectiveDark(result.settings);
   if (pendingDark !== null && serverDark === pendingDark) pendingDark = null;
   const dark = pendingDark ?? serverDark;
   document.documentElement.classList.toggle('dark', dark);
+  persistTheme(dark);
   document.documentElement.classList.toggle('density-compact', result.settings.density === 'compact');
   document.documentElement.style?.setProperty('--font-scale', FONT_SCALES[result.settings.fontSize ?? 'M'] ?? '1');
 }
@@ -89,7 +99,9 @@ export function createChat(hooks: ChatHooks = {}) {
   let notice = $state<Notice>();
   let pinRequired = $state(false);
   let online = $state(typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean' ? true : navigator.onLine);
-  let serverResults = $state<SearchResult[]>([]);
+  // Hasil pencarian server hanya pernah DIGANTI utuh (tidak dimutasi),
+  // jadi $state.raw menghindari overhead proxy deep-reactive.
+  let serverResults = $state.raw<SearchResult[]>([]);
   let timer: ReturnType<typeof setTimeout>;
   let searchTimer: ReturnType<typeof setTimeout>;
   let requested = 0;
@@ -238,6 +250,7 @@ export function createChat(hooks: ChatHooks = {}) {
     const target = !(pendingDark ?? effectiveDark(current.settings));
     pendingDark = target;
     document.documentElement.classList.toggle('dark', target);
+    persistTheme(target);
     try {
       await mutate('/api/settings', { settings: { darkMode: target, theme: target ? 'dark' : 'light' } });
     } catch (error) {
@@ -262,16 +275,22 @@ export function createChat(hooks: ChatHooks = {}) {
   }
 
   function startPolling() {
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-        if (current?.settings.theme === 'auto') applyTheme(current);
-      });
-    }
+    // Handler bernama agar bisa dilepas di cleanup — tanpa ini,
+    // listener window menumpuk bila startPolling dipanggil ulang.
+    const mq = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : undefined;
+    const onSchemeChange = () => {
+      if (current?.settings.theme === 'auto') applyTheme(current);
+    };
+    mq?.addEventListener('change', onSchemeChange);
     // Deteksi offline (fitur 28): banner + antrean pesan keluar yang
     // otomatis terkirim saat koneksi kembali.
+    const onOnline = () => { online = true; void flushOutbox(); };
+    const onOffline = () => { online = false; };
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => { online = true; void flushOutbox(); });
-      window.addEventListener('offline', () => { online = false; });
+      window.addEventListener('online', onOnline);
+      window.addEventListener('offline', onOffline);
     }
     void flushOutbox();
     let stopped = false;
@@ -286,7 +305,17 @@ export function createChat(hooks: ChatHooks = {}) {
       if (!stopped) pollTimer = setTimeout(poll, document.hidden ? 3000 : 700);
     }
     void poll();
-    return () => { stopped = true; clearTimeout(pollTimer); clearTimeout(timer); };
+    return () => {
+      stopped = true;
+      clearTimeout(pollTimer);
+      clearTimeout(timer);
+      clearTimeout(searchTimer);
+      mq?.removeEventListener('change', onSchemeChange);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', onOnline);
+        window.removeEventListener('offline', onOffline);
+      }
+    };
   }
 
   async function sendMessage(payload: { text: string; replyTo?: string; imageUrl?: string; attachment?: Attachment; templateId?: string; author?: string }) {

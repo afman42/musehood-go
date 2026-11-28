@@ -1,9 +1,10 @@
 package musehood
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -70,7 +71,7 @@ func (a *App) pendingQuestions() []question {
 	for _, q := range a.questions {
 		out = append(out, *q)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	slices.SortFunc(out, func(a, b question) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
 	return out
 }
 

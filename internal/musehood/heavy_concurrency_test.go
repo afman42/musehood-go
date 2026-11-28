@@ -183,7 +183,7 @@ func TestHeavyRoomAndMessageLimits(t *testing.T) {
 	for i := 0; i < 5000; i++ {
 		f.app.data.Messages = append(f.app.data.Messages, &message{
 			ID: fmt.Sprintf("heavy-%05d", i), CreatedAt: now(), AuthorType: "owner",
-			Text: fmt.Sprintf("Pesan batas nomor %d dengan isi yang cukup panjang untuk realistis.", i),
+			Text:   fmt.Sprintf("Pesan batas nomor %d dengan isi yang cukup panjang untuk realistis.", i),
 			Status: "completed", RoomID: roomID, BranchID: "main",
 		})
 	}

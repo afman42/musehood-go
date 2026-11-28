@@ -2,6 +2,7 @@ package musehood
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,13 +20,15 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
+// Options adalah konfigurasi konstruktor App. Nilai kosong memakai
+// bawaan: DataDir direktori kerja, PollInterval/MuseWait bawaan
+// internal, TrustedHosts hanya host loopback.
 type Options struct {
 	DataDir      string
 	Frontend     fs.FS
@@ -34,6 +38,9 @@ type Options struct {
 	// Version adalah versi aplikasi (dari ldflags) untuk cek update.
 	Version string
 }
+
+// App adalah instance Musehood Go yang berjalan: state, mesin
+// pekerjaan, dan handler HTTP. Buat dengan New, hentikan dengan Close.
 type App struct {
 	dir             string
 	frontend        fs.FS
@@ -66,11 +73,11 @@ type App struct {
 	mcpMu         sync.Mutex
 	mcpCache      map[string]mcpCacheEntry
 	mcpRefreshing map[string]bool
-	cacheMu         sync.Mutex
-	cache           map[string]cacheEntry
-	cacheHits       int64
-	healthMu        sync.Mutex
-	health          map[string]providerHealth
+	cacheMu       sync.Mutex
+	cache         map[string]cacheEntry
+	cacheHits     int64
+	healthMu      sync.Mutex
+	health        map[string]providerHealth
 	// budgetNoted menandai catatan budget "sekali per pekerjaan" yang
 	// sudah ditampilkan (fitur 5), kunci "jobID|kodeKursi".
 	budgetNoted map[string]bool
@@ -99,6 +106,10 @@ type App struct {
 	// (tool run_server), hanya di memori.
 	serverMu sync.Mutex
 	servers  map[string]*projectServer
+	// gzipCache adalah cache hasil gzip aset frontend tertanam per nama
+	// berkas; aset tertanam tidak berubah selama proses hidup sehingga
+	// kompresi cukup sekali per berkas.
+	gzipCache sync.Map
 }
 type apiError struct {
 	status  int
@@ -117,6 +128,13 @@ func publicError(err error) string {
 
 var inlineScript = regexp.MustCompile(`(?is)<script(?:\s[^>]*)?>(.*?)</script>`)
 
+// inlineStyle menangkap blok <style> di index.html (gaya skeleton
+// muatan awal) agar hash-nya bisa diizinkan CSP tanpa 'unsafe-inline'.
+var inlineStyle = regexp.MustCompile(`(?is)<style(?:\s[^>]*)?>(.*?)</style>`)
+
+// New memuat state dari DataDir, menyiapkan penyimpanan, dan memulai
+// loop latar (tick pekerjaan, health check provider, jembatan
+// Telegram). Pemanggil wajib memanggil Close untuk menghentikannya.
 func New(opts Options) (*App, error) {
 	if opts.DataDir == "" {
 		opts.DataDir = "."
@@ -150,7 +168,11 @@ func New(opts Options) (*App, error) {
 	a := &App{dir: opts.DataDir, frontend: opts.Frontend, data: d, store: store, version: opts.Version, running: make(map[*job]context.CancelFunc), museWait: opts.MuseWait,
 		cache: make(map[string]cacheEntry), health: make(map[string]providerHealth), budgetNoted: map[string]bool{}, breakers: map[string]*circuitBreaker{}, loginFails: map[string]*loginAttempt{}, ftDirty: true,
 		hosts: map[string]bool{"127.0.0.1": true, "localhost": true, "::1": true},
-		client: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		// Transport klon bawaan (proxy dari env tetap berlaku) dengan
+		// kolam idle per host lebih besar: kursi paralel memanggil
+		// gateway yang sama bersamaan, bawaan 2 memicu handshake TLS
+		// berulang.
+		client: &http.Client{Timeout: 60 * time.Second, Transport: gatewayTransport(), CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 || !validHTTPURL(req.URL) {
 				return http.ErrUseLastResponse
 			}
@@ -181,9 +203,20 @@ func New(opts Options) (*App, error) {
 		sum := sha256.Sum256(normalized)
 		scripts += " 'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 	}
+	// Blok <style> inline di index.html (skeleton muatan awal) diizinkan
+	// lewat hash yang sama persis, tanpa 'unsafe-inline'.
+	styles := "style-src 'self'"
+	for _, match := range inlineStyle.FindAllSubmatch(a.index, -1) {
+		if len(match[1]) == 0 {
+			continue
+		}
+		normalized := bytes.ReplaceAll(bytes.ReplaceAll(match[1], []byte("\r\n"), []byte("\n")), []byte("\r"), []byte("\n"))
+		sum := sha256.Sum256(normalized)
+		styles += " 'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+	}
 	// Permit only SvelteKit 3.4's static accessibility-announcer style attribute.
 	const announcerStyle = "style-src-attr 'unsafe-hashes' 'sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo='"
-	a.csp = "default-src 'self'; " + scripts + "; style-src 'self'; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+	a.csp = "default-src 'self'; " + scripts + "; " + styles + "; " + announcerStyle + "; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 	a.rememberKeyLocked(d.Settings.APIKey)
 	a.rememberKeyLocked(d.Settings.PINHash)
 	// APIToken sengaja TIDAK didaftarkan sebagai rahasia redaksi: token
@@ -234,6 +267,10 @@ func New(opts Options) (*App, error) {
 	a.wg.Go(a.telegramLoop)
 	return a, nil
 }
+
+// Close menghentikan semua pekerjaan latar dan menunggu goroutine
+// aplikasi selesai. Aman dipanggil sekali; permintaan HTTP sesudah
+// Close ditolak.
 func (a *App) Close() {
 	a.mu.Lock()
 	a.closed = true
@@ -243,6 +280,16 @@ func (a *App) Close() {
 	a.wg.Wait()
 	a.client.CloseIdleConnections()
 }
+
+// gatewayTransport mengklon transport bawaan (proxy dari env, timeout
+// dial/TLS yang sama) dan menaikkan kolam koneksi idle per host untuk
+// panggilan gateway kursi yang paralel.
+func gatewayTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConnsPerHost = 10
+	return transport
+}
+
 func hostName(host string) string {
 	if ip := net.ParseIP(host); ip != nil {
 		return strings.ToLower(host)
@@ -293,12 +340,12 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 	}
 	if err := a.validateHost(r); err != nil {
-		a.writeJSON(w, 0, nil, err)
+		a.writeJSON(w, r, 0, nil, err)
 		return
 	}
 	if isAPI {
 		if err := a.authorizeAPI(r); err != nil {
-			a.writeJSON(w, 0, nil, err)
+			a.writeJSON(w, r, 0, nil, err)
 			return
 		}
 	}
@@ -316,12 +363,12 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if isAPI {
 		status, value, err := a.api(w, r)
-		a.writeJSON(w, status, value, err)
+		a.writeJSON(w, r, status, value, err)
 		return
 	}
 	a.serveStatic(w, r)
 }
-func (a *App) writeJSON(w http.ResponseWriter, status int, value json.RawMessage, err error) {
+func (a *App) writeJSON(w http.ResponseWriter, r *http.Request, status int, value json.RawMessage, err error) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err != nil {
 		status = 500
@@ -333,8 +380,46 @@ func (a *App) writeJSON(w http.ResponseWriter, status int, value json.RawMessage
 		value, _ = json.Marshal(map[string]string{"error": a.redactLocked(publicError(err))})
 		a.mu.Unlock()
 	}
+	body := gzipJSONBody(w, r, append(value, '\n'))
 	w.WriteHeader(status)
-	_, _ = w.Write(append(value, '\n'))
+	_, _ = w.Write(body)
+}
+
+// apiGzipThreshold adalah ukuran minimum badan respons JSON agar
+// layak di-gzip; di bawah ini overhead gzip tidak sepadan.
+const apiGzipThreshold = 1024
+
+// gzipWriterPool mendaur ulang gzip.Writer untuk respons API dinamis
+// (berbeda dari aset statis yang hasil gzip-nya di-cache per berkas).
+var gzipWriterPool = sync.Pool{New: func() any {
+	zw, _ := gzip.NewWriterLevel(io.Discard, gzip.DefaultCompression)
+	return zw
+}}
+
+// gzipJSONBody mengompresi badan JSON utuh bila klien menerima gzip
+// dan ukurannya melewati ambang. Hanya dipakai untuk respons yang
+// badannya sudah lengkap (writeJSON, cadangan): jalur streaming
+// gateway→server (gatewayStream) dan polling frontend tidak melewati
+// fungsi ini, jadi tidak ada event yang tertahan buffer. Bila hasil
+// gzip tidak lebih kecil, badan asli dikembalikan apa adanya.
+func gzipJSONBody(w http.ResponseWriter, r *http.Request, body []byte) []byte {
+	if r == nil || len(body) <= apiGzipThreshold || !acceptsGzip(r) {
+		return body
+	}
+	var buf bytes.Buffer
+	zw := gzipWriterPool.Get().(*gzip.Writer)
+	zw.Reset(&buf)
+	_, werr := zw.Write(body)
+	cerr := zw.Close()
+	gzipWriterPool.Put(zw)
+	if werr != nil || cerr != nil || buf.Len() >= len(body) {
+		return body
+	}
+	h := w.Header()
+	h.Set("Content-Encoding", "gzip")
+	h.Add("Vary", "Accept-Encoding")
+	h.Set("Content-Length", strconv.Itoa(buf.Len()))
+	return buf.Bytes()
 }
 func (a *App) jsonLocked(v any) json.RawMessage {
 	raw, err := json.Marshal(a.safeLocked(v))
@@ -720,7 +805,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			for name := range builtinToolNames {
 				builtin = append(builtin, name)
 			}
-			sort.Strings(builtin)
+			slices.Sort(builtin)
 			return map[string]any{"tools": a.loadCustomTools(), "builtin": builtin, "mcp": a.mcpToolViews(a.data.Settings.MCPServers)}, nil
 		})
 	case "/api/review":
@@ -740,7 +825,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		}
 		ensureProjectGitignore(dir)
 		if !input.Approve {
-			groups, err := proposeCommitGroups(dir)
+			groups, err := proposeCommitGroups(r.Context(), dir)
 			if err != nil {
 				return 0, nil, problem(400, err.Error())
 			}
@@ -816,7 +901,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			Seat:            query.Get("seat"),
 			Room:            query.Get("room"),
 			From:            query.Get("from"),
-			To:            query.Get("to"),
+			To:              query.Get("to"),
 			HasImage:        query.Get("hasImage") == "1",
 			IncludeArchived: query.Get("includeArchived") == "1",
 			Tag:             query.Get("tag"),
@@ -1596,7 +1681,7 @@ func (a *App) uploadAvatar(w http.ResponseWriter, r *http.Request) (int, json.Ra
 func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		a.writeJSON(w, 0, nil, problem(405, "Metode tidak diizinkan."))
+		a.writeJSON(w, r, 0, nil, problem(405, "Metode tidak diizinkan."))
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/")
@@ -1636,24 +1721,131 @@ func (a *App) serveStatic(w http.ResponseWriter, r *http.Request) {
 			if raw, err := fs.ReadFile(a.frontend, path); err == nil {
 				if strings.HasPrefix(path, "_app/immutable/") {
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				} else {
+					// Nama tetap (style.css, manifest, ikon, sw.js):
+					// browser boleh menyimpan tetapi wajib revalidasi;
+					// ETag membuat revalidasi murah (304).
+					w.Header().Set("Cache-Control", "no-cache")
 				}
 				if path == "manifest.webmanifest" {
 					w.Header().Set("Content-Type", "application/manifest+json")
 				}
 				if path == "sw.js" {
 					w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-					w.Header().Set("Cache-Control", "no-cache")
 					w.Header().Set("Service-Worker-Allowed", "/")
 				}
-				http.ServeContent(w, r, path, time.Time{}, bytes.NewReader(raw))
+				a.serveEmbedded(w, r, path, raw)
 				return
 			}
 		}
 	}
 	if len(a.index) == 0 || strings.HasPrefix(path, "images/") || strings.HasPrefix(path, "avatars/") || strings.HasPrefix(path, "uploads/") || strings.HasPrefix(path, "exports/") || strings.HasPrefix(path, "_app/") {
-		a.writeJSON(w, 0, nil, problem(404, "Halaman tidak ditemukan."))
+		a.writeJSON(w, r, 0, nil, problem(404, "Halaman tidak ditemukan."))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
-	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(a.index))
+	a.serveEmbedded(w, r, "index.html", a.index)
+}
+
+// acceptsGzip memeriksa Accept-Encoding: true bila klien menerima gzip
+// (token "gzip", atau "*" bila gzip tidak disebut, dengan q bukan 0).
+func acceptsGzip(r *http.Request) bool {
+	gzipQ, starQ := -1.0, -1.0
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		token, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		q := 1.0
+		for _, p := range strings.Split(params, ";") {
+			if v, ok := strings.CutPrefix(strings.TrimSpace(p), "q="); ok {
+				if f, err := strconv.ParseFloat(v, 64); err == nil {
+					q = f
+				}
+			}
+		}
+		switch strings.ToLower(token) {
+		case "gzip":
+			gzipQ = q
+		case "*":
+			starQ = q
+		}
+	}
+	if gzipQ >= 0 {
+		return gzipQ > 0
+	}
+	return starQ > 0
+}
+
+// compressibleAsset melaporkan apakah tipe berkas layak di-gzip.
+// Format yang sudah terkompresi (gambar raster, zip, font woff2, video)
+// sengaja tidak termasuk.
+func compressibleAsset(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".js", ".mjs", ".css", ".html", ".htm", ".svg", ".json", ".webmanifest", ".txt", ".xml", ".map":
+		return true
+	}
+	return false
+}
+
+// gzippedAsset mengembalikan hasil gzip aset tertanam, dihitung sekali
+// lalu disimpan di cache (aset tertanam tidak berubah selama proses).
+func (a *App) gzippedAsset(name string, raw []byte) []byte {
+	if v, ok := a.gzipCache.Load(name); ok {
+		return v.([]byte)
+	}
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	_, _ = zw.Write(raw)
+	_ = zw.Close()
+	gz := buf.Bytes()
+	a.gzipCache.Store(name, gz)
+	return gz
+}
+
+func contentETag(b []byte) string {
+	sum := sha256.Sum256(b)
+	return `"` + hex.EncodeToString(sum[:8]) + `"`
+}
+
+func matchETag(header, etag string) bool {
+	for _, part := range strings.Split(header, ",") {
+		part = strings.TrimSpace(part)
+		if part == "*" || strings.TrimPrefix(part, "W/") == etag {
+			return true
+		}
+	}
+	return false
+}
+
+// serveEmbedded melayani aset frontend tertanam (index.html dan isi
+// build/) dengan kompresi gzip — hanya bila klien menerima, tipe
+// kompresibel, ukuran >1 KB, dan tanpa header Range — plus ETag agar
+// revalidasi murah (304). Jalur non-gzip memakai http.ServeContent
+// sehingga Range/HEAD/precondition tetap benar.
+func (a *App) serveEmbedded(w http.ResponseWriter, r *http.Request, name string, raw []byte) {
+	w.Header().Add("Vary", "Accept-Encoding")
+	if compressibleAsset(name) && len(raw) > 1024 && r.Header.Get("Range") == "" && acceptsGzip(r) {
+		gz := a.gzippedAsset(name, raw)
+		etag := contentETag(gz)
+		w.Header().Set("ETag", etag)
+		if matchETag(r.Header.Get("If-None-Match"), etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		if w.Header().Get("Content-Type") == "" {
+			if ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); ct != "" {
+				w.Header().Set("Content-Type", ct)
+			} else {
+				w.Header().Set("Content-Type", http.DetectContentType(raw))
+			}
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Length", strconv.Itoa(len(gz)))
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		_, _ = w.Write(gz)
+		return
+	}
+	w.Header().Set("ETag", contentETag(raw))
+	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(raw))
 }

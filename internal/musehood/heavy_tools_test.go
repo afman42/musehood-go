@@ -111,11 +111,11 @@ func TestHeavyAllBuiltinTools(t *testing.T) {
 	}
 
 	type toolCase struct {
-		name       string
-		valid      string
-		wantValid  string // substring yang harus muncul pada hasil valid
-		invalid    string
-		wantInval  string // substring yang harus muncul pada hasil invalid
+		name      string
+		valid     string
+		wantValid string // substring yang harus muncul pada hasil valid
+		invalid   string
+		wantInval string // substring yang harus muncul pada hasil invalid
 	}
 	cases := []toolCase{
 		{"web_search", "berita hari ini", "Berita Contoh", "", "Error"},

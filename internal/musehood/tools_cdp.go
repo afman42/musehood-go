@@ -31,8 +31,6 @@ import (
 // berlaku untuk setiap URL. Tanpa Chromium: degradasi seperti tool
 // browser lama.
 
-const cdpTimeout = 45 * time.Second
-
 type cdpBrowser struct {
 	cmd       *exec.Cmd
 	port      int
@@ -173,6 +171,14 @@ func (b *cdpBrowser) tabForURL(rawURL string) (cdpTarget, error) {
 	}
 	b.activeTab = target.ID
 	return target, nil
+}
+
+// activeTabID membaca tab aktif dengan kunci (toolBrowserTabs list
+// sebelumnya membaca field ini tanpa kunci — race laten ronde 2).
+func (b *cdpBrowser) activeTabID() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.activeTab
 }
 
 func (b *cdpBrowser) activeTarget() (cdpTarget, error) {
@@ -650,9 +656,10 @@ func (a *App) toolBrowserTabs(ctx context.Context, arg string) string {
 			return "Tidak ada tab terbuka."
 		}
 		var out strings.Builder
+		activeID := browser.activeTabID()
 		for _, t := range targets {
 			marker := ""
-			if t.ID == browser.activeTab {
+			if t.ID == activeID {
 				marker = " (aktif)"
 			}
 			out.WriteString(fmt.Sprintf("- %s%s: %s <%s>\n", t.ID, marker, t.Title, t.URL))

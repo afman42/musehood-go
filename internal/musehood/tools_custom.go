@@ -1,6 +1,7 @@
 package musehood
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -123,12 +124,12 @@ var builtinToolNames = map[string]bool{
 	// Tool gaya omp (13 item, 28 Nov 2026).
 	"ast_grep": true, "ast_edit": true,
 	"lsp_definition": true, "lsp_references": true, "lsp_diagnostics": true, "lsp_rename": true,
-	"eval": true,
+	"eval":         true,
 	"debug_launch": true, "debug_breakpoint": true, "debug_step": true, "debug_inspect": true, "debug_stop": true,
 	"browser_click": true, "browser_type": true, "browser_snapshot": true, "browser_tabs": true,
 	"github_read": true, "github_search": true, "github_actions": true, "github_push": true,
 	"security_scan": true,
-	"hub_message": true, "hub_processes": true, "hub_stop": true,
+	"hub_message":   true, "hub_processes": true, "hub_stop": true,
 	"checkpoint": true, "rewind": true,
 	"memory_recall": true, "memory_retain": true, "memory_reflect": true, "memory_edit": true,
 	"learn": true, "manage_skill": true,
@@ -210,7 +211,7 @@ func (a *App) loadCustomTools() []customTool {
 		seen[tool.Name] = true
 		tools = append(tools, tool)
 	}
-	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+	slices.SortFunc(tools, func(a, b customTool) int { return cmp.Compare(a.Name, b.Name) })
 	return tools
 }
 
@@ -294,7 +295,7 @@ func fetchCustomURLHeaders(ctx context.Context, rawURL, userAgent string, header
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: checkRedirectPublic}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -311,13 +312,9 @@ func fetchCustomURLHeaders(ctx context.Context, rawURL, userAgent string, header
 	return strings.TrimSpace(text), nil
 }
 
-// postCustomJSON mengirim POST JSON dan mengembalikan "HTTP <kode>\n<isi>".
+// postCustomJSONHeaders mengirim POST JSON dan mengembalikan "HTTP <kode>\n<isi>".
 // Penjaga SSRF dilakukan pemanggil agar fungsi ini bisa diuji dengan
 // server lokal.
-func postCustomJSON(ctx context.Context, rawURL, body, userAgent string) (string, error) {
-	return postCustomJSONHeaders(ctx, rawURL, body, userAgent, nil)
-}
-
 func postCustomJSONHeaders(ctx context.Context, rawURL, body, userAgent string, headers map[string]string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(body))
 	if err != nil {
@@ -331,7 +328,7 @@ func postCustomJSONHeaders(ctx context.Context, rawURL, body, userAgent string, 
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: checkRedirectPublic}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

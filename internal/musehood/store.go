@@ -88,6 +88,7 @@ func (s seat) modelForTask(task string) string {
 	}
 	return *s.Model
 }
+
 // fallbackChain mengembalikan daftar model cadangan kursi secara berurutan:
 // FallbackModel (lama) lalu FallbackModels, tanpa duplikat dan tanpa model utama.
 func (s seat) fallbackChain() []string {
@@ -261,14 +262,6 @@ func (s settings) loadBalanceOn() bool {
 
 func (s settings) parallelOn() bool {
 	return s.ParallelMode != nil && *s.ParallelMode
-}
-
-func (s settings) webhookOn() bool {
-	return s.WebhookEnabled != nil && *s.WebhookEnabled && strings.TrimSpace(s.WebhookURL) != ""
-}
-
-func (s settings) telegramOn() bool {
-	return s.TelegramEnabled != nil && *s.TelegramEnabled && s.TelegramBotToken != "" && s.TelegramChatID != ""
 }
 
 func (s settings) autoReviewOn() bool {
@@ -1310,7 +1303,10 @@ func writeJSONFile(file string, value any) error {
 	}
 	defer os.Remove(temp.Name())
 	_, writeErr := temp.Write(append(raw, '\n'))
-	if err := errors.Join(writeErr, temp.Close()); err != nil {
+	// Sync sebelum rename: tanpa fsync, crash daya bisa meninggalkan
+	// berkas kosong/parsial meski rename sudah terlihat berhasil.
+	syncErr := temp.Sync()
+	if err := errors.Join(writeErr, syncErr, temp.Close()); err != nil {
 		return err
 	}
 	return os.Rename(temp.Name(), file)
@@ -1556,8 +1552,8 @@ func (a *App) stateLocked() any {
 		Providers []gatewayProviderView `json:"providers"`
 		// Rooms menimpa field data.Rooms agar state menyertakan
 		// messageCount per ruang (badge belum dibaca di bilah ruang).
-		Rooms []map[string]any `json:"rooms"`
-		Settings  struct {
+		Rooms    []map[string]any `json:"rooms"`
+		Settings struct {
 			settings
 			HasAPIKey        bool `json:"hasApiKey"`
 			HasPin           bool `json:"hasPin"`
@@ -1592,10 +1588,10 @@ type settingsUpdate struct {
 	Group *nameUpdate `json:"group"`
 	Seats *[]struct {
 		nameUpdate
-		Code          string    `json:"code"`
-		Role          *string   `json:"role"`
-		Provider      *string   `json:"provider"`
-		Model         *string   `json:"model"`
+		Code           string    `json:"code"`
+		Role           *string   `json:"role"`
+		Provider       *string   `json:"provider"`
+		Model          *string   `json:"model"`
 		Prompt         *string   `json:"prompt"`
 		FallbackModel  *string   `json:"fallbackModel"`
 		FallbackModels *[]string `json:"fallbackModels"`
@@ -1610,43 +1606,43 @@ type settingsUpdate struct {
 		RolePreset     *string   `json:"rolePreset"`
 	} `json:"seats"`
 	Settings *struct {
-		BaseURL         *string `json:"baseUrl"`
-		APIKey          *string `json:"apiKey"`
-		ProviderName    *string `json:"providerName"`
-		GatewayProtocol *string `json:"gatewayProtocol"`
-		ReviewLevel     *string `json:"reviewLevel"`
-		RoundRobin      *bool   `json:"roundRobin"`
-		DemoFallback    *bool   `json:"demoFallback"`
-		DarkMode        *bool   `json:"darkMode"`
-		Theme           *string `json:"theme"`
-		FontSize        *string `json:"fontSize"`
-		IntegratorSeat  *string `json:"integratorSeat"`
-		ToolsEnabled         *bool   `json:"toolsEnabled"`
-		CodeToolEnabled      *bool   `json:"codeToolEnabled"`
-		StreamingEnabled     *bool   `json:"streamingEnabled"`
-		SkillsEnabled        *bool   `json:"skillsEnabled"`
-		ResponseCacheEnabled *bool   `json:"responseCacheEnabled"`
-		ChainReplies         *bool   `json:"chainReplies"`
-		Density              *string `json:"density"`
-		NativeToolsEnabled   *bool   `json:"nativeToolsEnabled"`
-		LoadBalanceProviders *bool   `json:"loadBalanceProviders"`
-		ParallelMode         *bool   `json:"parallelMode"`
-		WebhookURL           *string `json:"webhookUrl"`
-		WebhookEnabled       *bool   `json:"webhookEnabled"`
-		TelegramBotToken     *string `json:"telegramBotToken"`
-		TelegramChatID       *string `json:"telegramChatId"`
-		TelegramEnabled      *bool   `json:"telegramEnabled"`
-		AutoReview           *bool   `json:"autoReview"`
-		ReviewerSeat         *string `json:"reviewerSeat"`
-		DailySummaryEnabled  *bool   `json:"dailySummaryEnabled"`
-		DailySummaryTime     *string `json:"dailySummaryTime"`
-		DailySummaryChannel  *string `json:"dailySummaryChannel"`
+		BaseURL              *string            `json:"baseUrl"`
+		APIKey               *string            `json:"apiKey"`
+		ProviderName         *string            `json:"providerName"`
+		GatewayProtocol      *string            `json:"gatewayProtocol"`
+		ReviewLevel          *string            `json:"reviewLevel"`
+		RoundRobin           *bool              `json:"roundRobin"`
+		DemoFallback         *bool              `json:"demoFallback"`
+		DarkMode             *bool              `json:"darkMode"`
+		Theme                *string            `json:"theme"`
+		FontSize             *string            `json:"fontSize"`
+		IntegratorSeat       *string            `json:"integratorSeat"`
+		ToolsEnabled         *bool              `json:"toolsEnabled"`
+		CodeToolEnabled      *bool              `json:"codeToolEnabled"`
+		StreamingEnabled     *bool              `json:"streamingEnabled"`
+		SkillsEnabled        *bool              `json:"skillsEnabled"`
+		ResponseCacheEnabled *bool              `json:"responseCacheEnabled"`
+		ChainReplies         *bool              `json:"chainReplies"`
+		Density              *string            `json:"density"`
+		NativeToolsEnabled   *bool              `json:"nativeToolsEnabled"`
+		LoadBalanceProviders *bool              `json:"loadBalanceProviders"`
+		ParallelMode         *bool              `json:"parallelMode"`
+		WebhookURL           *string            `json:"webhookUrl"`
+		WebhookEnabled       *bool              `json:"webhookEnabled"`
+		TelegramBotToken     *string            `json:"telegramBotToken"`
+		TelegramChatID       *string            `json:"telegramChatId"`
+		TelegramEnabled      *bool              `json:"telegramEnabled"`
+		AutoReview           *bool              `json:"autoReview"`
+		ReviewerSeat         *string            `json:"reviewerSeat"`
+		DailySummaryEnabled  *bool              `json:"dailySummaryEnabled"`
+		DailySummaryTime     *string            `json:"dailySummaryTime"`
+		DailySummaryChannel  *string            `json:"dailySummaryChannel"`
 		GitHubToken          *string            `json:"githubToken"`
 		MemoryEnabled        *bool              `json:"memoryEnabled"`
 		OnDemandTools        *bool              `json:"onDemandTools"`
 		ToolPolicies         *map[string]string `json:"toolPolicies"`
 		LSPServers           *map[string]string `json:"lspServers"`
-		ClearAPIKey          bool    `json:"clearApiKey"`
+		ClearAPIKey          bool               `json:"clearApiKey"`
 	} `json:"settings"`
 }
 

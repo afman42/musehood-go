@@ -6,11 +6,79 @@
     <meta name="theme-color" content="#146b54">
     <meta name="description" content="Musehood — satu ruang percakapan, tujuh sudut pandang AI.">
     <title>Musehood — Grup multi-AI</title>
+    <script>try{var t=localStorage.getItem('musehood-theme');if(t==='dark'||(!t&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}</script>
+    <style>
+      /* Skeleton muatan awal: kerangka UI statis yang tampil sebelum
+         JS selesai dimuat (terutama lewat tunnel lambat), lalu dihapus
+         oleh aplikasi saat mount. Warna mengikuti kelas html.dark yang
+         dipasang skrip di atas sebelum paint pertama. */
+      #app-skeleton{position:fixed;inset:0;z-index:60;background:#e5ece6;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+      #app-skeleton .sk-wrap{max-width:960px;margin:0 auto;height:100vh;height:100dvh;display:flex;flex-direction:column;background:#f5f4ed;box-shadow:0 0 70px #284e3110;overflow:hidden}
+      #app-skeleton .sk-head{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:11px;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e1e8e1;flex-shrink:0}
+      #app-skeleton .sk-seats{display:flex;gap:8px;padding:10px 16px;background:#fff;border-bottom:1px solid #e1e8e1;flex-shrink:0;overflow:hidden}
+      #app-skeleton .sk-msgs{flex:1;padding:18px 22px 24px;overflow:hidden}
+      #app-skeleton .sk-row{display:flex;gap:8px;align-items:flex-start;margin:0 0 16px;max-width:86%}
+      #app-skeleton .sk-row.own{margin-left:auto;flex-direction:row-reverse}
+      #app-skeleton .sk-comp{flex-shrink:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid #e1e8e1;display:flex;gap:10px;align-items:center}
+      #app-skeleton .sk{background:#dde5da;border-radius:8px;animation:sk-pulse 1.4s ease-in-out infinite}
+      #app-skeleton .sk-av{width:42px;height:42px;border-radius:14px}
+      #app-skeleton .sk-av-sm{width:28px;height:28px;border-radius:10px;flex-shrink:0;margin-top:2px}
+      #app-skeleton .sk-head>div:nth-child(2){overflow:hidden;min-width:0}
+      #app-skeleton .sk-title{width:130px;max-width:100%;height:16px;margin-bottom:7px}
+      #app-skeleton .sk-sub{width:190px;max-width:100%;height:11px}
+      #app-skeleton .sk-icon{width:40px;height:40px;border-radius:12px}
+      #app-skeleton .sk-icons{display:flex;gap:4px}
+      #app-skeleton .sk-w48{width:48%}
+      #app-skeleton .sk-w62{width:62%}
+      #app-skeleton .sk-w70{width:70%}
+      #app-skeleton .sk-l45{width:45%}
+      #app-skeleton .sk-l64{width:64%}
+      #app-skeleton .sk-l76{width:76%}
+      #app-skeleton .sk-l81{width:81%}
+      #app-skeleton .sk-l88{width:88%}
+      #app-skeleton .sk-l92{width:92%}
+      #app-skeleton .sk-seat{width:64px;height:30px;border-radius:999px;flex-shrink:0}
+      #app-skeleton .sk-bub{background:#fff;border-radius:0 13px 13px 13px;padding:12px;box-shadow:0 1px 2px #1b3c2710;min-width:140px}
+      #app-skeleton .sk-row.own .sk-bub{background:#e0eddc;border-radius:13px 0 13px 13px}
+      #app-skeleton .sk-line{height:11px;margin-bottom:7px}
+      #app-skeleton .sk-line:last-child{margin-bottom:0}
+      #app-skeleton .sk-input{flex:1;height:44px;border-radius:12px}
+      #app-skeleton .sk-send{width:44px;height:44px;border-radius:50%;background:#146b54;flex-shrink:0}
+      #app-skeleton-status{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+      @keyframes sk-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+      @media (prefers-reduced-motion: reduce){#app-skeleton .sk{animation:none}}
+      html.dark #app-skeleton{background:#141d18}
+      html.dark #app-skeleton .sk-wrap{background:#1b2620}
+      html.dark #app-skeleton .sk-head,html.dark #app-skeleton .sk-seats,html.dark #app-skeleton .sk-comp{background:#212e27;border-color:#2e3d34}
+      html.dark #app-skeleton .sk{background:#2b3a31}
+      html.dark #app-skeleton .sk-bub{background:#26332b}
+      html.dark #app-skeleton .sk-row.own .sk-bub{background:#2b3d31}
+      html.dark #app-skeleton .sk-send{background:#5fc4a0}
+    </style>
     <link rel="icon" href="/avatars/group.svg" type="image/svg+xml">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="stylesheet" href="/style.css">
     %sveltekit.head%
   </head>
-  <body><div>%sveltekit.body%</div></body>
+  <body>
+    <div id="app-skeleton" aria-hidden="true">
+      <div class="sk-wrap">
+        <div class="sk-head">
+          <div class="sk sk-av"></div>
+          <div><div class="sk sk-title"></div><div class="sk sk-sub"></div></div>
+          <div class="sk-icons"><div class="sk sk-icon"></div><div class="sk sk-icon"></div><div class="sk sk-icon"></div></div>
+        </div>
+        <div class="sk-seats"><div class="sk sk-seat"></div><div class="sk sk-seat"></div><div class="sk sk-seat"></div><div class="sk sk-seat"></div><div class="sk sk-seat"></div><div class="sk sk-seat"></div><div class="sk sk-seat"></div></div>
+        <div class="sk-msgs">
+          <div class="sk-row"><div class="sk sk-av-sm"></div><div class="sk-bub sk-w62"><div class="sk sk-line sk-l88"></div><div class="sk sk-line sk-l64"></div></div></div>
+          <div class="sk-row own"><div class="sk sk-av-sm"></div><div class="sk-bub sk-w48"><div class="sk sk-line sk-l76"></div></div></div>
+          <div class="sk-row"><div class="sk sk-av-sm"></div><div class="sk-bub sk-w70"><div class="sk sk-line sk-l92"></div><div class="sk sk-line sk-l81"></div><div class="sk sk-line sk-l45"></div></div></div>
+        </div>
+        <div class="sk-comp"><div class="sk sk-input"></div><div class="sk sk-send"></div></div>
+      </div>
+    </div>
+    <p id="app-skeleton-status" role="status">Memuat Musehood…</p>
+    <div>%sveltekit.body%</div>
+  </body>
 </html>

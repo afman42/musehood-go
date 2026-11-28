@@ -207,7 +207,12 @@ func validateWebhookURL(raw string) error {
 	if strings.EqualFold(host, "localhost") {
 		return nil
 	}
-	ips, err := lookupIP(context.Background(), host)
+	// Lookup dibatasi waktu: pemanggil bisa memegang mutex aplikasi
+	// saat menyimpan pengaturan, DNS yang menggantung tidak boleh
+	// menahan seluruh aplikasi.
+	lookupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ips, err := lookupIP(lookupCtx, host)
 	if err != nil || len(ips) == 0 {
 		return problem(400, "Host webhook tidak dapat dijangkau.")
 	}

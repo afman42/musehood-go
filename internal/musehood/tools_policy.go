@@ -3,7 +3,7 @@ package musehood
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -136,7 +136,7 @@ func onDemandToolText(text string) string {
 		}
 		kept = append(kept, line)
 	}
-	sort.Strings(others)
+	slices.Sort(others)
 	kept = append(kept, "\nTool lain yang tersedia (ambil deskripsi + format argumennya dengan tool tool_info sebelum memakai): "+strings.Join(others, ", ")+".")
 	return strings.Join(kept, "\n")
 }

@@ -1,6 +1,7 @@
 package musehood
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"html"
@@ -13,7 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -665,7 +666,7 @@ func (a *App) toolListFiles() string {
 	if len(lines) == 0 {
 		return "Folder kerja kosong."
 	}
-	sort.Strings(lines)
+	slices.Sort(lines)
 	return truncateToolResult(strings.Join(lines, "\n"))
 }
 
@@ -701,11 +702,11 @@ func (a *App) toolWriteFile(arg string) string {
 
 const browserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
-var toolHTTPClient = &http.Client{Timeout: 25 * time.Second}
+var toolHTTPClient = &http.Client{Timeout: 25 * time.Second, CheckRedirect: checkRedirectPublic}
 
 // downloadHTTPClient dipakai unduhan file (batas lebih longgar); var agar
 // tes dapat menggantinya dengan transport palsu.
-var downloadHTTPClient = &http.Client{Timeout: 60 * time.Second}
+var downloadHTTPClient = &http.Client{Timeout: 60 * time.Second, CheckRedirect: checkRedirectPublic}
 
 func toolGet(ctx context.Context, rawURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -772,6 +773,17 @@ func checkPublicURL(ctx context.Context, raw string) error {
 		}
 	}
 	return nil
+}
+
+// checkRedirectPublic memvalidasi setiap hop redirect dengan penjaga
+// SSRF yang sama seperti URL awal. Tanpa ini, URL publik yang
+// me-redirect ke alamat privat (127.0.0.1, metadata cloud) lolos dari
+// pemeriksaan awal karena klien HTTP mengikuti redirect secara diam-diam.
+func checkRedirectPublic(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return fmt.Errorf("terlalu banyak redirect")
+	}
+	return checkPublicURL(req.Context(), req.URL.String())
 }
 
 func (a *App) toolFetchURL(ctx context.Context, raw string) string {
@@ -915,7 +927,7 @@ func (a *App) pendingApprovals() []approval {
 	for _, req := range a.approvals {
 		out = append(out, *req)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	slices.SortFunc(out, func(a, b approval) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
 	return out
 }
 

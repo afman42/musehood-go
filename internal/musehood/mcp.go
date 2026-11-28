@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -126,7 +126,7 @@ func (a *App) mcpServerViewsLocked() []map[string]any {
 		for key := range cfg.Env {
 			keys = append(keys, key)
 		}
-		sort.Strings(keys)
+		slices.Sort(keys)
 		args := cfg.Args
 		if args == nil {
 			args = []string{}

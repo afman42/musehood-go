@@ -132,7 +132,7 @@ func TestGeminiConnectionErrorRedactsEncodedKey(t *testing.T) {
 		t.Fatal("wanted a connection error")
 	}
 	w := httptest.NewRecorder()
-	a.writeJSON(w, 0, nil, err)
+	a.writeJSON(w, httptest.NewRequest(http.MethodGet, "/api/state", nil), 0, nil, err)
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("wanted 502, got %d", w.Code)
 	}

@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +30,9 @@ import (
 func roomModePrompt(r *room, s seat, cfg settings) string {
 	var out strings.Builder
 	if strings.TrimSpace(r.Goal) != "" {
-		out.WriteString("\n\nObjektif ruang (goal mode, persisten): " + r.Goal + "\nArahkan semua jawaban dan tindakanmu untuk memajukan objektif ini.")
+		out.WriteString("\n\nObjektif ruang (goal mode, persisten): ")
+		out.WriteString(r.Goal)
+		out.WriteString("\nArahkan semua jawaban dan tindakanmu untuk memajukan objektif ini.")
 	}
 	if r.PlanMode {
 		out.WriteString("\n\nPlan mode AKTIF: kamu hanya boleh memakai tool kelas Read (membaca/memeriksa). Tool yang mengubah state akan ditolak sistem. Susun rencana langkah demi langkah dan minta pemilik menyetujuinya (mematikan plan mode) sebelum eksekusi.")
@@ -52,12 +54,12 @@ type reviewInput struct {
 }
 
 // projectDiff mengembalikan diff proyek: perubahan belum commit, atau
-// diff commit terakhir bila bersih.
+// diff commit terakhir bila bersih. Memakai runProjectGit agar git
+// terikat timeout 30 detik + konteks aplikasi (fungsi ini dipanggil
+// saat mutex dipegang, git yang menggantung tidak boleh menahan app).
 func (a *App) projectDiff(dir string) (string, error) {
 	run := func(args ...string) (string, error) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		out, err := cmd.CombinedOutput()
-		return string(out), err
+		return a.runProjectGit(a.ctx, dir, args...)
 	}
 	diff, err := run("diff", "HEAD")
 	if err != nil {
@@ -120,8 +122,11 @@ type commitWorkflowInput struct {
 
 // proposeCommitGroups mengelompokkan berkas berubah per direktori atas
 // menjadi usulan commit konvensional.
-func proposeCommitGroups(dir string) ([]commitGroup, error) {
-	cmd := exec.Command("git", "-C", dir, "status", "--porcelain")
+func proposeCommitGroups(ctx context.Context, dir string) ([]commitGroup, error) {
+	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, "git", "-C", dir, "status", "--porcelain")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git status gagal (proyek belum repo git?)")
@@ -155,7 +160,7 @@ func proposeCommitGroups(dir string) ([]commitGroup, error) {
 		}
 		byScope[scope] = append(byScope[scope], path)
 	}
-	sort.Strings(order)
+	slices.Sort(order)
 	groups := make([]commitGroup, 0, len(order))
 	for _, scope := range order {
 		files := byScope[scope]

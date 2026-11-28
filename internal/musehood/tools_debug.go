@@ -260,9 +260,17 @@ func (s *debugSession) sendBreakpoints() string {
 }
 
 func (s *debugSession) stop() {
-	seq := s.send("disconnect", map[string]any{"terminateDebuggee": true})
-	_, _ = s.waitResponse(seq, 3*time.Second)
-	_ = s.conn.Close()
+	// Tutup koneksi dulu agar operasi yang sedang berjalan (memegang
+	// s.mu dan menunggu respons) segera error dan melepas kunci;
+	// sebelumnya stop() menulis/membaca koneksi + seq tanpa s.mu
+	// sehingga berlomba dengan operasi lain (bug ronde 2). Proses
+	// delve dibunuh langsung; jabat tangan disconnect tidak lagi
+	// dikirim karena koneksi sudah tertutup.
+	if s.conn != nil {
+		_ = s.conn.Close()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 		go func() { _ = s.cmd.Wait() }()

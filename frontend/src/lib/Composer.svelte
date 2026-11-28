@@ -180,7 +180,7 @@
   {/if}
   <form bind:this={composer} id="composer" class="composer" onsubmit={onSend}>
     <textarea bind:this={input} bind:value={text} id="messageInput" rows="1" maxlength="20000" placeholder={t('composerPlaceholder')} aria-label="Pesan untuk grup" required={!pendingImage && !pendingFile} onkeydown={handleEnter} oninput={() => resizeInput()}></textarea>
-    <button id="sendButton" class="send-button" class:sending={submitting} type="submit" aria-label={t('send')} title={t('send')} disabled={submitting}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8Z"/><path d="M7 12h13"/></svg>{#if submitting}<span class="send-label">{t('sending')} {sendSeconds} dtk</span>{/if}</button>
+    <button id="sendButton" class={['send-button', { sending: submitting }]} type="submit" aria-label={t('send')} title={t('send')} disabled={submitting}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8Z"/><path d="M7 12h13"/></svg>{#if submitting}<span class="send-label">{t('sending')} {sendSeconds} dtk</span>{/if}</button>
   </form>
   <p class="composer-hint">Enter untuk kirim <span>·</span> Shift + Enter untuk baris baru <span>·</span> Ketik / untuk perintah cepat</p>
 </footer>

@@ -29,7 +29,7 @@
   {#if seat}
     <div class="mention-heading"><h2 id="seatInfoTitle">Info kursi</h2><button class="icon-button" type="button" aria-label="Tutup info kursi" onclick={() => dialog.close()}>✕</button></div>
     <div class="seat-info-head">
-      <span class="seat-avatar-wrap"><img src={seat.avatar} alt={seat.name}><span class="presence-dot" class:offline={!seat.present} title={seat.present ? 'Hadir' : 'Tidak hadir'}></span></span>
+      <span class="seat-avatar-wrap"><img src={seat.avatar} alt={seat.name}><span class={['presence-dot', { offline: !seat.present }]} title={seat.present ? 'Hadir' : 'Tidak hadir'}></span></span>
       <div><strong>{seat.name}</strong><small>{seat.code} · {seat.role}</small></div>
     </div>
     <dl class="seat-info-list">

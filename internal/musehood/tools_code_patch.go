@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -69,7 +69,7 @@ func (a *App) createSnapshot(project, label string) (string, error) {
 			ids = append(ids, e.Name())
 		}
 	}
-	sort.Strings(ids)
+	slices.Sort(ids)
 	for len(ids) > maxSnapshotsPerProject {
 		_ = os.RemoveAll(filepath.Join(a.snapshotsDir(project), ids[0]))
 		ids = ids[1:]
@@ -108,7 +108,7 @@ func (a *App) toolProjectSnapshot(ctx context.Context, s seat, arg string) strin
 		if len(ids) == 0 {
 			return fmt.Sprintf("Belum ada snapshot untuk proyek %q.", project)
 		}
-		sort.Strings(ids)
+		slices.Sort(ids)
 		return fmt.Sprintf("Snapshot proyek %q (%d):\n%s", project, len(ids), strings.Join(ids, "\n"))
 	case "restore":
 		if len(fields) < 2 {

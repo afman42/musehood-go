@@ -2,6 +2,7 @@ package musehood
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,7 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -106,6 +107,18 @@ type lspClient struct {
 	cancel context.CancelFunc
 	// diagnostics menampung publishDiagnostics per URI.
 	diagnostics map[string][]lspDiagnostic
+	// incoming adalah kanal pesan dari satu-satunya goroutine pembaca.
+	// Sebelumnya drainDiagnostics men-spawn goroutine pembaca kedua yang
+	// berlomba dengan request() pada bufio.Reader yang sama dan bisa
+	// menelan respons shutdown (hang) — bug ronde 2.
+	incoming chan lspIncoming
+	// pending menampung pesan non-notifikasi yang tiba saat drain.
+	pending []map[string]any
+}
+
+type lspIncoming struct {
+	msg map[string]any
+	err error
 }
 
 type lspDiagnostic struct {
@@ -178,6 +191,38 @@ func (c *lspClient) readMessage() (map[string]any, error) {
 	return msg, nil
 }
 
+// readLoop adalah satu-satunya pembaca stdout server LSP; semua pesan
+// diteruskan ke kanal incoming agar tidak ada pembaca bersamaan.
+func (c *lspClient) readLoop() {
+	for {
+		msg, err := c.readMessage()
+		if err != nil {
+			c.incoming <- lspIncoming{err: err}
+			close(c.incoming)
+			return
+		}
+		c.incoming <- lspIncoming{msg: msg}
+	}
+}
+
+// nextMessage mengambil pesan berikutnya: antrean pending lebih dulu,
+// lalu kanal incoming.
+func (c *lspClient) nextMessage() (map[string]any, error) {
+	if len(c.pending) > 0 {
+		msg := c.pending[0]
+		c.pending = c.pending[1:]
+		return msg, nil
+	}
+	in, ok := <-c.incoming
+	if !ok {
+		return nil, fmt.Errorf("koneksi LSP berakhir")
+	}
+	if in.err != nil {
+		return nil, in.err
+	}
+	return in.msg, nil
+}
+
 // request mengirim request JSON-RPC dan menunggu respons ber-id sama,
 // sambil menampung notifikasi publishDiagnostics yang lewat.
 func (c *lspClient) request(method string, params any) (json.RawMessage, error) {
@@ -187,7 +232,7 @@ func (c *lspClient) request(method string, params any) (json.RawMessage, error) 
 		return nil, err
 	}
 	for {
-		msg, err := c.readMessage()
+		msg, err := c.nextMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -222,27 +267,23 @@ func (c *lspClient) captureNotification(msg map[string]any) {
 }
 
 // drainDiagnostics membaca pesan masuk selama jendela singkat untuk
-// menampung publishDiagnostics sesudah didOpen.
+// menampung publishDiagnostics sesudah didOpen. Pesan non-notifikasi
+// yang tiba selama drain disimpan ke pending agar tidak hilang.
 func (c *lspClient) drainDiagnostics(wait time.Duration) {
-	deadline := time.Now().Add(wait)
-	for time.Now().Before(deadline) {
-		// Baca dengan batas waktu lewat goroutine + kanal.
-		done := make(chan map[string]any, 1)
-		go func() {
-			msg, err := c.readMessage()
-			if err != nil {
-				done <- nil
-				return
-			}
-			done <- msg
-		}()
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for {
 		select {
-		case msg := <-done:
-			if msg == nil {
+		case in, ok := <-c.incoming:
+			if !ok || in.err != nil {
 				return
 			}
-			c.captureNotification(msg)
-		case <-time.After(time.Until(deadline)):
+			if in.msg["method"] == "textDocument/publishDiagnostics" {
+				c.captureNotification(in.msg)
+			} else {
+				c.pending = append(c.pending, in.msg)
+			}
+		case <-timer.C:
 			return
 		}
 	}
@@ -273,7 +314,8 @@ func (a *App) startLSP(ctx context.Context, cfg settings, projectDir, lang strin
 		cancel()
 		return nil, err
 	}
-	client := &lspClient{cmd: cmd, stdin: stdin, reader: bufio.NewReader(stdout), diagnostics: map[string][]lspDiagnostic{}, cancel: cancel}
+	client := &lspClient{cmd: cmd, stdin: stdin, reader: bufio.NewReader(stdout), diagnostics: map[string][]lspDiagnostic{}, cancel: cancel, incoming: make(chan lspIncoming, 32)}
+	go client.readLoop()
 	rootURI := "file://" + projectDir
 	if _, err := client.request("initialize", map[string]any{
 		"processId": nil,
@@ -479,7 +521,7 @@ func (a *App) toolLSPDiagnostics(ctx context.Context, arg string) string {
 	for _, d := range diags {
 		lines = append(lines, fmt.Sprintf("%s:%d:%d [%s] %s", rel, d.Range.Start.Line+1, d.Range.Start.Character+1, severity[d.Severity], d.Message))
 	}
-	sort.Strings(lines)
+	slices.Sort(lines)
 	return truncateToolResult(strings.Join(lines, "\n"))
 }
 
@@ -551,7 +593,7 @@ func (a *App) toolLSPRename(ctx context.Context, s seat, arg string) string {
 		}
 		changed = append(changed, projectRel(dir, path))
 	}
-	sort.Strings(changed)
+	slices.Sort(changed)
 	return fmt.Sprintf("Rename diterapkan (%d edit): %s", total, strings.Join(changed, ", "))
 }
 
@@ -578,8 +620,8 @@ func applyLSPTextEdits(path string, edits []lspTextEdit) error {
 		}
 		return n
 	}
-	sort.Slice(edits, func(i, j int) bool {
-		return offset(edits[i].Range.Start) > offset(edits[j].Range.Start)
+	slices.SortFunc(edits, func(a, b lspTextEdit) int {
+		return cmp.Compare(offset(b.Range.Start), offset(a.Range.Start))
 	})
 	content := string(raw)
 	for _, edit := range edits {

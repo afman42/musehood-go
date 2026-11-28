@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -89,7 +90,10 @@ type evalSession struct {
 	stderr   *ringLog
 	done     chan struct{}
 	mu       sync.Mutex
-	lastUsed time.Time
+	// lastUsed adalah UnixNano pemakaian terakhir; atomik karena
+	// pruneEvalSessions membacanya dari goroutine lain selagi evalCall
+	// menulisnya (race yang ditemukan tes berat ronde 2).
+	lastUsed atomic.Int64
 }
 
 var (
@@ -191,8 +195,9 @@ func startEvalProcess(argv []string, workDir, language, key string) (*evalSessio
 	session := &evalSession{
 		key: key, language: language, cmd: cmd, stdin: stdin,
 		reader: bufio.NewReader(stdout), stderr: stderrLog,
-		done: make(chan struct{}), lastUsed: time.Now(),
+		done: make(chan struct{}),
 	}
+	session.lastUsed.Store(time.Now().UnixNano())
 	go func() {
 		_ = cmd.Wait()
 		close(session.done)
@@ -238,7 +243,7 @@ func (s *evalSession) stderrTail() string {
 func (s *evalSession) evalCall(ctx context.Context, code string) (string, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lastUsed = time.Now()
+	s.lastUsed.Store(time.Now().UnixNano())
 	req, _ := json.Marshal(map[string]string{"code": code})
 	if _, err := s.stdin.Write(append(req, '\n')); err != nil {
 		return "", "kernel eval tidak merespons (proses mati); panggil lagi untuk sesi baru. " + s.stderrTail()
@@ -279,17 +284,17 @@ func pruneEvalSessions() {
 	defer evalMu.Unlock()
 	now := time.Now()
 	for key, s := range evalSessions {
-		if now.Sub(s.lastUsed) > evalIdleLimit {
+		if now.Sub(time.Unix(0, s.lastUsed.Load())) > evalIdleLimit {
 			s.stop()
 			delete(evalSessions, key)
 		}
 	}
 	for len(evalSessions) > evalMaxSessions {
 		var oldestKey string
-		var oldest time.Time
+		var oldest int64
 		for key, s := range evalSessions {
-			if oldestKey == "" || s.lastUsed.Before(oldest) {
-				oldestKey, oldest = key, s.lastUsed
+			if last := s.lastUsed.Load(); oldestKey == "" || last < oldest {
+				oldestKey, oldest = key, last
 			}
 		}
 		evalSessions[oldestKey].stop()
@@ -346,9 +351,17 @@ func (a *App) toolEval(ctx context.Context, s seat, arg string) string {
 	}
 	evalMu.Unlock()
 	output, errText := session.evalCall(ctx, code)
-	if errText != "" && strings.Contains(errText, "sesi dihentikan") || strings.Contains(errText, "proses mati") {
+	// Kernel yang mati (dibunuh/timeout/EOF) harus dibuang dari registri
+	// agar panggilan berikutnya membuat sesi baru; tanpa ini panggilan
+	// berikutnya gagal sekali dengan "proses mati" (bug ronde 2).
+	if errText != "" && (strings.Contains(errText, "sesi dihentikan") ||
+		strings.Contains(errText, "proses mati") ||
+		strings.Contains(errText, "kernel eval berakhir") ||
+		strings.Contains(errText, "tidak merespons")) {
 		evalMu.Lock()
-		delete(evalSessions, key)
+		if evalSessions[key] == session {
+			delete(evalSessions, key)
+		}
 		evalMu.Unlock()
 	}
 	if errText != "" {

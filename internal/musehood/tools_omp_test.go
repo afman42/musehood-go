@@ -99,7 +99,9 @@ func TestOmpASTGrepEdit(t *testing.T) {
 	}
 	// Apply dengan persetujuan mengubah file.
 	done := make(chan string, 1)
-	go func() { done <- ompRun(t, f, ctx, "ast_edit", "project:ast-uji\nfunc halo() {}\nfunc halo() { println(\"x\") }\ngo\napply") }()
+	go func() {
+		done <- ompRun(t, f, ctx, "ast_edit", "project:ast-uji\nfunc halo() {}\nfunc halo() { println(\"x\") }\ngo\napply")
+	}()
 	ompApproveNext(t, f, "edit")
 	if out := <-done; !strings.Contains(out, "diterapkan") {
 		t.Fatalf("ast_edit apply = %q", out)

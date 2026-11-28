@@ -364,9 +364,7 @@ func (r *ringLog) Write(p []byte) (int, error) {
 	text := r.partial + string(p)
 	parts := strings.Split(text, "\n")
 	r.partial = parts[len(parts)-1]
-	for _, line := range parts[:len(parts)-1] {
-		r.lines = append(r.lines, line)
-	}
+	r.lines = append(r.lines, parts[:len(parts)-1]...)
 	if len(r.lines) > 200 {
 		r.lines = r.lines[len(r.lines)-200:]
 	}

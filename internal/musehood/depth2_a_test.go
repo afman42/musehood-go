@@ -168,7 +168,7 @@ func TestModelPerTask(t *testing.T) {
 	}
 	f.api("POST", "/api/settings", object{
 		"settings": object{"integratorSeat": "M01", "toolsEnabled": false},
-		"seats": []object{{"code": "M01", "model": "base-model", "modelChat": "chat-model", "modelTools": "tools-model", "modelSummary": "sum-model"}},
+		"seats":    []object{{"code": "M01", "model": "base-model", "modelChat": "chat-model", "modelTools": "tools-model", "modelSummary": "sum-model"}},
 	}, 200)
 	// Jalur chat (tool mati) → modelChat.
 	f.api("POST", "/api/message", object{"text": "@M01 hai"}, 202)

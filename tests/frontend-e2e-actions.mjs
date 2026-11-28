@@ -83,6 +83,15 @@ try {
 
   // 6. Hapus pesan sendiri (hitung pesan pemilik saja; balasan kursi
   // dari pesan lampiran bisa masih berdatangan).
+  // Tunggu jumlah pesan pemilik stabil dulu: bubble lampiran terakhir
+  // bisa baru dirender sesaat sesudah teksnya terdeteksi (chip komposer
+  // memuat nama file yang sama), dan baseline yang terukur terlalu
+  // dini membuat hitungan tidak pernah turun di bawahnya.
+  await eventually(async () => {
+    const n = await page.locator('.message-owner').count();
+    await new Promise(r => setTimeout(r, 800));
+    return (await page.locator('.message-owner').count()) === n;
+  });
   const before = await page.locator('.message-owner').count();
   const lastOwn = page.locator('.message-owner').last();
   await lastOwn.hover();

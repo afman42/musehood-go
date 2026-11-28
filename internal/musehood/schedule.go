@@ -10,14 +10,14 @@ import (
 // scheduledMessage adalah pesan pemilik yang dikirim otomatis pada waktu
 // tertentu (sekali) atau berulang (harian/mingguan/interval jam).
 type scheduledMessage struct {
-	ID              string `json:"id"`
-	RoomID          string `json:"roomId"`
-	Text            string `json:"text"`
-	SendAt          string `json:"sendAt,omitempty"` // sekali kirim (UTC RFC3339)
-	Recur           string `json:"recur,omitempty"`  // "" | daily | weekly | interval
-	TimeOfDay       string `json:"timeOfDay,omitempty"`
-	Weekday         int    `json:"weekday,omitempty"` // 0=Minggu..6=Sabtu (weekly)
-	IntervalHours   int    `json:"intervalHours,omitempty"`
+	ID            string `json:"id"`
+	RoomID        string `json:"roomId"`
+	Text          string `json:"text"`
+	SendAt        string `json:"sendAt,omitempty"` // sekali kirim (UTC RFC3339)
+	Recur         string `json:"recur,omitempty"`  // "" | daily | weekly | interval
+	TimeOfDay     string `json:"timeOfDay,omitempty"`
+	Weekday       int    `json:"weekday,omitempty"` // 0=Minggu..6=Sabtu (weekly)
+	IntervalHours int    `json:"intervalHours,omitempty"`
 	// Repeat adalah pola mini-cron 5 kolom (menit jam tgl bulan
 	// hari-minggu) untuk pengulangan fleksibel (fitur 18). Bila terisi,
 	// ia mengalahkan Recur.

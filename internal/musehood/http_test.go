@@ -54,3 +54,19 @@ func TestReadObject(t *testing.T) {
 		})
 	}
 }
+
+// TestGatewayTransport memastikan transport gateway mengklon default
+// (proxy env tetap terbaca) dengan kolam idle per host yang cukup
+// untuk panggilan kursi paralel.
+func TestGatewayTransport(t *testing.T) {
+	tr := gatewayTransport()
+	if tr == nil {
+		t.Fatal("gatewayTransport tidak boleh nil")
+	}
+	if tr.MaxIdleConnsPerHost != 10 {
+		t.Fatalf("MaxIdleConnsPerHost = %d, mau 10", tr.MaxIdleConnsPerHost)
+	}
+	if tr.Proxy == nil {
+		t.Fatal("Proxy harus terisi (ProxyFromEnvironment dari klon default)")
+	}
+}

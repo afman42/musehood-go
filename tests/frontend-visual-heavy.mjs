@@ -63,11 +63,16 @@ try {
     await page.addStyleTag({ content: '*{animation:none!important;transition:none!important}' });
     const composer = page.getByRole('textbox', { name: 'Pesan untuk grup' });
 
-    // Kartu rating: balasan kursi dengan tombol rating.
+    // Kartu rating: balasan kursi dengan tombol rating. Kunci scroll ke
+    // bawah + hover balasan TERAKHIR agar posisi screenshot deterministik
+    // (riwayat pesan bertambah antar-tema; hover pesan pertama menggeser
+    // scroll secara tak menentu).
     await composer.fill('@Plamo pesan visual');
     await composer.press('Enter');
-    await page.getByText('Balasan polos', { exact: true }).waitFor({ timeout: 15000 });
-    await page.locator('.message:not(.message-owner)').first().hover();
+    await page.getByText('Balasan polos', { exact: true }).last().waitFor({ timeout: 15000 });
+    await page.locator('#messages').evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await page.locator('.message:not(.message-owner)').last().hover();
+    await page.locator('#messages').evaluate(el => { el.scrollTop = el.scrollHeight; });
     await page.waitForTimeout(300);
     await compareScreenshot(page, `heavy-rating-${theme}`);
 
@@ -87,6 +92,7 @@ try {
     await page.keyboard.press('Escape');
 
     // Banner offline.
+    await page.locator('#messages').evaluate(el => { el.scrollTop = el.scrollHeight; });
     await context.setOffline(true);
     await page.locator('.offline-banner').waitFor({ state: 'visible', timeout: 10000 });
     await page.waitForTimeout(300);

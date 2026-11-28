@@ -48,7 +48,11 @@ func (a *App) githubGet(ctx context.Context, cfg settings, path, accept string) 
 	if cfg.GitHubToken != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.GitHubToken)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	// Redirect harus melewati penjaga SSRF yang sama seperti tool
+	// jaringan lain; http.DefaultClient mengikuti redirect ke alamat
+	// privat tanpa pemeriksaan (bug ronde 2).
+	client := &http.Client{CheckRedirect: checkRedirectPublic}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

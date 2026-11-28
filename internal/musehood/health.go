@@ -1,10 +1,10 @@
 package musehood
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 )
@@ -120,11 +120,14 @@ func (a *App) latencyTest(ctx context.Context, id string) (int, json.RawMessage,
 		}
 		results = append(results, result)
 	}
-	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].OK != results[j].OK {
-			return results[i].OK
+	slices.SortStableFunc(results, func(a, b latencyResult) int {
+		if a.OK != b.OK {
+			if a.OK {
+				return -1
+			}
+			return 1
 		}
-		return results[i].LatencyMs < results[j].LatencyMs
+		return cmp.Compare(a.LatencyMs, b.LatencyMs)
 	})
 	raw, err := json.Marshal(map[string]any{"providerId": id, "results": results})
 	return 200, raw, err

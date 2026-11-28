@@ -5,7 +5,10 @@
   let { notify }: { notify: (message: string, error?: boolean) => void } = $props();
 
   let servers = $state<McpServerView[]>([]);
-  let loaded = $state(false);
+  // Penjaga muatan sekali jalan: sengaja NON-reaktif agar $effect
+  // tidak berlangganan variabel yang ditulisnya sendiri (fetch ganda
+  // saat reload()).
+  let loaded = false;
   let name = $state('');
   let command = $state('');
   let argsText = $state('');
@@ -102,7 +105,7 @@
   {/if}
   <label>Nama server<input aria-label="Nama server MCP" maxlength="31" placeholder="Contoh: berkas" bind:value={name}></label>
   <label>Perintah<input aria-label="Perintah server MCP" maxlength="500" placeholder="Contoh: npx" bind:value={command}></label>
-  <label>Argumen (satu per baris)<textarea aria-label="Argumen server MCP" rows="2" maxlength="2000" placeholder={"-y\n@modelcontextprotocol/server-filesystem\n/tmp"} bind:value={argsText}></textarea></label>
+  <label>Argumen (satu per baris)<textarea aria-label="Argumen server MCP" rows="2" maxlength="2000" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;/tmp" bind:value={argsText}></textarea></label>
   <label>Variabel env (KUNCI=nilai per baris, opsional)<textarea aria-label="Variabel env server MCP" rows="2" maxlength="4000" placeholder="API_KEY=rahasia" bind:value={envText}></textarea></label>
   <div class="provider-form-actions">
     <button class="secondary-button" type="button" onclick={save} disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan server MCP'}</button>

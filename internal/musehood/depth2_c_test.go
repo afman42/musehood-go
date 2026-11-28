@@ -137,7 +137,7 @@ func TestMessageTags(t *testing.T) {
 }
 
 func TestCronRepeat(t *testing.T) {
-	zone := time.FixedZone("", 7*3600) // WIB
+	zone := time.FixedZone("", 7*3600)                  // WIB
 	from := time.Date(2026, 11, 27, 10, 30, 0, 0, zone) // Jumat
 	cases := []struct {
 		repeat string

@@ -67,10 +67,10 @@ func (a *App) toolWorktreeCreate(ctx context.Context, arg string) string {
 		return "Error: gagal membuat folder worktree."
 	}
 	branch := "wt-" + name
-	out, err := a.runProjectGit(ctx, dir, "worktree", "add", "-b", branch, wtDir)
+	_, err = a.runProjectGit(ctx, dir, "worktree", "add", "-b", branch, wtDir)
 	if err != nil {
 		// Branch mungkin sudah ada dari worktree sebelumnya yang terhapus.
-		out, err = a.runProjectGit(ctx, dir, "worktree", "add", wtDir, branch)
+		out, err := a.runProjectGit(ctx, dir, "worktree", "add", wtDir, branch)
 		if err != nil {
 			return truncateToolResult("Error: git worktree add gagal: " + strings.TrimSpace(out))
 		}

@@ -5,7 +5,11 @@
   let { notify }: { notify: (message: string, error?: boolean) => void } = $props();
 
   let entries = $state<ToolLogEntry[]>([]);
-  let loaded = $state(false);
+  // Penjaga muatan sekali jalan: sengaja NON-reaktif (seperti
+  // SettingsRooms/SettingsSeats) agar $effect di bawah tidak
+  // berlangganan variabel yang ditulisnya sendiri — dengan $state,
+  // reload() memicu effect sekali lagi dan fetch menjadi ganda.
+  let loaded = false;
 
   async function load() {
     try {
@@ -45,7 +49,7 @@
       <table class="stats-table">
         <thead><tr><th>Waktu</th><th>Kursi</th><th>Tool</th><th>Argumen</th><th>Status</th><th>Durasi</th></tr></thead>
         <tbody>
-          {#each entries as entry}
+          {#each entries as entry (entry.time + '|' + entry.seatCode + '|' + entry.tool + '|' + entry.durationMs + '|' + (entry.arg ?? ''))}
             <tr>
               <td>{timeText(entry.time)}</td>
               <td>{entry.seatName} ({entry.seatCode})</td>

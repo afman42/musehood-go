@@ -1,6 +1,7 @@
 package musehood
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -244,7 +245,7 @@ func relevantDocumentChunks(d data, roomID, query string, limit int) []string {
 			order++
 		}
 	}
-	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
+	slices.SortStableFunc(candidates, func(a, b scored) int { return cmp.Compare(b.score, a.score) })
 	out := []string{}
 	for i, candidate := range candidates {
 		if i >= limit {
