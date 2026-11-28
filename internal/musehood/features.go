@@ -19,6 +19,9 @@ type roomInput struct {
 	Icon          *string   `json:"icon"`
 	Color         *string   `json:"color"`
 	DisabledTools *[]string `json:"disabledTools"`
+	Goal          *string   `json:"goal"`
+	PlanMode      *bool     `json:"planMode"`
+	VibeMode      *bool     `json:"vibeMode"`
 }
 
 var roomColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
@@ -86,7 +89,7 @@ func (a *App) roomViewsLocked() []map[string]any {
 		if participants == nil {
 			participants = []string{}
 		}
-		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived, "summary": r.Summary, "summaryCount": r.SummaryCount, "activeBranch": r.activeBranch(), "branches": branches, "icon": r.Icon, "color": r.Color, "disabledTools": r.DisabledTools, "participants": participants})
+		views = append(views, map[string]any{"id": r.ID, "name": r.Name, "createdAt": r.CreatedAt, "seatCodes": codes, "seatOrder": order, "messageCount": count, "active": r.ID == a.data.ActiveRoomID, "pinned": r.Pinned, "archived": r.Archived, "summary": r.Summary, "summaryCount": r.SummaryCount, "activeBranch": r.activeBranch(), "branches": branches, "icon": r.Icon, "color": r.Color, "disabledTools": r.DisabledTools, "participants": participants, "todos": roomTodosView(r), "checkpoints": roomCheckpointsView(r), "goal": r.Goal, "planMode": r.PlanMode, "vibeMode": r.VibeMode})
 	}
 	return views
 }
@@ -208,6 +211,19 @@ func (a *App) updateRoomLocked(id string, input roomInput) (any, error) {
 			return nil, err
 		}
 		next.DisabledTools = tools
+	}
+	if input.Goal != nil {
+		goal := strings.TrimSpace(*input.Goal)
+		if jsLength(goal) > 2000 || strings.Contains(goal, "\x00") {
+			return nil, problem(400, "Objektif ruang maksimal 2000 karakter.")
+		}
+		next.Goal = goal
+	}
+	if input.PlanMode != nil {
+		next.PlanMode = *input.PlanMode
+	}
+	if input.VibeMode != nil {
+		next.VibeMode = *input.VibeMode
 	}
 	*r = next
 	if err := a.saveLocked(); err != nil {
@@ -529,6 +545,7 @@ func (a *App) backup(w http.ResponseWriter, r *http.Request) {
 	d.Settings.PINHash = ""
 	d.Settings.APIToken = ""
 	d.Settings.TelegramBotToken = ""
+	d.Settings.GitHubToken = ""
 	// Nilai env server MCP tidak ikut cadangan (hanya nama kuncinya).
 	if len(d.Settings.MCPServers) > 0 {
 		servers := slices.Clone(d.Settings.MCPServers)
@@ -604,6 +621,11 @@ func (a *App) restore(w http.ResponseWriter, r *http.Request) {
 		if old := a.data.findProvider(incoming.Settings.ActiveProviderID); old != nil {
 			incoming.Settings.APIKey = old.APIKey
 		}
+	}
+	// Token GitHub tidak ikut cadangan; yang tersimpan di mesin ini
+	// dipertahankan bila cadangan tidak membawanya.
+	if incoming.Settings.GitHubToken == "" {
+		incoming.Settings.GitHubToken = a.data.Settings.GitHubToken
 	}
 	// Nilai env server MCP yang kosong di cadangan diisi ulang dari
 	// server bernama sama yang sudah tersimpan di mesin ini.

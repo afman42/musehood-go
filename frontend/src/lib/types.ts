@@ -28,6 +28,11 @@ export type Settings = {
   dailySummaryEnabled?: boolean;
   dailySummaryTime?: string;
   dailySummaryChannel?: string;
+  lspServers?: Record<string, string>;
+  hasGithubToken?: boolean;
+  memoryEnabled?: boolean;
+  toolPolicies?: Record<string, string>;
+  onDemandTools?: boolean;
 };
 export type SkillDef = { name: string; description: string; source?: string; usage?: number };
 export type Reaction = { emoji: string; count: number; byOwner: boolean };
@@ -46,7 +51,10 @@ export type Message = {
 };
 export type ToolCallRecord = { name: string; arg?: string; result?: string; ok: boolean };
 export type RoomBranch = { id: string; messageCount: number };
-export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; seatOrder?: string[]; messageCount?: number; pinned?: boolean; archived?: boolean; active?: boolean; activeBranch?: string; branches?: RoomBranch[]; icon?: string; color?: string; disabledTools?: string[]; participants?: string[]; subagentOf?: string };
+export type RoomTodo = { id: string; text: string; status: string; createdAt: string; updatedAt?: string };
+export type RoomCheckpoint = { id: string; label: string; messageId: string; createdAt: string };
+export type DurableMemory = { id: string; text: string; tags?: string[]; seatCode?: string; createdAt: string };
+export type Room = { id: string; name: string; createdAt: string; seatCodes?: string[]; seatOrder?: string[]; messageCount?: number; pinned?: boolean; archived?: boolean; active?: boolean; activeBranch?: string; branches?: RoomBranch[]; icon?: string; color?: string; disabledTools?: string[]; participants?: string[]; subagentOf?: string; todos?: RoomTodo[]; checkpoints?: RoomCheckpoint[]; goal?: string; planMode?: boolean; vibeMode?: boolean };
 export type ProviderHealth = { ok: boolean; latencyMs: number; checkedAt: string; error?: string; circuit?: string };
 export type ToolLogEntry = { time: string; seatCode: string; seatName: string; tool: string; arg?: string; ok: boolean; durationMs: number };
 export type Persona = { id: string; name: string; role: string; prompt: string; disabledTools?: string[]; skills?: string[] };

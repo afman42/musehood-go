@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import Toast from '../../lib/Toast.svelte';
   import RoomBar from '../../lib/RoomBar.svelte';
+  import RoomWorkPanel from '../../lib/RoomWorkPanel.svelte';
   import SearchBar from '../../lib/SearchBar.svelte';
   import SeatStrip from '../../lib/SeatStrip.svelte';
   import PinnedBar from '../../lib/PinnedBar.svelte';
@@ -591,6 +592,16 @@
   </header>
   {#if current && current.rooms.length > 0}
     <RoomBar rooms={current.rooms} activeRoomId={current.activeRoomId} onSwitch={switchRoom} onAdd={() => void openRoomDialog()} onSummarize={() => chat.summarizeRoom().catch((e) => chat.notify(errorText(e), true))} onTogglePin={(room) => chat.toggleRoomPin(room).catch((e) => chat.notify(errorText(e), true))} />
+    {@const workRoom = current.rooms.find((room) => room.id === current.activeRoomId)}
+    {#if workRoom}
+      <RoomWorkPanel room={workRoom}
+        onAddTodo={(text) => chat.addRoomTodo(workRoom.id, text).catch((e) => chat.notify(errorText(e), true))}
+        onTodoStatus={(todoId, status) => chat.setRoomTodoStatus(workRoom.id, todoId, status).catch((e) => chat.notify(errorText(e), true))}
+        onDeleteTodo={(todoId) => chat.deleteRoomTodo(workRoom.id, todoId).catch((e) => chat.notify(errorText(e), true))}
+        onCheckpoint={(label) => chat.addRoomCheckpoint(workRoom.id, label).catch((e) => chat.notify(errorText(e), true))}
+        onRewind={(checkpointId) => chat.rewindRoom(workRoom.id, checkpointId).catch((e) => chat.notify(errorText(e), true))}
+        onModes={(patch) => chat.setRoomModes(workRoom.id, patch).catch((e) => chat.notify(errorText(e), true))} />
+    {/if}
   {/if}
   {#if searchOpen}
     <SearchBar bind:this={searchBar} bind:query bind:filters={searchFilters} seats={current?.seats ?? []} rooms={current?.rooms ?? []} matchCount={matches.length} {matchIndex} serverResults={chat.serverResults}

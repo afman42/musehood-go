@@ -155,7 +155,14 @@ func (a *App) gatewayMessages(s seat, d data, j *job) []gatewayMessage {
 		}
 	}
 	if d.Settings.toolsOn() {
-		system += a.buildToolInstructions(d.Settings.codeToolOn(), s, d.Settings.MCPServers)
+		system += a.buildToolInstructions(d.Settings.codeToolOn(), s, d.Settings.MCPServers, d.Settings.onDemandOn())
+	}
+	// Goal/plan/vibe mode ruang (fitur omp 12): objektif persisten dan
+	// mode kerja disuntikkan ke system prompt.
+	if j.RoomID != "" {
+		if r := d.findRoom(j.RoomID); r != nil {
+			system += roomModePrompt(r, s, d.Settings)
+		}
 	}
 	history := []gatewayMessage{{"system", system}}
 	for _, m := range contextFor(d, j).Messages {

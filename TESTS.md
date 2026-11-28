@@ -2,6 +2,27 @@
 
 Terakhir dijalankan 28 November 2026 dengan Go 1.27.4 (`linux/amd64`), Node.js 24.22.1, dan Chromium lokal melalui Playwright 1.65.1. Pengujian memakai gateway mock di loopback dan direktori data sementara.
 
+## 13 item gaya omp + skenario agen (28 Nov 2026)
+
+36 tool bawaan baru (total **111**) dari pesanan "implementasi semuanya" gaya omp, dengan **14 fungsi tes Go baru** di `internal/musehood/tools_omp_test.go` + **8 skenario agen** di `internal/musehood/agent_scenarios_test.go` + **36 kasus baru** di `heavy_tools_test.go` (semua 111 tool bawaan diuji argumen valid + invalid):
+
+- `ast_grep`/`ast_edit`: ast-grep 0.51.3 nyata — pola ditemukan, pratinjau diff tidak mengubah file, `apply` mengubah file (persetujuan `edit` + snapshot), argumen invalid ditolak.
+- LSP: gopls nyata (definition/references/diagnostics pada proyek Go sungguhan; `workspaceFolders` wajib — ditemukan lewat debug manual) + server LSP palsu Python (rename menerapkan WorkspaceEdit `changes` + `documentChanges`); tanpa server = pesan instalasi.
+- `eval`: kernel Python persisten — variabel panggilan pertama terbaca di kedua, `reset` mengosongkan state, pola berbahaya = persetujuan.
+- Debug DAP: delve nyata (launch program Go, breakpoint, inspect variabel, stop) + server DAP palsu Python (handshake request_seq); tanpa dlv = pesan jelas.
+- Browser CDP: Chromium nyata terhadap halaman lokal (plumbing diuji langsung karena tool menolak loopback via SSRF; navigasi/klik/isi/snapshot/tab) + degradasi tanpa Chromium.
+- GitHub: server HTTP palsu lokal (`MUSEHOOD_GITHUB_API`) — baca repo/file/issue/PR/diff, search, actions; token dikosongkan di backup + dipulihkan saat restore; tanpa token = baca publik + pesan jelas.
+- `security_scan`: govulncheck nyata pada proyek Go bersih, pola secret terdeteksi tanpa menampilkan nilai, pemindai hilang dilaporkan jujur.
+- Hub/checkpoint/rewind/todo/memori/learn/manage_skill: pesan antar-kursi masuk ruang, registri proses latar, checkpoint + rewind memotong pesan (persetujuan), todo API+tool, memori durable retain/recall/reflect/edit + toggle, skill terkelola dibuat/dipensiunkan.
+- Workflow: `/api/review` membuat job tinjauan, `/api/commit-workflow` mengusulkan grup lalu commit sesudah `approve:true`, goal/plan/vibe mode (plan menolak tool tulis di dispatch), `/api/autoresearch` mencatat metrik per iterasi tanpa reset destruktif.
+- Kebijakan per tool + katalog on-demand: `deny` menolak dengan pesan jelas, `prompt` memicu persetujuan kind `tool`, `tool_info` mengembalikan deskripsi.
+- **Skenario agen gabungan** (rantai multi-tool lewat dispatch penuh, bukan fungsi internal): (a) coding create→edit→ast_grep→run_tests gagal→perbaiki→lulus→git_commit berpersetujuan; (b) riset web_search→fetch_url→browser_open→memory_retain→recall; (c) orkestrasi todo→spawn_subagent→hub_message→check_subagent→checkpoint→rewind berpersetujuan; (d) Code Mode `execute` memanggil 3 tool berbeda dalam satu skrip; (e) plan mode menolak tulis lalu lolos sesudah persetujuan; (f) MCP palsu dipanggil langsung + dari dalam `execute`; (g) eval persisten berbagi state; (h) kebijakan deny/prompt. **8/8 lulus.**
+- **Skenario LIVE** via kursi gateway sungguhan (M04 Deepseek): `todo_add` → `eval` python `print(6*7)` = 42 → `memory_retain` — terverifikasi ujung-ke-ujung di produksi, ruang uji dibersihkan.
+
+Bug ditemukan + diperbaiki saat pengetesan: (1) kernel eval mati di produksi karena path bind bwrap relatif (`a.dir` = direktori kerja) — dijadikan absolut; (2) `systemd-run --scope` gagal dari dalam service ("Failed to connect to bus") — eval kini jatuh ke bwrap langsung seperti `run_code`; (3) handshake DAP menelan respons `launch` — digabung ke satu loop request_seq; (4) target CDP hancur saat navigasi — `evaluate` mencoba ulang sekali dengan target baru; (5) parsing `git status --porcelain` tidak boleh TrimSpace (spasi depan signifikan).
+
+Total sesudah batch ini: **338 fungsi tes Go** (`go test -list`) + 12 benchmark, unit **76**, component **43**, `svelte-check` 0 error, `go vet` bersih, suite Go penuh hijau.
+
 ## 6 tool gaya OpenCode (28 Nov 2026)
 
 Sepuluh tool bawaan baru (total 75) dari pesanan "implementasi semuanya" gaya OpenCode, dengan **9 fungsi tes Go baru** di `internal/musehood/tools_opencode_test.go` + **10 kasus baru** di `heavy_tools_test.go` (semua 75 tool bawaan kini diuji argumen valid + invalid) + **5 tes component baru** (`tests/component/opencode-components.test.mjs`):
@@ -10,7 +31,7 @@ Sepuluh tool bawaan baru (total 75) dari pesanan "implementasi semuanya" gaya Op
 - `spawn_subagent`/`check_subagent`: spawn membuat ruang sub + job, check membaca balasan, ringkasan diposting ke ruang induk, spawn dari ruang sub ditolak (kedalaman 2), kursi tujuan harus gateway.
 - `execute` (Code Mode): RPC JSON-lines memanggil tool lain (`current_time`) dari JS sandbox, nilai return, batas 20 panggilan, `execute` bersarang diblokir, `throw` → teks error.
 - `worktree_create/list/remove`: proyek tanpa commit ditolak dengan pesan jelas; commit nyata via git, create/list/remove, duplikat + nama tidak valid ditolak.
-- `browser_open/screenshot/links`: degradasi tanpa Chromium (pesan instalasi bahasa Indonesia), penjaga SSRF loopback, ekstraksi tautan; render nyata Chromium pada URL `data:` dengan konten yang disuntikkan JS (dilewati bila Chromium tidak ada). Klik/form/Lighthouse tidak diimplementasikan (butuh CDP).
+- `browser_open/screenshot/links`: degradasi tanpa Chromium (pesan instalasi bahasa Indonesia), penjaga SSRF loopback, ekstraksi tautan; render nyata Chromium pada URL `data:` dengan konten yang disuntikkan JS (dilewati bila Chromium tidak ada). Klik/isi form kini tersedia lewat tool CDP gaya omp (lihat bagian di atas); Lighthouse tetap tidak diimplementasikan.
 - MCP stdio: server MCP palsu (script Python JSON-RPC) → initialize + tools/list + tools/call; nilai env tidak bocor ke respons API/state; tool muncul di `GET /api/tools`; panggilan butuh persetujuan kind `mcp` (timeout = ditolak); tool tak dikenal ditolak; batas 5 server; hapus server + 404.
 
 Bug ditemukan + diperbaiki saat pengetesan: map cache MCP `mcpRefreshing` tidak pernah diinisialisasi → panic "assignment to entry in nil map" saat memegang mutex cache → deadlock permanen pada `GET /api/tools`. Diperbaiki dengan inisialisasi map di bawah lock + `defer Unlock` di ketiga jalur cache.

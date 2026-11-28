@@ -13,6 +13,7 @@
   import SettingsStats from './SettingsStats.svelte';
   import SettingsToolLog from './SettingsToolLog.svelte';
   import SettingsMCP from './SettingsMCP.svelte';
+  import SettingsOmp from './SettingsOmp.svelte';
   import SettingsSecurity from './SettingsSecurity.svelte';
   import SettingsBackup from './SettingsBackup.svelte';
   import type { Notice, ReviewLevel, RoomEdit, SeatEdit, State } from './types';
@@ -217,6 +218,7 @@
     <SettingsStats {current} />
     <SettingsToolLog bind:this={toolLogPanel} {notify} />
     <SettingsMCP bind:this={mcpPanel} {notify} />
+    <SettingsOmp {current} {mutate} {notify} />
     <SettingsSecurity {current} {notify} {refresh} />
     <SettingsBackup {current} {refresh} {notify} onSync={syncSeats} />
     <section class="settings-section danger-section">

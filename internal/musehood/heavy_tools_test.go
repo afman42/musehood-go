@@ -1,6 +1,6 @@
 package musehood
 
-// Tes berat sapu bersih 75 tool bawaan (28 Nov 2026): tiap tool dipanggil
+// Tes berat sapu bersih 111 tool bawaan (28 Nov 2026): tiap tool dipanggil
 // sekali dengan argumen valid minimal dan sekali dengan argumen invalid.
 // Tool jaringan dimock lewat toolHTTPClient (RoundTripper palsu) +
 // lookupIP yang mengembalikan IP publik, tanpa melemahkan penjaga SSRF.
@@ -69,7 +69,7 @@ func TestHeavyAllBuiltinTools(t *testing.T) {
 	approvalTimeout = 150 * time.Millisecond
 	defer func() { approvalTimeout = oldApproval }()
 
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), toolRunInfoKey{}, toolRunInfo{RoomID: defaultRoomID})
 	model := "plain"
 	s := seat{Code: "M01", Name: "Plamo", Model: &model}
 	// generate_image memakai peran kursi Visual (M03) dari data fixture.
@@ -95,6 +95,13 @@ func TestHeavyAllBuiltinTools(t *testing.T) {
 
 	// Persiapan berkas sandbox: teks, CSV, gambar PNG.
 	run("write_file", "catatan.txt\nisi catatan uji")
+	// Proyek Go terpisah yang terkompilasi untuk kasus debug (proyek
+	// uji-proyek punya main ganda dari kasus copy_file).
+	run("create_project", "uji-debug\ngo")
+	// Satu pesan di ruang bawaan agar checkpoint punya titik acuan.
+	f.app.mu.Lock()
+	f.app.data.Messages = append(f.app.data.Messages, &message{ID: uuid(), CreatedAt: now(), AuthorType: "owner", Text: "pesan awal sweep", Status: "completed", RoomID: defaultRoomID, BranchID: "main"})
+	f.app.mu.Unlock()
 	run("write_file", "data.csv\nnama,umur\nBudi,30\nSari,25")
 	sandbox := f.app.sandboxDir()
 	_ = os.MkdirAll(sandbox, 0700)
@@ -186,6 +193,43 @@ func TestHeavyAllBuiltinTools(t *testing.T) {
 		{"browser_open", "https://example.com/halaman", "", "bukan-url", "Error"},
 		{"browser_screenshot", "https://example.com", "", "bukan-url", "Error"},
 		{"browser_links", "https://example.com/halaman", "", "bukan-url", "Error"},
+		// Tool gaya omp (13 item, 28 Nov 2026).
+		{"ast_grep", "project:uji-proyek\nfunc $NAME() { $$$ }\ngo", "main2.go", "project:uji-proyek\n", "Error"},
+		{"ast_edit", "project:uji-proyek\nfunc main() { $$$ }\nfunc main() { println(\"y\") }\ngo", "Pratinjau", "project:uji-proyek\nsatu baris", "Error"},
+		{"lsp_definition", "project:uji-proyek\nmain2.go\n5\n6", "Definisi", "project:uji-proyek\ntidak-ada.go\n1\n1", "Error"},
+		{"lsp_references", "project:uji-proyek\nmain2.go\n5\n6", "", "project:uji-proyek\ntidak-ada.go\n1\n1", "Error"},
+		{"lsp_diagnostics", "project:uji-proyek\nmain2.go", "", "project:uji-proyek\ntidak-ada.go", "Error"},
+		{"lsp_rename", "project:uji-proyek\nmain_test.go\n5\n6\nTestUtama", "TIDAK diterapkan", "project:uji-proyek\nmain2.go\n3", "Error"},
+		{"eval", "python\nx = 40 + 2\nprint(x)", "42", "ruby\nputs 1", "Error"},
+		{"debug_launch", "project:uji-debug\n.", "Sesi debug", "project:tidak-ada\n.", "Error"},
+		{"debug_breakpoint", "project:uji-debug\nmain.go\n6", "Breakpoint", "project:uji-debug\nmain.go\nabc", "Error"},
+		{"debug_step", "continue", "", "lompat", "Error"},
+		{"debug_inspect", "", "", "", ""},
+		{"debug_stop", "", "", "", ""},
+		{"browser_click", "https://example.com\nh1", "", "bukan-url\nh1", "Error"},
+		{"browser_type", "https://example.com\ninput\nteks uji", "", "bukan-url\ninput\nx", "Error"},
+		{"browser_snapshot", "https://example.com", "", "bukan-url", "Error"},
+		{"browser_tabs", "list", "", "perintah-aneh", "Error"},
+		{"github_read", "repo afman42/musehood-go", "", "repo format-salah", "Error"},
+		{"github_search", "repos\nmusehood", "", "jenis-aneh\nx", "Error"},
+		{"github_actions", "runs afman42/musehood-go", "", "runs format-salah", "Error"},
+		{"github_push", "project:uji-proyek", "token", "project:uji-proyek", "token"},
+		{"security_scan", "project:uji-proyek", "govulncheck", "project:tidak-ada", "Pola secret"},
+		{"hub_message", "M02\nHalo dari sweep", "terkirim", "M99\nHalo", "Error"},
+		{"hub_processes", "", "", "", ""},
+		{"hub_stop", "browser", "", "aneh", "Error"},
+		{"checkpoint", "titik sweep", "Checkpoint dibuat", "", ""},
+		{"rewind", "titik sweep", "TIDAK dilakukan", "label-aneh", "Error"},
+		{"memory_retain", "fakta sweep uji\ntag1", "tersimpan", "", "Error"},
+		{"memory_recall", "uji", "", "", "Error"},
+		{"memory_reflect", "sweep", "", "", "Error"},
+		{"memory_edit", "delete id-aneh", "Error", "perintah-aneh", "Error"},
+		{"learn", "Pelajaran sweep\nIsi pelajaran sweep.", "tersimpan", "satu baris", "Error"},
+		{"manage_skill", "list", "", "perintah-aneh", "Error"},
+		{"todo_add", "tugas sweep", "ditambahkan", "", "Error"},
+		{"todo_update", "1\ndone", "done", "1\nstatus-aneh", "Error"},
+		{"todo_list", "", "tugas sweep", "", ""},
+		{"tool_info", "ast_grep", "ast_grep", "tool-aneh", "Error"},
 	}
 
 	if len(cases) != len(builtinToolNames) {

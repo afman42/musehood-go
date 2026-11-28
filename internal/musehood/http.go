@@ -382,7 +382,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 	path := r.URL.Path
 	var want string
 	switch path {
-	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools", "/api/tool-log", "/api/personas", "/api/update/check", "/api/roles":
+	case "/api/state", "/api/queue/muse", "/api/stats", "/api/search", "/api/skills", "/api/tools", "/api/tool-log", "/api/personas", "/api/update/check", "/api/roles", "/api/memories":
 		want = http.MethodGet
 	case "/api/providers", "/api/rooms", "/api/presets", "/api/scheduled", "/api/templates", "/api/chains", "/api/mcp-servers":
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -390,7 +390,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 		}
 		want = r.Method
-	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote", "/api/login", "/api/logout", "/api/pin", "/api/debate", "/api/skills/install", "/api/update/apply", "/api/external-token/regenerate", "/api/external/message", "/api/abtest", "/api/ollama/detect", "/api/ollama/add":
+	case "/api/settings", "/api/message", "/api/test-connection", "/api/test-model", "/api/progress", "/api/clear", "/api/upload-avatar", "/api/upload-image", "/api/upload-file", "/api/seats", "/api/vote", "/api/login", "/api/logout", "/api/pin", "/api/debate", "/api/skills/install", "/api/update/apply", "/api/external-token/regenerate", "/api/external/message", "/api/abtest", "/api/ollama/detect", "/api/ollama/add", "/api/review", "/api/commit-workflow", "/api/autoresearch":
 		want = http.MethodPost
 	default:
 		if strings.HasPrefix(path, "/api/queue/muse/") && !strings.Contains(strings.TrimPrefix(path, "/api/queue/muse/"), "/") {
@@ -400,6 +400,8 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 		} else if strings.HasPrefix(path, "/api/seats/") && strings.HasSuffix(path, "/clone") && r.Method == http.MethodPost {
 			want = http.MethodPost
 		} else if strings.HasPrefix(path, "/api/seats/") && !strings.Contains(strings.TrimPrefix(path, "/api/seats/"), "/") {
+			want = http.MethodDelete
+		} else if strings.HasPrefix(path, "/api/memories/") && !strings.Contains(strings.TrimPrefix(path, "/api/memories/"), "/") && r.Method == http.MethodDelete {
 			want = http.MethodDelete
 		} else if strings.HasPrefix(path, "/api/rooms/") {
 			rest := strings.TrimPrefix(path, "/api/rooms/")
@@ -413,7 +415,11 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					w.Header().Set("Allow", "POST, DELETE")
 					return 0, nil, problem(405, "Metode tidak diizinkan untuk endpoint ini.")
 				}
-			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive" || parts[1] == "branch" || parts[1] == "participants") && r.Method == http.MethodPost {
+			} else if len(parts) == 2 && (parts[1] == "activate" || parts[1] == "summarize" || parts[1] == "archive" || parts[1] == "branch" || parts[1] == "participants" || parts[1] == "checkpoint" || parts[1] == "rewind" || parts[1] == "todos") && r.Method == http.MethodPost {
+				want = http.MethodPost
+			} else if len(parts) == 3 && parts[1] == "todos" && r.Method == http.MethodDelete {
+				want = http.MethodDelete
+			} else if len(parts) == 4 && parts[1] == "todos" && parts[3] == "status" && r.Method == http.MethodPost {
 				want = http.MethodPost
 			} else if len(parts) == 2 && parts[1] == "documents" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
 				want = r.Method
@@ -717,6 +723,56 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			sort.Strings(builtin)
 			return map[string]any{"tools": a.loadCustomTools(), "builtin": builtin, "mcp": a.mcpToolViews(a.data.Settings.MCPServers)}, nil
 		})
+	case "/api/review":
+		var input reviewInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(202, func() (any, error) { return a.reviewLocked(input) })
+	case "/api/commit-workflow":
+		var input commitWorkflowInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		dir, err := a.ensureProject(input.Project)
+		if err != nil {
+			return 0, nil, problem(400, err.Error())
+		}
+		ensureProjectGitignore(dir)
+		if !input.Approve {
+			groups, err := proposeCommitGroups(dir)
+			if err != nil {
+				return 0, nil, problem(400, err.Error())
+			}
+			return a.respondLocked(200, func() (any, error) {
+				return map[string]any{"groups": groups, "note": "Kirim ulang dengan approve:true (boleh mengubah pesan grup) untuk menjalankan commit. Push terpisah lewat tool github_push."}, nil
+			})
+		}
+		done, err := executeCommitGroups(r.Context(), dir, input.Groups)
+		if err != nil {
+			return 0, nil, problem(400, err.Error())
+		}
+		return a.respondLocked(200, func() (any, error) {
+			return map[string]any{"committed": done}, nil
+		})
+	case "/api/autoresearch":
+		var input autoresearchInput
+		if err := readObject(w, r, &input); err != nil {
+			return 0, nil, err
+		}
+		result, err := a.runAutoresearch(r.Context(), input)
+		if err != nil {
+			return 0, nil, err
+		}
+		return a.respondLocked(200, func() (any, error) { return result, nil })
+	case "/api/memories":
+		return a.respondLocked(200, func() (any, error) {
+			memories := a.data.Memories
+			if memories == nil {
+				memories = []durableMemory{}
+			}
+			return map[string]any{"memories": memories}, nil
+		})
 	case "/api/mcp-servers":
 		if r.Method == http.MethodGet {
 			return a.respondLocked(200, func() (any, error) {
@@ -987,6 +1043,18 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 			}
 			return 0, nil, problem(404, "Endpoint API tidak ditemukan.")
 		}
+		if strings.HasPrefix(path, "/api/memories/") {
+			id := strings.TrimPrefix(path, "/api/memories/")
+			return a.respondLocked(200, func() (any, error) {
+				for i := range a.data.Memories {
+					if a.data.Memories[i].ID == id {
+						a.data.Memories = append(a.data.Memories[:i], a.data.Memories[i+1:]...)
+						return map[string]bool{"ok": true}, a.saveLocked()
+					}
+				}
+				return nil, problem(404, "Memori tidak ditemukan.")
+			})
+		}
 		if strings.HasPrefix(path, "/api/rooms/") {
 			rest := strings.TrimPrefix(path, "/api/rooms/")
 			parts := strings.Split(rest, "/")
@@ -1028,6 +1096,97 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) (int, json.RawMessage,
 					return 0, nil, err
 				}
 				return a.respondLocked(200, func() (any, error) { return a.addParticipantLocked(parts[0], body.Name) })
+			}
+			if len(parts) == 2 && parts[1] == "checkpoint" {
+				var body struct {
+					Label string `json:"label"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(201, func() (any, error) {
+					room := a.data.findRoom(parts[0])
+					if room == nil {
+						return nil, problem(404, "Ruang tidak ditemukan.")
+					}
+					cp, err := a.addCheckpointLocked(room, body.Label)
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{"checkpoint": cp}, a.saveLocked()
+				})
+			}
+			if len(parts) == 2 && parts[1] == "rewind" {
+				var body struct {
+					CheckpointID string `json:"checkpointId"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) {
+					room := a.data.findRoom(parts[0])
+					if room == nil {
+						return nil, problem(404, "Ruang tidak ditemukan.")
+					}
+					cp := findCheckpointLocked(room, body.CheckpointID)
+					if cp == nil {
+						return nil, problem(404, "Checkpoint tidak ditemukan.")
+					}
+					removed := a.rewindRoomLocked(room, cp)
+					if err := a.saveLocked(); err != nil {
+						return nil, err
+					}
+					return map[string]any{"removed": removed, "state": a.stateLocked()}, nil
+				})
+			}
+			if len(parts) == 2 && parts[1] == "todos" {
+				var body struct {
+					Text string `json:"text"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(201, func() (any, error) {
+					room := a.data.findRoom(parts[0])
+					if room == nil {
+						return nil, problem(404, "Ruang tidak ditemukan.")
+					}
+					todo, err := a.addRoomTodoLocked(room, body.Text)
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{"todo": todo}, a.saveLocked()
+				})
+			}
+			if len(parts) == 3 && parts[1] == "todos" {
+				return a.respondLocked(200, func() (any, error) {
+					room := a.data.findRoom(parts[0])
+					if room == nil {
+						return nil, problem(404, "Ruang tidak ditemukan.")
+					}
+					if err := a.deleteRoomTodoLocked(room, parts[2]); err != nil {
+						return nil, err
+					}
+					return map[string]bool{"ok": true}, a.saveLocked()
+				})
+			}
+			if len(parts) == 4 && parts[1] == "todos" && parts[3] == "status" {
+				var body struct {
+					Status string `json:"status"`
+				}
+				if err := readObject(w, r, &body); err != nil {
+					return 0, nil, err
+				}
+				return a.respondLocked(200, func() (any, error) {
+					room := a.data.findRoom(parts[0])
+					if room == nil {
+						return nil, problem(404, "Ruang tidak ditemukan.")
+					}
+					if err := a.updateRoomTodoLocked(room, parts[2], body.Status); err != nil {
+						return nil, err
+					}
+					return map[string]bool{"ok": true}, a.saveLocked()
+				})
 			}
 			if len(parts) == 3 && parts[1] == "participants" && parts[2] == "remove" {
 				var body struct {

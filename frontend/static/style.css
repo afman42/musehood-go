@@ -461,3 +461,41 @@ html.dark .chain-step{border-color:#3a4a3f}
    harus merender konten yang dilewati, dan tes visual jadi tidak
    deterministik. Kecepatan tema/render dijaga lewat pemakaian
    ulang objek pesan + cache parse Markdown di chat.svelte.ts. */
+
+/* Panel kerja ruang (fitur omp): todo, checkpoint, goal/plan/vibe */
+.work-panel{border-bottom:1px solid var(--line);background:#fbfcf8;flex-shrink:0}
+.work-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:7px 16px;background:none;border:0;font-size:11px;font-weight:700;color:var(--ink);cursor:pointer;text-align:left}
+.work-badge{background:#e9eee3;border:1px solid #d8e5ce;color:#3c6c40;border-radius:10px;padding:2px 8px;font-size:9.5px;font-weight:700}
+.work-badge.plan{background:#fdf3d7;border-color:#eed88a;color:#8a6d1a}
+.work-badge.vibe{background:#e8e4f7;border-color:#cfc6ec;color:#5b4a9e}
+.work-caret{margin-left:auto;color:var(--muted)}
+.work-body{padding:4px 16px 12px;display:flex;flex-direction:column;gap:10px;max-height:320px;overflow:auto}
+.work-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.work-label{font-size:10px;font-weight:750;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;min-width:110px}
+.work-goal{font-size:12px;color:var(--ink);flex:1;min-width:120px}
+.work-input{flex:1;min-width:140px;height:32px;background:#fff;border:1px solid #dfe6da;border-radius:7px;padding:6px 9px;color:var(--ink);font-size:12px}
+.work-btn{background:#edf3e7;border:1px solid #d8e5ce;color:#3c6c40;border-radius:7px;padding:6px 11px;font-size:11px;font-weight:650;cursor:pointer}
+.work-btn.ghost{background:none;border-color:transparent;color:var(--muted);text-decoration:underline}
+.work-check{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink);cursor:pointer}
+.work-section{display:flex;flex-direction:column;gap:5px}
+.todo-row{display:flex;align-items:center;gap:8px;font-size:12px}
+.todo-mark{background:none;border:0;font-size:14px;cursor:pointer;padding:2px 4px;color:var(--green)}
+.todo-text{flex:1;min-width:0;color:var(--ink)}
+.todo-text.done{text-decoration:line-through;color:var(--muted)}
+.todo-select{height:26px;border:1px solid #dfe6da;border-radius:6px;background:#fff;font-size:10.5px;color:var(--ink)}
+.todo-del{background:none;border:0;color:var(--muted);cursor:pointer;font-size:11px;padding:2px 4px}
+.todo-add{display:flex;gap:8px;margin-top:4px}
+/* Panel omp di Pengaturan */
+.omp-textarea{display:block;width:100%;background:#fff;border:1px solid #dfe6da;border-radius:8px;padding:9px 11px;margin-top:6px;color:var(--ink);font-size:12.5px;line-height:1.6;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.omp-subtitle{font-size:12.5px;font-weight:750;margin:20px 0 6px;color:var(--ink)}
+.policy-list{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow:auto;border:1px solid #e7ece1;border-radius:8px;padding:8px}
+.policy-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11.5px}
+.policy-row code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;color:var(--ink)}
+.policy-row select{height:28px;border:1px solid #dfe6da;border-radius:6px;background:#fff;font-size:11px;color:var(--ink);width:110px}
+.memory-list{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
+.memory-row{display:flex;align-items:flex-start;gap:10px;font-size:11.5px;border:1px solid #e7ece1;border-radius:8px;padding:8px 10px}
+.memory-text{flex:1;min-width:0;color:var(--ink);line-height:1.5}
+.memory-text small{color:var(--muted)}
+html.dark .work-panel{background:#232f28;border-color:#2e3d34}
+html.dark .work-input,html.dark .todo-select,html.dark .omp-textarea,html.dark .policy-row select{background:#26332b;border-color:#3a4a3f;color:var(--ink)}
+html.dark .policy-list,html.dark .memory-row{border-color:#2e3d34}

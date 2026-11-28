@@ -106,6 +106,35 @@ Tool proyek coding bekerja pada proyek bernama. Awali argumen dengan baris "proj
 - worktree_create: buat git worktree proyek pada branch "wt-<nama>" di folder <proyek>-wt/<nama> (proyek harus sudah punya commit). Argumen: nama worktree.
 - worktree_list: daftar worktree proyek. Argumen: kosongkan.
 - worktree_remove: hapus worktree proyek. Argumen: nama worktree; tambahkan "force" untuk menghapus worktree kotor (persetujuan pemilik).
+- ast_grep: cari pola sintaks (AST) lintas proyek dengan ast-grep, mis. "fmt.Println($$$)" atau "func $NAME() { $$$ }". Baris 1 argumen: pola; baris 2 (opsional): bahasa (go, python, javascript, typescript, rust, java, c, cpp, html, css, json, yaml); baris 3 (opsional): glob file.
+- ast_edit: codemod struktural ast-grep. Baris 1: pola lama; baris 2: pola baru; baris 3 (opsional): bahasa; baris 4 (opsional): "apply" untuk menerapkan (tanpa apply hanya pratinjau diff; apply memerlukan persetujuan pemilik).
+- lsp_definition: cari definisi simbol memakai language server. Baris 1: path file; baris 2: baris (1-based); baris 3: kolom (1-based).
+- lsp_references: cari semua referensi simbol memakai language server. Baris 1: path file; baris 2: baris; baris 3: kolom.
+- lsp_diagnostics: diagnostik (error/peringatan) file dari language server. Argumen: path file.
+- lsp_rename: ganti nama simbol secara semantik memakai language server. Baris 1: path file; baris 2: baris; baris 3: kolom; baris 4: nama baru. Memerlukan persetujuan pemilik.
+- browser_click: klik elemen halaman di browser interaktif (CDP). Baris 1: URL (buka tab baru bila belum ada); baris 2: selector CSS elemen.
+- browser_type: ketik teks ke elemen halaman di browser interaktif. Baris 1: URL; baris 2: selector CSS; baris 3: teks yang diketik.
+- browser_snapshot: ringkasan teks/DOM halaman aktif di browser interaktif. Argumen: URL (atau kosongkan untuk tab aktif).
+- browser_tabs: kelola tab browser interaktif. Argumen: "list", "open <url>", "close <id>", atau "activate <id>".
+- github_read: baca repo/file/issue/PR/diff GitHub. Argumen: "repo <owner>/<repo>", "file <owner>/<repo> <path> [ref]", "issue <owner>/<repo> <nomor>", "pr <owner>/<repo> <nomor>", atau "diff <owner>/<repo> <nomor-pr>".
+- github_search: cari di GitHub. Baris 1: jenis (repos, code, issues); baris 2: kata kunci.
+- github_actions: status GitHub Actions. Argumen: "runs <owner>/<repo>" atau "run <owner>/<repo> <id>".
+- github_push: push proyek lokal ke remote GitHub-nya. Argumen: kosongkan (atau awalan project:<nama>). Memerlukan persetujuan pemilik dan token GitHub di Pengaturan.
+- hub_message: kirim pesan ke kursi lain (sebagai pesan sistem di ruang ini). Baris 1: kode kursi tujuan; baris berikutnya: isi pesan.
+- hub_processes: daftar proses latar yang hidup (dev server, sesi eval, sesi debug, browser). Argumen: kosongkan.
+- hub_stop: hentikan proses latar. Argumen: id proses dari hub_processes (mis. "server:<proyek>", "eval:<kunci>", "debug:<id>", "browser").
+- checkpoint: tandai titik balik percakapan ruang ini. Argumen (opsional): label checkpoint.
+- rewind: kembali ke checkpoint (memotong pesan sesudahnya). Argumen: id atau label checkpoint. Memerlukan persetujuan pemilik.
+- memory_recall: cari memori durable bersama. Argumen: kata kunci.
+- memory_retain: simpan fakta/pelajaran ke memori durable bersama. Baris 1: teks; baris 2 (opsional): tag dipisah koma.
+- memory_reflect: ambil memori terkait untuk kamu sintesis. Argumen: topik.
+- memory_edit: ubah/hapus memori durable. Argumen: "delete <id>" atau "update <id>\n<teks baru>".
+- learn: simpan pelajaran reusable; opsional jadikan skill. Baris 1: judul pelajaran; baris berikutnya: isi; awali baris pertama dengan "skill:<nama>" untuk juga membuat skill terkelola.
+- manage_skill: kelola skill terkelola. Argumen: "list", "create <nama>\n<deskripsi>\n<isi>", "update <nama>\n<isi baru>", atau "retire <nama>".
+- todo_add: tambah item checklist ruang. Argumen: teks item.
+- todo_update: ubah status item checklist. Baris 1: id atau nomor item; baris 2: status (pending, active, done, blocked).
+- todo_list: daftar checklist ruang ini. Argumen: kosongkan.
+- tool_info: deskripsi lengkap satu tool. Argumen: nama tool.
 
 Gunakan tool hanya bila benar-benar perlu (mis. butuh info terkini dari web atau isi file). Bila tidak perlu, jawab langsung tanpa blok tool.`
 
@@ -118,9 +147,16 @@ const codeToolInstruction = `
 - format_code: format kode proyek (gofmt, black/prettier bila tersedia). Argumen: kosongkan (atau awalan project:<nama>).
 - run_server: jalankan dev server proyek sebagai proses latar di 127.0.0.1. Argumen: perintah server (mis. "go run .", "npm start", "python3 -m http.server"), atau "status"/"stop". Satu server per proyek.
 - allowlist_shell: jalankan perintah aman tanpa persetujuan (ls, cat, head, tail, wc, pwd, echo, grep, find tanpa -exec, du, df, go/node/python3 --version, git status/log/diff) di folder proyek. Tanpa metakarakter shell.
-- execute: jalankan JavaScript di sandbox yang sama (maks 30 detik) dengan fungsi tool(nama, argumen) untuk memanggil tool lain dari dalam kode (maks 20 panggilan; setiap panggilan melewati cek izin/persetujuan yang sama). Argumen: kode JavaScript; gunakan await tool("web_search", "...") dan console.log/return untuk hasil. Kode berbahaya memerlukan persetujuan pemilik.`
+- execute: jalankan JavaScript di sandbox yang sama (maks 30 detik) dengan fungsi tool(nama, argumen) untuk memanggil tool lain dari dalam kode (maks 20 panggilan; setiap panggilan melewati cek izin/persetujuan yang sama). Argumen: kode JavaScript; gunakan await tool("web_search", "...") dan console.log/return untuk hasil. Kode berbahaya memerlukan persetujuan pemilik.
+- eval: kernel persisten Python/JavaScript di sandbox (state bertahan antar-panggilan untuk ruang+kursi+bahasa yang sama, maks 30 detik per panggilan). Baris pertama argumen: bahasa (python atau javascript); baris berikutnya: kode. Argumen khusus "reset" (setelah baris bahasa) mengosongkan state. Kode berbahaya memerlukan persetujuan pemilik.
+- debug_launch: mulai sesi debug DAP (delve) untuk proyek Go. Baris 1: path program (mis. "." atau "./cmd/app"); baris 2 (opsional): argumen program.
+- debug_breakpoint: pasang breakpoint pada sesi debug aktif. Baris 1: path file; baris 2: nomor baris.
+- debug_step: lanjutkan eksekusi debug. Argumen: "continue", "next", "stepIn", atau "stepOut".
+- debug_inspect: periksa stack trace + variabel sesi debug saat berhenti. Argumen: kosongkan.
+- debug_stop: hentikan sesi debug aktif. Argumen: kosongkan.
+- security_scan: pindai keamanan proyek (govulncheck/go vet untuk Go, npm audit untuk Node, pola secret untuk semua). Argumen: kosongkan (atau awalan project:<nama>).`
 
-func (a *App) buildToolInstructions(code bool, s seat, mcpServers []mcpServerConfig) string {
+func (a *App) buildToolInstructions(code bool, s seat, mcpServers []mcpServerConfig, onDemand bool) string {
 	text := toolInstructions
 	if code {
 		text += codeToolInstruction
@@ -141,6 +177,9 @@ func (a *App) buildToolInstructions(code bool, s seat, mcpServers []mcpServerCon
 			}
 		}
 		text = strings.Join(kept, "\n")
+	}
+	if onDemand {
+		text = onDemandToolText(text)
 	}
 	for _, tool := range a.loadCustomTools() {
 		if (tool.Type == "shell" || tool.Type == "javascript") && !code {
@@ -306,6 +345,16 @@ func (a *App) recordToolLog(s seat, name, arg, result string, duration time.Dura
 func (a *App) runToolInner(ctx context.Context, cfg settings, s seat, name, arg string, code bool) (string, string) {
 	if s.toolDisabled(name) {
 		return fmt.Sprintf("Tool %s dinonaktifkan untuk kursi ini oleh pemilik.", name), ""
+	}
+	// Kebijakan per tool (fitur omp 13): deny menolak, prompt meminta
+	// persetujuan pemilik (kind "tool") sebelum tool dijalankan.
+	if blocked := a.enforceToolPolicy(ctx, cfg, s, name, arg); blocked != "" {
+		return blocked, ""
+	}
+	// Plan mode (fitur omp 12): selama aktif di ruang ini, hanya tool
+	// kelas Read yang boleh dipakai.
+	if blocked := a.enforcePlanMode(ctx, name, arg); blocked != "" {
+		return blocked, ""
 	}
 	switch name {
 	case "web_search":
@@ -485,6 +534,99 @@ func (a *App) runToolInner(ctx context.Context, cfg settings, s seat, name, arg 
 		return a.toolWorktreeList(ctx, arg), ""
 	case "worktree_remove":
 		return a.toolWorktreeRemove(ctx, s, arg), ""
+	case "ast_grep":
+		return a.toolASTGrep(ctx, arg), ""
+	case "ast_edit":
+		return a.toolASTEdit(ctx, s, arg), ""
+	case "lsp_definition":
+		return a.toolLSPDefinition(ctx, arg), ""
+	case "lsp_references":
+		return a.toolLSPReferences(ctx, arg), ""
+	case "lsp_diagnostics":
+		return a.toolLSPDiagnostics(ctx, arg), ""
+	case "lsp_rename":
+		return a.toolLSPRename(ctx, s, arg), ""
+	case "eval":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolEval(ctx, s, arg), ""
+	case "debug_launch":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolDebugLaunch(ctx, arg), ""
+	case "debug_breakpoint":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolDebugBreakpoint(ctx, arg), ""
+	case "debug_step":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolDebugStep(ctx, arg), ""
+	case "debug_inspect":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolDebugInspect(ctx, arg), ""
+	case "debug_stop":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolDebugStop(ctx, arg), ""
+	case "browser_click":
+		return a.toolBrowserClick(ctx, arg), ""
+	case "browser_type":
+		return a.toolBrowserType(ctx, arg), ""
+	case "browser_snapshot":
+		return a.toolBrowserSnapshot(ctx, arg), ""
+	case "browser_tabs":
+		return a.toolBrowserTabs(ctx, arg), ""
+	case "github_read":
+		return a.toolGitHubRead(ctx, cfg, arg), ""
+	case "github_search":
+		return a.toolGitHubSearch(ctx, cfg, arg), ""
+	case "github_actions":
+		return a.toolGitHubActions(ctx, cfg, arg), ""
+	case "github_push":
+		return a.toolGitHubPush(ctx, cfg, s, arg), ""
+	case "security_scan":
+		if !code {
+			return "Error: tool coding dimatikan di Pengaturan.", ""
+		}
+		return a.toolSecurityScan(ctx, arg), ""
+	case "hub_message":
+		return a.toolHubMessage(ctx, s, arg), ""
+	case "hub_processes":
+		return a.toolHubProcesses(), ""
+	case "hub_stop":
+		return a.toolHubStop(arg), ""
+	case "checkpoint":
+		return a.toolCheckpoint(ctx, arg), ""
+	case "rewind":
+		return a.toolRewind(ctx, s, arg), ""
+	case "memory_recall":
+		return a.toolMemoryRecall(cfg, arg), ""
+	case "memory_retain":
+		return a.toolMemoryRetain(cfg, s, arg), ""
+	case "memory_reflect":
+		return a.toolMemoryReflect(cfg, arg), ""
+	case "memory_edit":
+		return a.toolMemoryEdit(cfg, arg), ""
+	case "learn":
+		return a.toolLearn(cfg, s, arg), ""
+	case "manage_skill":
+		return a.toolManageSkill(arg), ""
+	case "todo_add":
+		return a.toolTodoAdd(ctx, arg), ""
+	case "todo_update":
+		return a.toolTodoUpdate(ctx, arg), ""
+	case "todo_list":
+		return a.toolTodoList(ctx), ""
+	case "tool_info":
+		return a.toolToolInfo(cfg, s, arg, code), ""
 	default:
 		if strings.HasPrefix(name, "mcp_") {
 			return a.runMCPTool(ctx, cfg, s, name, arg), ""

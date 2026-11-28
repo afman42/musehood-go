@@ -28,6 +28,8 @@ release-*.log
 /data.json.bak-*
 /frontend/tests/unit/.tmp/
 /worker-token.txt
+/eval-*/
+/gocache-debug/
 /projects/
 /exports/
 /snapshots/

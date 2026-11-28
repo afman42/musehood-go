@@ -206,6 +206,25 @@ type settings struct {
 	// tool-nya diekspos ke kursi sebagai mcp_<server>_<tool>. Nilai
 	// env tidak pernah keluar lewat state/cadangan.
 	MCPServers []mcpServerConfig `json:"mcpServers,omitempty"`
+	// LSPServers adalah perintah language server per bahasa untuk tool
+	// lsp_* (mis. "go" -> "gopls"). Kosong = deteksi bawaan (gopls
+	// untuk Go bila terpasang).
+	LSPServers map[string]string `json:"lspServers,omitempty"`
+	// GitHubToken adalah token GitHub untuk tool github_* (opsional;
+	// tanpa token hanya baca publik). Tidak pernah keluar lewat
+	// state/cadangan.
+	GitHubToken string `json:"githubToken,omitempty"`
+	// MemoryEnabled adalah saklar memori durable bersama (tool
+	// memory_*/learn). Nil berarti aktif.
+	MemoryEnabled *bool `json:"memoryEnabled,omitempty"`
+	// ToolPolicies adalah kebijakan per tool: "allow", "prompt"
+	// (persetujuan pemilik), atau "deny" (dilarang). Tool tanpa entri
+	// memakai perilaku bawaan tool itu.
+	ToolPolicies map[string]string `json:"toolPolicies,omitempty"`
+	// OnDemandTools membuat system prompt hanya memuat deskripsi penuh
+	// tool inti + daftar nama tool lain (deskripsi diambil lewat tool
+	// tool_info). Nil berarti MATI.
+	OnDemandTools *bool `json:"onDemandTools,omitempty"`
 }
 
 func (s settings) responseCacheOn() bool {
@@ -258,6 +277,14 @@ func (s settings) autoReviewOn() bool {
 
 func (s settings) dailySummaryOn() bool {
 	return s.DailySummaryEnabled != nil && *s.DailySummaryEnabled
+}
+
+func (s settings) memoryOn() bool {
+	return s.MemoryEnabled == nil || *s.MemoryEnabled
+}
+
+func (s settings) onDemandOn() bool {
+	return s.OnDemandTools != nil && *s.OnDemandTools
 }
 
 // dailySummaryTime mengembalikan jam ringkasan harian ("21:00" bila kosong).
@@ -464,6 +491,39 @@ type room struct {
 	// subagent (sesi anak dari tool spawn_subagent). Kosong = ruang
 	// biasa. Ruang subagent tidak boleh men-spawn subagent lagi.
 	SubagentOf string `json:"subagentOf,omitempty"`
+	// Checkpoints adalah titik balik percakapan ruang (checkpoint/
+	// rewind gaya omp): rewind memotong pesan sesudah checkpoint.
+	Checkpoints []roomCheckpoint `json:"checkpoints,omitempty"`
+	// Todos adalah checklist langkah ruang (tool todo_*), maks 100.
+	Todos []roomTodo `json:"todos,omitempty"`
+	// Goal adalah objektif persisten ruang (goal mode): disuntikkan ke
+	// system prompt kursi selama terisi.
+	Goal string `json:"goal,omitempty"`
+	// PlanMode membatasi kursi ruang ini hanya memakai tool kelas Read
+	// sampai pemilik menyetujui rencana (plan mode).
+	PlanMode bool `json:"planMode,omitempty"`
+	// VibeMode menjadikan kursi integrator direktur: instruksi sistem
+	// direktur disuntikkan agar ia mengarahkan pekerja lewat
+	// spawn_subagent/hub (vibe mode).
+	VibeMode bool `json:"vibeMode,omitempty"`
+}
+
+// roomCheckpoint adalah satu titik balik percakapan ruang.
+type roomCheckpoint struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	MessageID string `json:"messageId"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// roomTodo adalah satu item checklist ruang. Status: "pending",
+// "active", "done", atau "blocked".
+type roomTodo struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
 }
 
 // activeBranch mengembalikan branch aktif ruang ("main" bila kosong).
@@ -574,6 +634,18 @@ type data struct {
 	// LastDailySummary adalah tanggal ("2006-01-02", Asia/Jakarta)
 	// ringkasan harian terakhir dibuat (fitur 27).
 	LastDailySummary string `json:"lastDailySummary,omitempty"`
+	// Memories adalah memori durable bersama antar-kursi/sesi (tool
+	// memory_*), maks 500 entri FIFO.
+	Memories []durableMemory `json:"memories,omitempty"`
+}
+
+// durableMemory adalah satu fakta/pelajaran persisten bersama.
+type durableMemory struct {
+	ID        string   `json:"id"`
+	Text      string   `json:"text"`
+	Tags      []string `json:"tags,omitempty"`
+	SeatCode  string   `json:"seatCode,omitempty"`
+	CreatedAt string   `json:"createdAt"`
 }
 
 // toolLogEntry adalah satu catatan audit pemakaian tool.
@@ -1445,9 +1517,11 @@ func (a *App) stateLocked() any {
 	// tool (diakses lewat endpoint khusus).
 	hasPin := d.Settings.PINHash != ""
 	hasTelegramToken := d.Settings.TelegramBotToken != ""
+	hasGithubToken := d.Settings.GitHubToken != ""
 	d.Settings.PINHash = ""
 	d.Settings.APIToken = ""
 	d.Settings.TelegramBotToken = ""
+	d.Settings.GitHubToken = ""
 	// Nilai env server MCP tidak pernah keluar lewat state (hanya nama
 	// kuncinya); salin irisan + peta agar data asli tidak ikut berubah.
 	if len(d.Settings.MCPServers) > 0 {
@@ -1488,6 +1562,7 @@ func (a *App) stateLocked() any {
 			HasAPIKey        bool `json:"hasApiKey"`
 			HasPin           bool `json:"hasPin"`
 			HasTelegramToken bool `json:"hasTelegramToken"`
+			HasGithubToken   bool `json:"hasGithubToken"`
 		} `json:"settings"`
 		Presence struct {
 			Present int `json:"present"`
@@ -1502,7 +1577,8 @@ func (a *App) stateLocked() any {
 		HasAPIKey        bool `json:"hasApiKey"`
 		HasPin           bool `json:"hasPin"`
 		HasTelegramToken bool `json:"hasTelegramToken"`
-	}{d.Settings, len(key) > 0, hasPin, hasTelegramToken}, struct {
+		HasGithubToken   bool `json:"hasGithubToken"`
+	}{d.Settings, len(key) > 0, hasPin, hasTelegramToken, hasGithubToken}, struct {
 		Present int `json:"present"`
 		Total   int `json:"total"`
 	}{present, 1 + len(d.Seats)}, a.pendingApprovals(), a.pendingQuestions(), a.reactionsStatsLocked(), a.ratingsStatsLocked()}
@@ -1565,6 +1641,11 @@ type settingsUpdate struct {
 		DailySummaryEnabled  *bool   `json:"dailySummaryEnabled"`
 		DailySummaryTime     *string `json:"dailySummaryTime"`
 		DailySummaryChannel  *string `json:"dailySummaryChannel"`
+		GitHubToken          *string            `json:"githubToken"`
+		MemoryEnabled        *bool              `json:"memoryEnabled"`
+		OnDemandTools        *bool              `json:"onDemandTools"`
+		ToolPolicies         *map[string]string `json:"toolPolicies"`
+		LSPServers           *map[string]string `json:"lspServers"`
 		ClearAPIKey          bool    `json:"clearApiKey"`
 	} `json:"settings"`
 }
@@ -1894,6 +1975,64 @@ func (a *App) updateSettingsLocked(input settingsUpdate) error {
 				return problem(400, "Kursi integrator tidak dikenal.")
 			}
 			next.Settings.IntegratorSeat = code
+		}
+		if patch.GitHubToken != nil && *patch.GitHubToken != "" {
+			token := strings.TrimSpace(*patch.GitHubToken)
+			if jsLength(token) > 500 || badSetting.MatchString(token) {
+				return problem(400, "Token GitHub tidak valid.")
+			}
+			if !strings.HasPrefix(token, "••••") {
+				next.Settings.GitHubToken = token
+				a.rememberKeyLocked(token)
+			}
+		}
+		if patch.MemoryEnabled != nil {
+			enabled := *patch.MemoryEnabled
+			next.Settings.MemoryEnabled = &enabled
+		}
+		if patch.OnDemandTools != nil {
+			enabled := *patch.OnDemandTools
+			next.Settings.OnDemandTools = &enabled
+		}
+		if patch.ToolPolicies != nil {
+			if len(*patch.ToolPolicies) > 200 {
+				return problem(400, "Terlalu banyak kebijakan tool.")
+			}
+			policies := make(map[string]string, len(*patch.ToolPolicies))
+			for name, policy := range *patch.ToolPolicies {
+				name = strings.TrimSpace(name)
+				policy = strings.TrimSpace(policy)
+				if !customToolNamePattern.MatchString(name) {
+					return problem(400, "Nama tool kebijakan tidak valid: "+name)
+				}
+				if policy != "allow" && policy != "prompt" && policy != "deny" {
+					return problem(400, "Kebijakan tool harus allow, prompt, atau deny: "+name)
+				}
+				if policy != "allow" {
+					policies[name] = policy
+				}
+			}
+			next.Settings.ToolPolicies = policies
+		}
+		if patch.LSPServers != nil {
+			if len(*patch.LSPServers) > 20 {
+				return problem(400, "Terlalu banyak server LSP.")
+			}
+			servers := make(map[string]string, len(*patch.LSPServers))
+			for lang, command := range *patch.LSPServers {
+				lang = strings.TrimSpace(strings.ToLower(lang))
+				command = strings.TrimSpace(command)
+				if lang == "" || jsLength(lang) > 30 || badSetting.MatchString(lang) {
+					return problem(400, "Nama bahasa LSP tidak valid.")
+				}
+				if jsLength(command) > 500 || strings.Contains(command, "\x00") {
+					return problem(400, "Perintah server LSP tidak valid.")
+				}
+				if command != "" {
+					servers[lang] = command
+				}
+			}
+			next.Settings.LSPServers = servers
 		}
 		if patch.RoundRobin != nil {
 			next.Settings.RoundRobin = *patch.RoundRobin

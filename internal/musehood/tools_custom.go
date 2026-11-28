@@ -120,6 +120,20 @@ var builtinToolNames = map[string]bool{
 	"ask_question": true, "spawn_subagent": true, "check_subagent": true,
 	"execute": true, "worktree_create": true, "worktree_list": true, "worktree_remove": true,
 	"browser_open": true, "browser_screenshot": true, "browser_links": true,
+	// Tool gaya omp (13 item, 28 Nov 2026).
+	"ast_grep": true, "ast_edit": true,
+	"lsp_definition": true, "lsp_references": true, "lsp_diagnostics": true, "lsp_rename": true,
+	"eval": true,
+	"debug_launch": true, "debug_breakpoint": true, "debug_step": true, "debug_inspect": true, "debug_stop": true,
+	"browser_click": true, "browser_type": true, "browser_snapshot": true, "browser_tabs": true,
+	"github_read": true, "github_search": true, "github_actions": true, "github_push": true,
+	"security_scan": true,
+	"hub_message": true, "hub_processes": true, "hub_stop": true,
+	"checkpoint": true, "rewind": true,
+	"memory_recall": true, "memory_retain": true, "memory_reflect": true, "memory_edit": true,
+	"learn": true, "manage_skill": true,
+	"todo_add": true, "todo_update": true, "todo_list": true,
+	"tool_info": true,
 }
 
 func (a *App) toolsDir() string {

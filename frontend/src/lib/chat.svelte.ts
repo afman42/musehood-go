@@ -405,6 +405,32 @@ export function createChat(hooks: ChatHooks = {}) {
     await optimistic(`/api/rooms/${room.id}`, { pinned: !room.pinned }, () => patchRoomLocal(room.id, { pinned: !room.pinned }));
   }
 
+  // --- Panel kerja ruang (fitur omp): todo, checkpoint/rewind, goal/plan/vibe ---
+  async function addRoomTodo(roomId: string, text: string) {
+    await mutate(`/api/rooms/${roomId}/todos`, { text });
+  }
+
+  async function setRoomTodoStatus(roomId: string, todoId: string, status: string) {
+    await mutate(`/api/rooms/${roomId}/todos/${todoId}/status`, { status });
+  }
+
+  async function deleteRoomTodo(roomId: string, todoId: string) {
+    await apiDelete(`/api/rooms/${roomId}/todos/${todoId}`);
+    await refresh();
+  }
+
+  async function addRoomCheckpoint(roomId: string, label: string) {
+    await mutate(`/api/rooms/${roomId}/checkpoint`, { label });
+  }
+
+  async function rewindRoom(roomId: string, checkpointId: string) {
+    await mutate(`/api/rooms/${roomId}/rewind`, { checkpointId });
+  }
+
+  async function setRoomModes(roomId: string, patch: { goal?: string; planMode?: boolean; vibeMode?: boolean }) {
+    await optimistic(`/api/rooms/${roomId}`, patch, () => patchRoomLocal(roomId, patch));
+  }
+
   async function saveEdit(id: string, text: string) {
     await mutate(`/api/message/${id}/edit`, { text });
   }
@@ -630,6 +656,12 @@ export function createChat(hooks: ChatHooks = {}) {
     toggleReact,
     removeMessage,
     toggleRoomPin,
+    addRoomTodo,
+    setRoomTodoStatus,
+    deleteRoomTodo,
+    addRoomCheckpoint,
+    rewindRoom,
+    setRoomModes,
     saveEdit,
     regenerateMessage,
     rerunMessage,
